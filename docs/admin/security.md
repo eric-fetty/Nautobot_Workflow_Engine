@@ -14,9 +14,12 @@ Workflow runs retain submitted inputs, results, execution diagnostics, and scrip
 output. Detailed script execution logging is an intentional feature. Treat these
 records, exports, screenshots, and database backups as operational data.
 
-Use Nautobot object permissions to limit workflow and run access. Check the actual
-visibility with representative operator accounts before allowing sensitive workflows.
-Do not assume that permission to launch a workflow also limits what its script can do.
+Use Nautobot object permissions to limit workflow and run access; see
+[Granting Permissions](install.md#permissions) for how to scope access by name,
+category, or entirely, and how the reporting dashboard respects the same object
+permissions. Check the actual visibility with representative operator accounts
+before allowing sensitive workflows. Do not assume that permission to launch a
+workflow also limits what its script can do.
 
 Avoid collecting credentials through ordinary workflow inputs. Retrieve integration
 credentials through Nautobot Secrets Groups or your approved secrets provider, and

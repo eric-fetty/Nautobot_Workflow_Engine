@@ -95,14 +95,74 @@ runs with a live scheduled job are left untouched.
 
 ## Permissions
 
-| Permission | Purpose |
-| --- | --- |
-| `nautobot_workflow_engine.view_workflow` | Browse workflows. |
-| `nautobot_workflow_engine.add_workflowrun` | Launch workflow runs. |
-| `nautobot_workflow_engine.view_workflowrun` | View run history and reports. |
-| `nautobot_workflow_engine.change_workflowrun` | Cancel a run while it is scheduled. |
+| Permission | Level | Purpose |
+| --- | --- | --- |
+| `nautobot_workflow_engine.view_workflow` | Object | Browse (and launch) specific workflows. |
+| `nautobot_workflow_engine.add_workflowrun` | Model | Grant the ability to launch runs at all. |
+| `nautobot_workflow_engine.view_workflowrun` | Object | View specific run records and their reports. |
+| `nautobot_workflow_engine.change_workflowrun` | Object | Cancel a specific run while it is scheduled. |
 
-Assign object permissions through Nautobot and verify visibility using representative
-accounts. Constraints must match the model being authorized; do not reuse a Workflow
-constraint unchanged for WorkflowRun. See [security and data handling](security.md)
-before granting access to operational workflows.
+`view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
+permissions: use a Nautobot object permission with a constraint to scope them to a
+subset of objects. `add_workflowrun` is a **model-level** capability: a user who
+holds it for any workflow can launch runs, so pair it with a scoped
+`view_workflow` to control *which* workflows they may actually run.
+
+### Scoping by Name, Category, or Entirely
+
+The same permission can be granted broadly or narrowly. The scope is set by the
+object permission's **constraint** (a JSON filter over the model's fields).
+
+- **Entirely** — no constraint (the permission applies to all objects).
+- **By category** — `{"category": "Networking"}` on the **Workflow** model, or
+  `{"workflow__category": "Networking"}` on the **WorkflowRun** model.
+- **By name** — `{"name": "Echo Hostname"}` on the **Workflow** model, or
+  `{"workflow__name": "Echo Hostname"}` on the **WorkflowRun** model.
+
+Constraints use the field names of the model being authorized. A Workflow
+constraint such as `{"category": "Networking"}` does **not** apply to WorkflowRun
+objects; for runs, reference the related workflow with `workflow__category` or
+`workflow__name`.
+
+### Example: A Team That Runs Only One Category
+
+Grant the **Networking** team access to launch workflows in the
+`Networking` category and nothing else:
+
+1. Create a Nautobot group, e.g. `networking-operators`.
+2. Grant the group `add_workflowrun` (model permission, no constraint).
+3. Create an object permission for `view_workflow` with the constraint
+   `{"category": "Networking"}` and assign it to the group.
+
+Members of the group now see only `Networking` workflows and can launch only those.
+The model-level `add_workflowrun` gives them the ability to launch; the constrained
+`view_workflow` limits the scope to their category.
+
+### Example: A Manager Who Reads Only Their Team's Reports
+
+Grant a manager read access to the run records (and the reporting dashboard) for the
+workflows their team can run, without giving them access to other teams' data:
+
+1. Create (or reuse) a Nautobot group, e.g. `networking-operators`.
+2. Create an object permission for `view_workflowrun` with the constraint
+   `{"workflow__category": "Networking"}` and assign it to the manager (or the
+   group).
+
+The reporting dashboard is built from the runs the viewer is allowed to see. The
+view is filtered to the WorkflowRun objects the user has `view_workflowrun`
+permission for, so a manager constrained to `workflow__category = Networking` sees
+only that category's runs in run history, status summaries, success rates, and
+time-savings figures. Runs outside the constraint are excluded from every report.
+
+To also let the manager *run* the workflows (not just view reports), add
+`add_workflowrun` (model) and a constrained `view_workflow`
+(`{"category": "Networking"}`) as in the previous example.
+
+### Verifying and Revising
+
+Assign object permissions through Nautobot and verify visibility using
+representative accounts before widening access. When a team's scope changes,
+update the constraint on the existing object permission rather than creating a
+new one, and re-check both the workflow list and the reporting dashboard.
+See [security and data handling](security.md) before granting access to
+operational workflows.
