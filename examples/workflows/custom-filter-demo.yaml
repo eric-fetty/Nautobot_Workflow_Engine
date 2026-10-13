@@ -1,0 +1,19 @@
+key: custom-filter-demo
+name: "Custom Filter Demo"
+description: "Demonstrates repo-backed Jinja filters importing shared code from scripts/lib"
+category: "Examples"
+enabled: true
+
+inputs:
+  - key: hostname
+    label: Hostname
+    type: string
+    required: true
+
+actions:
+  - type: nautobot
+    name: "Prepare Hostname"
+    script: "scripts/echo_hostname.py"
+    when: "{{ (inputs.hostname | normalize_for_dns) != '' }}"
+    with:
+      hostname: "{{ inputs.hostname | normalize_for_dns }}"

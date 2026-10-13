@@ -1,0 +1,144 @@
+{% extends "generic/object_list.html" %}
+{% load helpers %}
+{% load static %}
+
+{% block title %}Workflow Engine{% endblock %}
+
+{% block header %}
+    <div class="d-flex justify-content-between align-items-center ps-4">
+        <div class="btn-group btn-group-sm">
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_report' %}" class="btn btn-info">
+                <i class="mdi mdi-chart-line"></i> Dashboard
+            </a>
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}" class="btn btn-info">
+                <i class="mdi mdi-history"></i> Run History
+            </a>
+        </div>
+        <hr>
+    </div>
+{% endblock %}
+
+{% block content %}
+    <style>
+        /* Fix dropdown menus being clipped by card overflow */
+        .card {
+            overflow: visible;
+        }
+        .card-body {
+            overflow: visible;
+        }
+        /* Ensure dropdown menus appear above other content */
+        .btn-group .dropdown-menu {
+            z-index: 1050;
+        }
+
+        .workflow-group-toggle {
+            text-decoration: none;
+        }
+
+        .workflow-group-toggle:hover,
+        .workflow-group-toggle:focus {
+            text-decoration: none;
+        }
+    </style>
+
+    <!-- Category Filter -->
+    {% if categories %}
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">
+                <h5 class="mb-0">Filter by Category</h5>
+            </div>
+            <div class="card-body">
+                <form method="get" class="row g-2">
+                    <div class="col-md-4">
+                        <div class="btn-group" style="width: 100%;">
+                            <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="width: 100%; text-align: left;">
+                                {% if selected_category %}{{ selected_category }}{% else %}All Categories{% endif %}
+                            </button>
+                            <ul class="dropdown-menu" style="width: 100%;">
+                                <li><a class="dropdown-item" href="{% if all_categories_query %}?{{ all_categories_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}">All Categories</a></li>
+                                {% for category_option in categories_with_query %}
+                                    <li><a class="dropdown-item" href="?{{ category_option.query }}">{{ category_option.name }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <a href="{% if clear_filter_query %}?{{ clear_filter_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}" class="btn btn-secondary">
+                            <i class="mdi mdi-filter-off"></i> Clear Filter
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Workflows by Category -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h5 class="mb-0">
+                Available Workflows
+                {% if selected_category %}
+                    <span class="badge bg-primary">{{ selected_category }}</span>
+                {% endif %}
+                <span class="badge bg-secondary">{{ object_list|length }}</span>
+            </h5>
+            <div class="d-flex align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Display mode">
+                    <a href="{% if list_display_query %}?{{ list_display_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}"
+                       class="btn btn-outline-secondary {% if not is_tiles_display %}active{% endif %}">
+                        <i class="mdi mdi-format-list-bulleted"></i> List
+                    </a>
+                    <a href="{% if tiles_display_query %}?{{ tiles_display_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}"
+                       class="btn btn-outline-secondary {% if is_tiles_display %}active{% endif %}">
+                        <i class="mdi mdi-view-grid"></i> Tiles
+                    </a>
+                </div>
+                {% if not is_tiles_display and object_list and workflow_group_count > 1 %}
+                    <button
+                        type="button"
+                        id="workflow-collapse-all"
+                        class="btn btn-sm btn-outline-secondary"
+                        aria-expanded="true"
+                        data-bs-target=".workflow-category-collapse"
+                    >
+                        <i class="mdi mdi-unfold-less-horizontal"></i> Collapse All Groups
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body">
+            {% if object_list %}
+                {% if is_tiles_display %}
+                    {% include "nautobot_workflow_engine/partials/workflow_tiles.html" %}
+                {% else %}
+                    {% include "nautobot_workflow_engine/partials/workflow_list_grouped.html" %}
+                {% endif %}
+            {% else %}
+                <div class="text-center py-5">
+                    <i class="mdi mdi-workflow text-muted" style="font-size: 4rem;"></i>
+                    <h4 class="text-muted mt-3">No workflows available</h4>
+                    {% if selected_category %}
+                        <p class="text-muted">
+                            No workflows found in the "{{ selected_category }}" category.
+                            <br><a href="{% if all_categories_query %}?{{ all_categories_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}">View all categories</a>
+                        </p>
+                    {% else %}
+                        <p class="text-muted">
+                            Workflows are loaded from Git repositories. 
+                            <br>Configure a Git repository containing workflow YAML files and sync it to get started.
+                        </p>
+                        <a href="/extras/git-repositories/" class="btn btn-primary">
+                            <i class="mdi mdi-git"></i> Configure Git Repository
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block javascript %}
+    {{ block.super }}
+    <script src="{% static 'nautobot_workflow_engine/js/workflow_list.js' %}"></script>
+{% endblock %}

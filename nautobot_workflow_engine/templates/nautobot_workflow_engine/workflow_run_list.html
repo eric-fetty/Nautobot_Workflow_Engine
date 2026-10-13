@@ -1,0 +1,331 @@
+{% extends "generic/object_list.html" %}
+{% load helpers %}
+{% load workflow_extras %}
+
+{% block title %}Workflow Run History{% endblock %}
+
+{% block header %}
+    <div class="d-flex justify-content-between align-items-center ps-4">
+        <div class="btn-group btn-group-sm">
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_report' %}" class="btn btn-info" >
+                <i class="mdi mdi-chart-line"></i> Dashboard
+            </a>
+        </div><hr>
+    </div>
+{% endblock %}
+
+{% block content %}
+    <style>
+        /* Fix dropdown menus being clipped by card overflow */
+        .card {
+            overflow: visible;
+        }
+        .card-body {
+            overflow: visible;
+        }
+        /* Ensure dropdown menus appear above other content */
+        .btn-group .dropdown-menu {
+            z-index: 1050;
+        }
+    </style>
+    <!-- Filters -->
+    <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+            <h5 class="mb-0">Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" id="filterForm">
+                <input type="hidden" name="per_page" value="{{ per_page }}">
+                {% if selected_category %}
+                    <input type="hidden" name="category" value="{{ selected_category }}">
+                {% endif %}
+                {% if selected_time_range %}
+                    <input type="hidden" name="time_range" value="{{ selected_time_range }}">
+                {% endif %}
+                {% if selected_start %}
+                    <input type="hidden" name="start" value="{{ selected_start }}">
+                {% endif %}
+                {% if selected_end %}
+                    <input type="hidden" name="end" value="{{ selected_end }}">
+                {% endif %}
+                <div class="row">
+                    <div class="col-md-3">
+                        <label class="control-label">Workflow</label>
+                        <div class="btn-group" style="width: 100%;">
+                            <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="width: 100%; text-align: left;">
+                                {% if selected_workflow %}
+                                    {% for workflow in workflows %}
+                                        {% if workflow.key == selected_workflow %}{{ workflow.name }}{% endif %}
+                                    {% endfor %}
+                                {% else %}All Workflows{% endif %}
+                            </button>
+                            <ul class="dropdown-menu" style="width: 100%;">
+                                <li><a class="dropdown-item" href="#" onclick="setFilter('workflow', ''); return false;">All Workflows</a></li>
+                                {% for workflow in workflows %}
+                                    <li><a class="dropdown-item" href="#" onclick="setFilter('workflow', '{{ workflow.key }}'); return false;">{{ workflow.name }}</a></li>
+                                {% endfor %}
+                            </ul>
+                            <input type="hidden" name="workflow" value="{{ selected_workflow }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="control-label">Status</label>
+                        <div class="btn-group" style="width: 100%;">
+                            <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="width: 100%; text-align: left;">
+                                {% if selected_status %}
+                                    {% for value, label in status_choices %}
+                                        {% if value == selected_status %}{{ label }}{% endif %}
+                                    {% endfor %}
+                                {% else %}All Statuses{% endif %}
+                            </button>
+                            <ul class="dropdown-menu" style="width: 100%;">
+                                <li><a class="dropdown-item" href="#" onclick="setFilter('status', ''); return false;">All Statuses</a></li>
+                                {% for value, label in status_choices %}
+                                    <li><a class="dropdown-item" href="#" onclick="setFilter('status', '{{ value }}'); return false;">{{ label }}</a></li>
+                                {% endfor %}
+                            </ul>
+                            <input type="hidden" name="status" value="{{ selected_status }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="control-label">User</label>
+                        <div class="btn-group" style="width: 100%;">
+                            <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="width: 100%; text-align: left;">
+                                {% if selected_user %}{{ selected_user }}{% else %}All Users{% endif %}
+                            </button>
+                            <ul class="dropdown-menu" style="width: 100%;">
+                                <li><a class="dropdown-item" href="#" onclick="setFilter('user', ''); return false;">All Users</a></li>
+                                {% for user in users %}
+                                    <li><a class="dropdown-item" href="#" onclick="setFilter('user', '{{ user.requested_by__username }}'); return false;">{{ user.requested_by__username }}</a></li>
+                                {% endfor %}
+                            </ul>
+                            <input type="hidden" name="user" value="{{ selected_user }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="control-label">&nbsp;</label>
+                        <div class="btn-group" style="width: 100%;">
+                            {% comment %} <button type="submit" class="btn btn-primary" style="width: 48%;">
+                                <i class="mdi mdi-filter"></i> Filter
+                            </button> {% endcomment %}
+                            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}?reset=1" class="btn btn-secondary" >
+                                <i class="mdi mdi-filter-off"></i> Clear
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h5 class="mb-0">
+                Workflow Runs 
+                <span class="badge bg-secondary">{{ total_runs }}</span>
+            </h5>
+
+            <form method="get" class="d-flex align-items-center gap-2">
+                {% if selected_workflow %}<input type="hidden" name="workflow" value="{{ selected_workflow }}">{% endif %}
+                {% if selected_status %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+                {% if selected_user %}<input type="hidden" name="user" value="{{ selected_user }}">{% endif %}
+                {% if selected_category %}<input type="hidden" name="category" value="{{ selected_category }}">{% endif %}
+                {% if selected_time_range %}<input type="hidden" name="time_range" value="{{ selected_time_range }}">{% endif %}
+                {% if selected_start %}<input type="hidden" name="start" value="{{ selected_start }}">{% endif %}
+                {% if selected_end %}<input type="hidden" name="end" value="{{ selected_end }}">{% endif %}
+
+                <label for="per-page-select" class="mb-0"><small>Items per page</small></label>
+                <select id="per-page-select" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                    {% for size in per_page_options %}
+                        <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+        </div>
+        <div class="card-body">
+            {% if workflow_runs %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                              
+                                <th>Actions</th>
+                                <th>Workflow</th>
+                                <th>Status</th>
+                                <th>Started By</th>
+                                <th>Started</th>
+                                {% if show_scheduled_for_column %}
+                                    <th>Scheduled For</th>
+                                {% endif %}
+                                <th>Execution Duration</th>
+                                <th>Form Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in workflow_runs %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run' pk=run.pk %}" class="btn btn-sm btn-secondary">
+                                            <i class="mdi mdi-eye"></i> View
+                                        </a>
+                                    </td>
+                                   
+                                    <td>
+                                        <strong>{{ run.workflow.name }}</strong>
+                                        {% if run.workflow.category %}
+                                            <br><small class="text-muted">{{ run.workflow.category }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if run.status == "success" %}
+                                            <span class="badge bg-success">
+                                                <i class="mdi mdi-check"></i> Success
+                                            </span>
+                                        {% elif run.status == "failed" %}
+                                            <span class="badge bg-danger">
+                                                <i class="mdi mdi-close"></i> Failed
+                                            </span>
+                                        {% elif run.status == "running" %}
+                                            <span class="badge bg-primary">
+                                                <i class="mdi mdi-play"></i> Running
+                                            </span>
+                                        {% elif run.status == "pending" %}
+                                            <span class="badge bg-warning text-dark">
+                                                <i class="mdi mdi-clock"></i> Pending
+                                            </span>
+                                        {% elif run.status == "scheduled" %}
+                                            <span class="badge bg-info text-dark">
+                                                <i class="mdi mdi-calendar-clock"></i> Scheduled
+                                            </span>
+                                        {% elif run.status == "canceled" %}
+                                            <span class="badge bg-secondary">
+                                                <i class="mdi mdi-cancel"></i> Canceled
+                                            </span>
+                                        {% elif run.status == "partial" %}
+                                            <span class="badge bg-warning text-dark">
+                                                <i class="mdi mdi-alert"></i> Partial
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ run.status|title }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <i class="mdi mdi-account"></i> {{ run.requested_by.username }}
+                                    </td>
+                                    <td>
+                                        <small>{{ run.started|date:"M d, Y H:i" }}</small>
+                                    </td>
+                                    {% if show_scheduled_for_column %}
+                                        <td>
+                                            {% if run.scheduled_for %}
+                                                <small>{{ run.scheduled_for|date:"M d, Y H:i" }} UTC</small>
+                                            {% else %}
+                                                <small class="text-muted"></small>
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                    <td>
+                                        {% if run.finished %}
+                                            {% calculate_duration run.started run.finished as duration %}
+                                            <small>{{ duration }}</small>
+                                        {% elif run.status == "running" %}
+                                            <small class="text-muted">Running...</small>
+                                        {% else %}
+                                            <small class="text-muted">-</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if run.form_duration_seconds is not None %}
+                                            <small>{{ run.form_duration_seconds }}s</small>
+                                        {% else %}
+                                            <small>60s</small>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% if is_paginated %}
+                    <div class="d-flex justify-content-between align-items-center mt-3">
+                        <small class="text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</small>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Pagination">
+                            {% if page_obj.has_previous %}
+                                <a class="btn btn-secondary" href="?{% if querystring_without_page %}{{ querystring_without_page }}&{% endif %}page={{ page_obj.previous_page_number }}">
+                                    Previous
+                                </a>
+                            {% else %}
+                                <button class="btn btn-secondary" type="button" disabled>Previous</button>
+                            {% endif %}
+
+                            {% if page_obj.has_next %}
+                                <a class="btn btn-secondary" href="?{% if querystring_without_page %}{{ querystring_without_page }}&{% endif %}page={{ page_obj.next_page_number }}">
+                                    Next
+                                </a>
+                            {% else %}
+                                <button class="btn btn-secondary" type="button" disabled>Next</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="text-center py-4">
+                    <i class="mdi mdi-information-outline text-muted" style="font-size: 3rem;"></i>
+                    <h5 class="text-muted mt-2">No workflow runs found</h5>
+                    <p class="text-muted">Try adjusting your filters or launch a new workflow.</p>
+                    <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-primary">
+                        <i class="mdi mdi-play"></i> Launch Workflow
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function setFilter(filterName, filterValue) {
+            // Update the hidden input value
+            var hiddenInput = document.querySelector('input[name="' + filterName + '"]');
+            if (hiddenInput) {
+                hiddenInput.value = filterValue;
+            }
+            
+            // Update the button text
+            var button = hiddenInput.parentNode.querySelector('.btn.dropdown-toggle');
+            var newText = filterValue;
+            
+            if (filterName === 'workflow' && filterValue) {
+                // Find the workflow name for the key
+                {% for workflow in workflows %}
+                    if ('{{ workflow.key }}' === filterValue) {
+                        newText = '{{ workflow.name }}';
+                    }
+                {% endfor %}
+            } else if (filterName === 'status' && filterValue) {
+                // Find the status label for the value
+                {% for value, label in status_choices %}
+                    if ('{{ value }}' === filterValue) {
+                        newText = '{{ label }}';
+                    }
+                {% endfor %}
+            } else if (filterName === 'user' && filterValue) {
+                newText = filterValue;
+            } else {
+                if (filterName === 'workflow') newText = 'All Workflows';
+                else if (filterName === 'status') newText = 'All Statuses';
+                else if (filterName === 'user') newText = 'All Users';
+            }
+            
+            if (button) {
+                button.innerHTML = newText;
+            }
+            
+            // Submit the form
+            var form = document.getElementById('filterForm');
+            if (form) {
+                form.submit();
+            }
+        }
+    </script>
+{% endblock %}

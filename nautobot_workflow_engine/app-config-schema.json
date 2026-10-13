@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "awx_external_integration_name": {
+            "type": "string",
+            "default": "AWX"
+        },
+        "workflow_dir": {
+            "type": "string",
+            "default": "workflows"
+        },
+        "filters_dir": {
+            "type": "string",
+            "default": "filters"
+        },
+        "awx_poll_seconds": {
+            "type": "integer",
+            "default": 5
+        },
+        "show_disabled": {
+            "type": "boolean",
+            "default": false
+        },
+        "show_add_new_item": {
+            "type": "array",
+            "default": []
+        }
+    },
+    "additionalProperties": false
+}

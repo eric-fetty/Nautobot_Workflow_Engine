@@ -1,0 +1,87 @@
+version: 1
+key: bulk-device-operations
+name: "Bulk Device Operations"
+description: "Perform operations on multiple devices simultaneously. Demonstrates multiobject and multichoice input types."
+category: "Bulk Operations"
+manual_duration_minutes: 45
+enabled: true
+inputs:
+  - key: site
+    label: Site
+    type: object
+    model: dcim.Site
+    required: true
+
+  - key: devices
+    label: Devices
+    type: multiobject
+    model: dcim.Device
+    required: true
+    depends_on: ["site"]
+    filter:
+      query: { "site_id": "{{ inputs.site.id }}" }
+
+  - key: operation
+    label: Operation
+    type: choice
+    required: true
+    choices:
+      - { value: update_status, label: "Update Device Status" }
+      - { value: add_tags, label: "Add Tags" }
+      - { value: remove_tags, label: "Remove Tags" }
+      - { value: assign_tenant, label: "Assign Tenant" }
+
+  - key: device_status
+    label: New Device Status
+    type: choice
+    required: true
+    choices:
+      - { value: active, label: "Active" }
+      - { value: planned, label: "Planned" }
+      - { value: staged, label: "Staged" }
+      - { value: failed, label: "Failed" }
+      - { value: inventory, label: "Inventory" }
+      - { value: decommissioning, label: "Decommissioning" }
+    show_if:
+      operation: update_status
+
+  - key: tags
+    label: Tags
+    type: multichoice
+    required: true
+    choices:
+      - { value: production, label: "Production" }
+      - { value: staging, label: "Staging" }
+      - { value: development, label: "Development" }
+      - { value: maintenance, label: "Maintenance" }
+      - { value: monitoring, label: "Monitoring" }
+    show_if:
+      operation:
+        - add_tags
+        - remove_tags
+
+  - key: tenant
+    label: Tenant
+    type: object
+    model: tenancy.Tenant
+    required: true
+    show_if:
+      operation: assign_tenant
+
+  - key: confirmation
+    label: I confirm this bulk operation
+    type: boolean
+    required: true
+
+actions:
+  - type: nautobot
+    name: Perform Bulk Operation
+    script: "scripts/bulk_device_operations.py"
+    with:
+      site: "{{ inputs.site }}"
+      devices: "{{ inputs.devices }}"
+      operation: "{{ inputs.operation }}"
+      device_status: "{{ inputs.device_status }}"
+      tags: "{{ inputs.tags }}"
+      tenant: "{{ inputs.tenant }}"
+      confirmation: "{{ inputs.confirmation }}"

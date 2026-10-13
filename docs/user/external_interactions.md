@@ -1,0 +1,94 @@
+# Integrations
+
+AWX and ServiceNow are optional. The [first workflow](app_getting_started.md) runs
+without either service. Worker processes need network access to any service called
+by their actions. Use HTTPS, verified certificates, and least-privilege accounts.
+
+## AWX
+
+Create a Nautobot External Integration whose name matches
+`awx_external_integration_name` (default: `AWX`). Set its remote URL to the AWX base
+URL, enable SSL verification, and attach a Secrets Group containing **Generic**
+access-type **Username** and **Password** secrets. The current client uses these
+credentials for HTTP basic authentication; it does not consume token secrets.
+
+Grant the account permission to launch the selected job templates and read their
+job status. Configure those templates to accept the extra variables supplied by
+the workflow.
+
+```yaml
+actions:
+    - type: awx
+        name: Run Inventory Check
+        template_id: 123
+        extra_vars:
+            hostname: "{{ inputs.hostname }}"
+```
+
+The template ID is an example; use a template approved for your environment. The
+engine calls the AWX job-template launch endpoint and monitors the resulting job
+through background tasks. Run details include its status and a link to AWX.
+
+## ServiceNow Change Windows
+
+Create an External Integration named `ServiceNow` with the instance's HTTPS base
+URL and SSL verification enabled. Attach **Generic** access-type **Username** and
+**Password** secrets. Grant the account access to the change records and fields
+required by your scheduling policy.
+
+Enable ServiceNow scheduling in an individual workflow:
+
+```yaml
+schedule:
+    servicenow:
+        change_input_key: change_ticket
+        allowed_states:
+            - scheduled
+            - implement
+        timezone: UTC
+        start_fields:
+            - start_date
+        end_fields:
+            - end_date
+inputs:
+    - key: change_ticket
+        label: Change Ticket
+        type: string
+        required: true
+```
+
+When the user chooses **Use ServiceNow Change Window**, the engine validates the
+ticket and its usable change window. Field names and state values must match the
+instance's configuration. The timezone applies to timestamps without an explicit
+offset; verify that it matches the source data. Scheduling validation also occurs
+in later scheduling/execution phases, so a change in ticket state can affect a run.
+
+### Keeping Scheduled Runs in Sync with ServiceNow
+
+A run scheduled from a change window records that window when the run is created.
+The change record can move or become invalid afterward, so the app installs a
+Nautobot job named **Sync ServiceNow Scheduled Workflows** that revalidates every
+scheduled ServiceNow-backed run against its current change ticket. For each run it
+reschedules the execution if the window has moved and cancels the run if the
+ticket is no longer in an allowed state.
+
+Enable the job and schedule it to run on a recurring interval (for example every
+15 or 30 minutes, or to match your change-management cadence) so the local
+schedule stays aligned with ServiceNow. Without this recurring sync, a run can
+fire even though the underlying change window has moved or the ticket has been
+invalidated. The job logs how many runs it synced, rescheduled, and canceled.
+
+!!! note
+    This job only refreshes the schedule; it does not execute runs. Firing a
+    run still goes through the executor job, and cancellation follows the normal
+    scheduled-run rules.
+
+## Workflow-Specific Services
+
+Python actions can call other approved services. Install any required dependencies
+in the deployment and configure their credentials outside the workflow definition.
+Vendor-specific examples, such as Cisco ACI workflows, require their own inventory,
+models, helpers, and service access. They are not prerequisites for the engine.
+
+See [security and data handling](../admin/security.md) before sharing workflow inputs,
+integration diagnostics, or screenshots.

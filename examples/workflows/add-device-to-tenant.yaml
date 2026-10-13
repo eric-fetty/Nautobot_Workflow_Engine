@@ -1,0 +1,53 @@
+version: 1
+key: add-device-to-tenant
+name: "Add Device to Tenant"
+description: "Select a Tenant, then select a Device from that Tenant; set mgmt IP; optional AWX day-0."
+category: "IPAM"
+manual_duration_minutes: 60
+tags: ["tenant", "device", "day0"]
+inputs:
+  - key: tenant
+    label: "Tenant"
+    type: object
+    model: tenancy.Tenant
+    required: true
+
+  - key: device
+    label: "Device"
+    type: object
+    model: dcim.Device
+    required: true
+    depends_on: ["tenant"]
+    filter:
+      query: { "tenant_id": "{{ inputs.tenant.id }}" }
+
+  - key: mgmt_ip
+    label: "Management IP"
+    type: string
+    required: true
+    validators:
+      - regex: '^(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)(?:/(?:3[0-2]|[12]?\\d))?$'
+        message: "Enter IPv4 (e.g., 10.0.0.10) or IPv4/CIDR (e.g., 10.0.0.10/24)."
+
+  - key: run_awx
+    label: "Run AWX Day‑0?"
+    type: boolean
+    default: false
+
+actions:
+  - type: nautobot
+    name: set-management-ip
+    script: scripts/set_management_ip.py
+    with:
+      device: "{{ inputs.device.id }}"
+      mgmt_ip: "{{ inputs.mgmt_ip }}"
+
+  - type: awx
+    name: day0-template
+    when: "{{ inputs.run_awx }}"
+    template_id: 1234
+    extra_vars:
+      device_name: "{{ inputs.device.name }}"
+      tenant: "{{ inputs.tenant.name }}"
+      mgmt_ip: "{{ inputs.mgmt_ip }}"
+    monitor: true

@@ -1,0 +1,535 @@
+{% extends "generic/object_detail.html" %}
+{% load helpers %}
+{% load workflow_extras %}
+
+{% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock %}
+
+{% block header %}
+    <div class="d-flex justify-content-between align-items-center ps-4">
+       
+        <div class="btn-group btn-group-sm">
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}" class="btn btn-info">
+                <i class="mdi mdi-arrow-left"></i> Back to List
+            </a>
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=object.workflow.key %}?from_run={{ object.pk }}" class="btn btn-primary">
+                <i class="mdi mdi-repeat"></i> Run Again
+            </a>
+            {% if object.status == "scheduled" and perms.nautobot_workflow_engine.change_workflowrun %}
+                <form method="post" action="{% url 'plugins:nautobot_workflow_engine:workflow_run_cancel' pk=object.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this scheduled workflow run?');">
+                        <i class="mdi mdi-cancel"></i> Cancel Scheduled Run
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+        <div style="min-width: 260px; padding-right: 12px;">
+            <small id="live-progress-text" class="text-muted">Connecting live updates…</small>
+            <div class="progress" style="height: 8px; margin-top: 4px;">
+                <div id="live-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 5%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="5"></div>
+            </div>
+        </div>
+    </div><hr>
+{% endblock %}
+
+{% block content %}
+
+    <div id="post-action-warning"
+         class="alert alert-warning"
+         role="alert"
+         {% if not object.phase_results or not object.phase_results.post or not object.phase_results.post.any_failed %}style="display:none;"{% endif %}>
+        <strong>Completed with post-action errors.</strong>
+        One or more post-actions failed. Core workflow status is preserved.
+    </div>
+
+    {% if object.workflow.description %}
+        <div class="row">
+            <div class="col-12">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h5 class="panel-title">
+                            <i class="mdi mdi-information"></i> Workflow Description
+                        </h5>
+                    </div>
+                    <div class="panel-body">
+                        <p class="mb-0">{{ object.workflow.description }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    <div class="row">
+        <!-- Status Overview -->
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-information-outline"></i> Run Overview
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-2">
+                            <strong>Workflow</strong>
+                            <p class="mb-0">
+                                <a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=object.workflow.key %}">
+                                    {{ object.workflow.name }}
+                                </a>
+                                {% if object.workflow.category %}
+                                    <br><small class="text-muted">{{ object.workflow.category }}</small>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Status</strong>
+                            <p class="mb-0" id="run-status-badge-container">
+                                    {% if object.status == "success" %}
+                                    <span class="badge bg-success">
+                                        <i class="mdi mdi-check"></i> Success
+                                    </span>
+                                {% elif object.status == "failed" %}
+                                    <span class="badge bg-danger">
+                                        <i class="mdi mdi-close"></i> Failed
+                                    </span>
+                                {% elif object.status == "running" %}
+                                    <span class="badge bg-primary">
+                                        <i class="mdi mdi-play"></i> Running
+                                    </span>
+                                {% elif object.status == "pending" %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="mdi mdi-clock"></i> Pending
+                                    </span>
+                                {% elif object.status == "scheduled" %}
+                                    <span class="badge bg-info text-dark">
+                                        <i class="mdi mdi-calendar-clock"></i> Scheduled
+                                    </span>
+                                {% elif object.status == "canceled" %}
+                                    <span class="badge bg-secondary">
+                                        <i class="mdi mdi-cancel"></i> Canceled
+                                    </span>
+                                {% elif object.status == "partial" %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="mdi mdi-alert"></i> Partial
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ object.status|title }}</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Started By</strong>
+                            <p class="mb-0">
+                                <i class="mdi mdi-account"></i> {{ object.requested_by.username }}
+                            </p>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Started</strong>
+                            <p class="mb-0">
+                                <small>{{ object.started|date:"M d, Y H:i:s" }}</small>
+                            </p>
+                        </div>
+                        {% if object.scheduled_for %}
+                            <div class="col-md-2">
+                                <strong>Scheduled For</strong>
+                                <p class="mb-0" id="run-scheduled-for-container">
+                                    <small>{{ object.scheduled_for|date:"M d, Y H:i:s" }} UTC</small>
+                                </p>
+                            </div>
+                        {% endif %}
+                        <div class="col-md-1">
+                            <strong>Durations</strong>
+                                <div class="mb-0" id="run-duration-container">
+                                    <div>
+                                    <span class="text-muted">Execution:</span>
+                                    <span id="run-execution-duration">
+                                    {% if object.finished %}
+                                        {% calculate_duration object.started object.finished as duration %}
+                                        <small>{{ duration }}</small>
+                                    {% elif object.status == "running" %}
+                                        <small class="text-muted">Still running...</small>
+                                    {% else %}
+                                        <small class="text-muted">-</small>
+                                    {% endif %}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span class="text-muted">Form:</span>
+                                    {% if object.form_duration_seconds is not None %}
+                                        <small>{{ object.form_duration_seconds }}s</small>
+                                    {% else %}
+                                        <small>60s</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-1">
+                            <strong>Run ID</strong>
+                            <p class="mb-0">
+                                <small class="font-monospace">{{ object.pk }}</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inputs and AWX Jobs -->
+        <div class="col-md-6 mb-4">
+            <!-- Workflow Inputs -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-cog"></i> Workflow Inputs
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if object.inputs %}
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Parameter</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for key, value in object.inputs.items %}
+                                        <tr>
+                                            <td><strong>{{ key }}</strong></td>
+                                            <td>
+                                                {% if value %}
+                                                    <code>{{ value }}</code>
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No inputs provided</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- AWX Jobs -->
+            {% if object.awx_runs.exists %}
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="mdi mdi-ansible"></i> AWX Jobs
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Template ID</th>
+                                        <th>Job ID</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="awx-runs-body">
+                                    {% for awx_run in object.awx_runs.all %}
+                                        <tr>
+                                            <td>{{ awx_run.template_id }}</td>
+                                            <td>
+                                                {% if awx_run.job_id %}
+                                                    {% if awx_run.url %}
+                                                        <a href="{{ awx_run.url }}" target="_blank">
+                                                            {{ awx_run.job_id }}
+                                                            <i class="mdi mdi-open-in-new"></i>
+                                                        </a>
+                                                    {% else %}
+                                                        {{ awx_run.job_id }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if awx_run.status == "successful" %}
+                                                    <span class="badge bg-success">{{ awx_run.status }}</span>
+                                                {% elif awx_run.status == "failed" %}
+                                                    <span class="badge bg-danger">{{ awx_run.status }}</span>
+                                                {% elif awx_run.status == "running" %}
+                                                    <span class="badge bg-primary">{{ awx_run.status }}</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">{{ awx_run.status }}</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if awx_run.url %}
+                                                    <a href="{{ awx_run.url }}" target="_blank" class="btn btn-sm btn-secondary">
+                                                        <i class="mdi mdi-open-in-new"></i> View in AWX
+                                                    </a>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- User-friendly Print Output -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-account-voice"></i> User Log
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if object.user_log %}
+                        <pre id="run-user-log" class="p-3 rounded" style="max-height: 600px; overflow-y: auto; white-space: pre-wrap;">{{ object.user_log }}</pre>
+                    {% else %}
+                        <p id="run-user-log-empty" class="text-muted mb-0">No user-facing output available</p>
+                        <pre id="run-user-log" class="p-3 rounded" style="max-height: 600px; overflow-y: auto; white-space: pre-wrap; display: none;"></pre>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <!-- Execution Log -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-text-box-outline"></i> Debug Log
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if object.log %}
+                        <pre id="run-debug-log" class="p-3 rounded" style="max-height: 600px; overflow-y: auto; white-space: pre-wrap;  ">{{ object.log }}</pre>
+                    {% else %}
+                        <p id="run-debug-log-empty" class="text-muted mb-0">No log output available</p>
+                        <pre id="run-debug-log" class="p-3 rounded" style="max-height: 600px; overflow-y: auto; white-space: pre-wrap; display: none;"></pre>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        (function () {
+            var progressUrl = "{% url 'plugins:nautobot_workflow_engine:workflow_run_progress' pk=object.pk %}";
+            var terminalStatuses = new Set(["success", "failed", "partial", "canceled"]);
+            var pollMs = 3000;
+            var maxPollMs = 15000;
+            var consecutiveErrors = 0;
+            var stopPolling = false;
+            var currentProgressPercent = 5;
+
+            function setProgressBar(percent, text, klass, animated, force) {
+                var progressBar = document.getElementById("live-progress-bar");
+                var progressText = document.getElementById("live-progress-text");
+                if (!progressBar || !progressText) {
+                    return;
+                }
+                var safePercent = Math.max(0, Math.min(100, parseInt(percent || 0, 10)));
+                if (!force) {
+                    safePercent = Math.max(currentProgressPercent, safePercent);
+                }
+                currentProgressPercent = safePercent;
+                progressBar.style.width = safePercent + "%";
+                progressBar.setAttribute("aria-valuenow", String(safePercent));
+                progressBar.className = "progress-bar " + (animated ? "progress-bar-striped progress-bar-animated " : "") + (klass || "bg-secondary");
+                progressText.textContent = text || "Live updates";
+            }
+
+            function escapeHtml(value) {
+                return String(value || "")
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#039;");
+            }
+
+            function renderStatusBadge(statusBadge, fallbackStatus) {
+                var label = (statusBadge && statusBadge.label) ? statusBadge.label : String(fallbackStatus || "").replace(/^./, function(m){ return m.toUpperCase(); });
+                var klass = (statusBadge && statusBadge.class) ? statusBadge.class : "bg-secondary";
+                var icon = (statusBadge && statusBadge.icon) ? statusBadge.icon : "mdi-help-circle";
+                return '<span class="badge ' + escapeHtml(klass) + '"><i class="mdi ' + escapeHtml(icon) + '"></i> ' + escapeHtml(label) + '</span>';
+            }
+
+            function renderAwxStatusBadge(status) {
+                if (status === "successful") {
+                    return '<span class="badge bg-success">' + escapeHtml(status) + '</span>';
+                }
+                if (status === "failed" || status === "error") {
+                    return '<span class="badge bg-danger">' + escapeHtml(status) + '</span>';
+                }
+                if (status === "running") {
+                    return '<span class="badge bg-primary">' + escapeHtml(status) + '</span>';
+                }
+                if (status === "canceled") {
+                    return '<span class="badge bg-secondary">' + escapeHtml(status) + '</span>';
+                }
+                return '<span class="badge bg-secondary">' + escapeHtml(status || "unknown") + '</span>';
+            }
+
+            function updateLogs(preId, emptyId, value) {
+                var pre = document.getElementById(preId);
+                var empty = document.getElementById(emptyId);
+                if (!pre) {
+                    return;
+                }
+
+                if (value && value.length > 0) {
+                    pre.style.display = "block";
+                    if (pre.textContent !== value) {
+                        var stickToBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 10;
+                        pre.textContent = value;
+                        if (stickToBottom) {
+                            pre.scrollTop = pre.scrollHeight;
+                        }
+                    }
+                    if (empty) {
+                        empty.style.display = "none";
+                    }
+                } else {
+                    pre.style.display = "none";
+                    if (empty) {
+                        empty.style.display = "block";
+                    }
+                }
+            }
+
+            function updateAwxRows(awxRuns) {
+                var awxBody = document.getElementById("awx-runs-body");
+                if (!awxBody) {
+                    return;
+                }
+                var rowsHtml = "";
+                (awxRuns || []).forEach(function (awxRun) {
+                    var jobCell = '<span class="text-muted">-</span>';
+                    if (awxRun.job_id) {
+                        if (awxRun.url) {
+                            jobCell = '<a href="' + escapeHtml(awxRun.url) + '" target="_blank">' + escapeHtml(awxRun.job_id) + ' <i class="mdi mdi-open-in-new"></i></a>';
+                        } else {
+                            jobCell = escapeHtml(awxRun.job_id);
+                        }
+                    }
+
+                    var actionCell = "";
+                    if (awxRun.url) {
+                        actionCell = '<a href="' + escapeHtml(awxRun.url) + '" target="_blank" class="btn btn-sm btn-secondary"><i class="mdi mdi-open-in-new"></i> View in AWX</a>';
+                    }
+
+                    rowsHtml += '<tr>' +
+                        '<td>' + escapeHtml(awxRun.template_id) + '</td>' +
+                        '<td>' + jobCell + '</td>' +
+                        '<td>' + renderAwxStatusBadge(awxRun.status) + '</td>' +
+                        '<td>' + actionCell + '</td>' +
+                        '</tr>';
+                });
+                if (rowsHtml) {
+                    awxBody.innerHTML = rowsHtml;
+                    awxBody.style.display = "table-row-group";
+                }
+            }
+
+            function applyProgress(payload) {
+                var statusContainer = document.getElementById("run-status-badge-container");
+                if (statusContainer) {
+                    statusContainer.innerHTML = renderStatusBadge(payload.status_badge, payload.status);
+                }
+
+                var postWarning = document.getElementById("post-action-warning");
+                if (postWarning) {
+                    postWarning.style.display = payload.has_post_action_errors ? "block" : "none";
+                }
+
+                var progressClass = "bg-info";
+                if (payload.status === "success") {
+                    progressClass = "bg-success";
+                } else if (payload.status === "failed") {
+                    progressClass = "bg-danger";
+                } else if (payload.status === "canceled") {
+                    progressClass = "bg-secondary";
+                } else if (payload.status === "partial") {
+                    progressClass = "bg-warning";
+                } else if (payload.status === "running") {
+                    progressClass = "bg-primary";
+                }
+                setProgressBar(
+                    payload.progress_percent,
+                    payload.progress_text,
+                    progressClass,
+                    !(payload.is_terminal || terminalStatuses.has(payload.status)),
+                    false
+                );
+
+                var executionDuration = document.getElementById("run-execution-duration");
+                if (executionDuration) {
+                    executionDuration.innerHTML = '<small' + ((payload.execution_duration_display === "Still running..." || payload.execution_duration_display === "-") ? ' class="text-muted"' : "") + '>' + escapeHtml(payload.execution_duration_display || "-") + '</small>';
+                }
+
+                updateLogs("run-user-log", "run-user-log-empty", payload.user_log || "");
+                updateLogs("run-debug-log", "run-debug-log-empty", payload.log || "");
+                updateAwxRows(payload.awx_runs || []);
+
+                if (payload.is_terminal || terminalStatuses.has(payload.status)) {
+                    stopPolling = true;
+                }
+            }
+
+            function scheduleNextPoll() {
+                if (stopPolling) {
+                    return;
+                }
+                var delay = Math.min(maxPollMs, pollMs * Math.pow(2, consecutiveErrors));
+                window.setTimeout(pollProgress, delay);
+            }
+
+            function pollProgress() {
+                if (stopPolling) {
+                    return;
+                }
+                fetch(progressUrl, {
+                    method: "GET",
+                    headers: { "X-Requested-With": "XMLHttpRequest" },
+                    credentials: "same-origin"
+                })
+                    .then(function (response) {
+                        if (response.status === 404 || response.status === 403) {
+                            stopPolling = true;
+                            setProgressBar(100, "Live updates unavailable", "bg-secondary", false, true);
+                            return null;
+                        }
+                        if (!response.ok) {
+                            throw new Error("Progress poll failed with status " + response.status);
+                        }
+                        return response.json();
+                    })
+                    .then(function (payload) {
+                        if (!payload) {
+                            return;
+                        }
+                        consecutiveErrors = 0;
+                        applyProgress(payload);
+                    })
+                    .catch(function () {
+                        consecutiveErrors += 1;
+                        setProgressBar(currentProgressPercent, "Reconnecting live updates…", "bg-warning", true, false);
+                    })
+                    .finally(function () {
+                        scheduleNextPoll();
+                    });
+            }
+
+            setProgressBar(currentProgressPercent, "Connecting live updates…", "bg-info", true, false);
+            pollProgress();
+        })();
+    </script>
+
+{% endblock %}

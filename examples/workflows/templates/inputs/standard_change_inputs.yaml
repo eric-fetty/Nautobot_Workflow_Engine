@@ -1,0 +1,8 @@
+  - key: change_id
+    label: Service Now Ticket#
+    type: string
+    required: true
+    validators:
+      - regex: "^CHG|RITM[0-9]{6,20}$"
+        message: "Enter the Service Now Change ID or RITM ID(e.g., CHG1234567, RITM1234567)."
+

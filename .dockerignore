@@ -1,0 +1,43 @@
+# Docker related
+development/Dockerfile
+development/docker-compose*.yml
+development/*.env
+*.env
+environments/
+
+# Python
+**/*.pyc
+**/*.pyo
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+
+
+# Other
+docs/_build
+FAQ.md
+.git/
+.gitignore
+.github
+LICENSE
+**/*.log
+**/.vscode/
+invoke*.yml
+tasks.py
+*.sql
+*.sql.*
+*.dump
+*.bak
+dist/
+build/
+site/
+dev/
+.VSCodeCounter/
+.ruff_cache/
+.coverage*
+htmlcov/
+compose.yaml
+*.code-workspace
+.cookiecutter.json
+.cruft.json
+nautobot_workflow_engine/static/nautobot_workflow_engine/docs/

@@ -1,0 +1,560 @@
+{% extends "generic/object_list.html" %}
+{% load helpers %}
+
+{% block title %}Workflow Dashboard{% endblock %}
+
+{% block header %}
+    <div class="d-flex justify-content-between align-items-center ps-4">
+        <div class="btn-group btn-group-sm">
+            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}" class="btn btn-info">
+                <i class="mdi mdi-history"></i> View All Runs
+            </a>
+        </div><hr>
+    </div>
+{% endblock %}
+
+{% block content %}
+
+    <!-- Filters: moved to content to avoid header layout constraints -->
+    <form method="get" class="filter-form" style="margin-bottom: 15px;">
+        <div class="row">
+            <div class="col-md-2">
+                <label class="control-label">Category</label>
+                <select name="category" class="form-select">
+                    <option value="">All</option>
+                    <option value="__uncategorized__" {% if selected_category == "__uncategorized__" %}selected{% endif %}>Uncategorized</option>
+                    {% for c in categories %}
+                        <option value="{{ c }}" {% if selected_category == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="control-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All</option>
+                    {% for s,val in status_choices %}
+                        <option value="{{ s }}" {% if selected_status == s %}selected{% endif %}>{{ val }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="control-label">User</label>
+                <select name="user" class="form-select user-select" title="Filter by user">
+                    <option value="">All</option>
+                    {% for u in users %}
+                        <option value="{{ u.requested_by__pk }}" title="{{ u.requested_by__username }}" {% if selected_user|stringformat:"s" == u.requested_by__pk|stringformat:"s" %}selected{% endif %}>{{ u.requested_by__username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="control-label">Time Range</label>
+                <select name="time_range" class="form-select" id="timeRangeSelect">
+                    <option value="7d" {% if selected_time_range == '7d' %}selected{% endif %}>Last 7 days</option>
+                    <option value="30d" {% if selected_time_range == '30d' %}selected{% endif %}>Last 30 days</option>
+                    <option value="90d" {% if selected_time_range == '90d' %}selected{% endif %}>Last 90 days</option>
+                    <option value="365d" {% if selected_time_range == '365d' %}selected{% endif %}>Last 365 days</option>
+                    <option value="custom" {% if selected_time_range == 'custom' %}selected{% endif %}>Custom</option>
+                </select>
+            </div>
+            <div class="col-md-2 custom-range-field" style="display:none;">
+                <label class="control-label">Start (UTC)</label>
+                <input type="datetime-local" name="start" class="form-control" id="startInput" value="{{ selected_start }}">
+            </div>
+            <div class="col-md-2 custom-range-field" style="display:none;">
+                <label class="control-label">End (UTC)</label>
+                <input type="datetime-local" name="end" class="form-control" id="endInput" value="{{ selected_end }}">
+            </div>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+            <div class="col-md-12">
+                <button type="submit" class="btn btn-primary"><i class="mdi mdi-filter"></i> Apply</button>
+                <a href="{% url 'plugins:nautobot_workflow_engine:workflow_report' %}" class="btn btn-secondary">Reset</a>
+            </div>
+        </div>
+    </form>
+    <script>
+        (function(){
+            function toggleCustom(){
+                var isCustom = document.getElementById('timeRangeSelect').value === 'custom';
+                var fields = document.querySelectorAll('.custom-range-field');
+                fields.forEach(function(el){
+                    if(isCustom){
+                        el.style.display = '';
+                    } else {
+                        el.style.display = 'none';
+                    }
+                });
+                document.getElementById('startInput').disabled = !isCustom;
+                document.getElementById('endInput').disabled = !isCustom;
+            }
+            document.getElementById('timeRangeSelect').addEventListener('change', toggleCustom);
+            toggleCustom();
+        })();
+    </script>
+    <style>
+        /* Prevent long usernames from breaking the filter row */
+        .user-select {
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* Ensure columns don't overlap when option texts are long */
+        .filter-form .row > [class^="col-"] {
+            min-width: 0;
+        }
+        /* Make all filter labels appear above their inputs for consistency */
+        .filter-form label.control-label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+    </style>
+
+    <div class="row">
+
+        <!-- Left Column: Monthly Savings at top, then Status Summary, then Time Savings -->
+        <div class="col-md-6" style="margin-bottom: 20px;">
+            <!-- Monthly Time Saved Chart (Chart.js) -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-chart-bar"></i> Time Saved per Month (Last 12 Months)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if monthly_time_savings %}
+                        <canvas id="timeSavedChart" height="120"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var data = {
+                                        labels: [
+                                            {% for m in monthly_time_savings %}
+                                                "{{ m.month_label }}"{% if not forloop.last %}, {% endif %}
+                                            {% endfor %}
+                                        ],
+                                        datasets: [{
+                                            label: 'Minutes Saved',
+                                            data: [
+                                                {% for m in monthly_time_savings %}
+                                                    {{ m.total_minutes }}{% if not forloop.last %}, {% endif %}
+                                                {% endfor %}
+                                            ],
+                                            backgroundColor: 'rgba(51,122,183,0.8)',
+                                            borderColor: 'rgba(51,122,183,1)',
+                                            borderWidth: 1
+                                        }]
+                                    };
+                                    var ctx = document.getElementById('timeSavedChart').getContext('2d');
+                                    new Chart(ctx, { type: 'bar', data: data, options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { maxRotation: 0, minRotation: 0 }, grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: 'Minutes Saved' } } }, plugins: { legend: { display: false }, tooltip: { enabled: true } } } });
+                                } catch (e) { console.error('Monthly savings chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="mdi mdi-information-outline text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2">No monthly time savings data available.</p>
+                            <small class="text-muted">Add manual_duration_minutes to workflow YAML files to enable tracking.</small>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Status Summary -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-chart-pie"></i> Status Summary ({{ window_label }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if status_summary %}
+                        <div class="row">
+                            {% for status in status_summary %}
+                                <div class="col-6 col-lg-3 mb-3">
+                                    <div class="text-center">
+                                        {% if status.status == "success" %}
+                                            <div class="h3 text-success mb-1">
+                                                <i class="mdi mdi-check-circle"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Success</small>
+                                        {% elif status.status == "failed" %}
+                                            <div class="h3 text-danger mb-1">
+                                                <i class="mdi mdi-close-circle"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Failed</small>
+                                        {% elif status.status == "running" %}
+                                            <div class="h3 text-primary mb-1">
+                                                <i class="mdi mdi-play-circle"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Running</small>
+                                        {% elif status.status == "pending" %}
+                                            <div class="h3 text-warning mb-1">
+                                                <i class="mdi mdi-clock-outline"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Pending</small>
+                                        {% elif status.status == "scheduled" %}
+                                            <div class="h3 text-info mb-1">
+                                                <i class="mdi mdi-calendar-clock"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Scheduled</small>
+                                        {% elif status.status == "canceled" %}
+                                            <div class="h3 text-secondary mb-1">
+                                                <i class="mdi mdi-cancel"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Canceled</small>
+                                        {% elif status.status == "partial" %}
+                                            <div class="h3 text-warning mb-1">
+                                                <i class="mdi mdi-alert-circle"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Partial</small>
+                                        {% else %}
+                                            <div class="h3 text-secondary mb-1">
+                                                <i class="mdi mdi-help-circle"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">{{ status.status|title }}</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="mdi mdi-information-outline text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2">No workflow runs in the last 30 days</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+
+              <!-- Time Savings Summary -->
+    
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-clock-time-four"></i> Time Savings ({{ window_label }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if time_savings.runs_with_duration_count > 0 %}
+                        <div class="row">
+                            <div class="col-md-4 text-center">
+                                <div class="h2 text-primary mb-1">
+                                    {% widthratio time_savings.time_saved_hours 1 1 %}h {% widthratio time_savings.time_saved_minutes 1 1 %}m
+                                </div>
+                                <small class="text-muted">Time Saved</small>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <div class="h4 text-info mb-1">
+                                    {% widthratio time_savings.total_manual_minutes 60 1|floatformat:0 %}h {% widthratio time_savings.total_manual_minutes|floatformat:0 60 1|floatformat:0 %}m
+                                </div>
+                                <small class="text-muted">Manual Time Required</small>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <div class="h4 text-success mb-1">
+                                    {{ time_savings.total_automation_hours }}h {{ time_savings.total_automation_minutes }}m
+                                </div>
+                                <small class="text-muted">Actual Time Used</small>
+                            </div>
+                        </div>
+                        {% if time_savings.time_saved_minutes > 0 %}
+                            <div class="mt-3">
+                                <div class="progress" style="height: 20px;">
+                                    {% widthratio time_savings.total_automation_time time_savings.total_manual_minutes 100 as automation_percentage %}
+                                    {% widthratio time_savings.time_saved_total_minutes time_savings.total_manual_minutes 100 as savings_percentage %}
+
+                                    <div class="progress-bar bg-primary" style="width: {{ savings_percentage }}%">
+                                        Saved: {{ savings_percentage|floatformat:1 }}%
+                                    </div>
+                                </div>
+                                <small class="text-muted mt-1">
+                                    Automation efficiency: {{ savings_percentage|floatformat:1 }}% time savings
+                                </small>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="mdi mdi-information-outline text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2">No workflow runs with manual duration data in the last 30 days</p>
+                            <small class="text-muted">Add "manual_duration_minutes" to your workflow YAML files to track time savings</small>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- Most Popular Workflows -->
+        <div class="col-md-6" style="margin-bottom: 20px;">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-trending-up"></i> Most Popular Workflows ({{ window_label }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if workflow_summary %}
+                        <canvas id="popularWorkflowsChart" height="140"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var labels = [
+                                        {% for w in workflow_summary %}
+                                            "{{ w.workflow__name|escapejs }}"{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var dataCounts = [
+                                        {% for w in workflow_summary %}
+                                            {{ w.count }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var ctx = document.getElementById('popularWorkflowsChart').getContext('2d');
+                                    new Chart(ctx, {
+                                        type: 'bar',
+                                        data: {
+                                            labels: labels,
+                                            datasets: [{
+                                                label: 'Executions',
+                                                data: dataCounts,
+                                                backgroundColor: 'rgba(51,122,183,0.8)',
+                                                borderColor: 'rgba(51,122,183,1)',
+                                                borderWidth: 1
+                                            }]
+                                        },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                                            scales: {
+                                                x: { ticks: { maxRotation: 45, minRotation: 0 }, grid: { display: false } },
+                                                y: { beginAtZero: true }
+                                            }
+                                        }
+                                    });
+                                } catch(e) { console.error('Popular workflows chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="mdi mdi-information-outline text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2">No workflow executions found</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Usage by Category (Chart.js) -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="mdi mdi-chart-bar"></i> Usage by Category</h5>
+                </div>
+                <div class="card-body">
+                    {% if category_summary %}
+                        <canvas id="categoryUsageChart" height="120"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var labels = [
+                                        {% for c in category_summary %}
+                                            "{{ c.workflow__category|default:'Uncategorized' }}"{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var data = [
+                                        {% for c in category_summary %}
+                                            {{ c.count }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var ctx = document.getElementById('categoryUsageChart').getContext('2d');
+                                    new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Runs', data: data, backgroundColor: 'rgba(51,122,183,0.8)', borderColor: 'rgba(51,122,183,1)', borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } } });
+                                } catch(e) { console.error('Category chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3"><small class="text-muted">No category data</small></div>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Top Users (Chart.js) -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="mdi mdi-account-multiple"></i> Top Users</h5>
+                </div>
+                <div class="card-body">
+                    {% if user_summary %}
+                        <canvas id="topUsersChart" height="120"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var labels = [
+                                        {% for u in user_summary %}
+                                            "{{ u.requested_by__username }}"{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var data = [
+                                        {% for u in user_summary %}
+                                            {{ u.count }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var ctx = document.getElementById('topUsersChart').getContext('2d');
+                                    new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Runs', data: data, backgroundColor: 'rgba(34,197,94,0.8)', borderColor: 'rgba(34,197,94,1)', borderWidth: 1 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } } });
+                                } catch(e) { console.error('Top users chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3"><small class="text-muted">No user data</small></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Success Rate by Workflow -->
+        <div class="col-md-6" style="margin-bottom: 20px;">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="mdi mdi-chart-bar"></i> Success Rate by Workflow
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if workflows_with_stats %}
+                        {% for item in workflows_with_stats %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <small><strong>{{ item.workflow.name }}</strong></small>
+                                    <small>{{ item.successful_runs }}/{{ item.total_runs }} ({{ item.success_rate|floatformat:1 }}%)</small>
+                                </div>
+                                <div class="progress" style="height: 8px;">
+                                    {% if item.success_rate >= 80 %}
+                                        <div class="progress-bar bg-success" style="width: {{ item.success_rate }}%"></div>
+                                    {% elif item.success_rate >= 50 %}
+                                        <div class="progress-bar bg-warning" style="width: {{ item.success_rate }}%"></div>
+                                    {% else %}
+                                        <div class="progress-bar bg-danger" style="width: {{ item.success_rate }}%"></div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="mdi mdi-information-outline text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2">No workflow statistics available</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Success vs Failure and Usage Over Time -->
+        <div class="col-md-6" style="margin-bottom: 20px;">
+            <!-- Outcomes by Category (Stacked) -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="mdi mdi-chart-bar-stacked"></i> Outcomes by Category</h5>
+                </div>
+                <div class="card-body">
+                    {% if success_by_category %}
+                        <canvas id="successByCategoryChart" height="120"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var labels = [
+                                        {% for item in success_by_category %}
+                                            "{{ item.category }}"{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var successData = [
+                                        {% for item in success_by_category %}
+                                            {{ item.counts.success|default:0 }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var failedData = [
+                                        {% for item in success_by_category %}
+                                            {{ item.counts.failed|default:0 }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var canceledData = [
+                                        {% for item in success_by_category %}
+                                            {{ item.counts.canceled|default:0 }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var ctx = document.getElementById('successByCategoryChart').getContext('2d');
+                                    new Chart(ctx, {
+                                        type: 'bar',
+                                        data: {
+                                            labels: labels,
+                                            datasets: [
+                                                { label: 'Success', data: successData, backgroundColor: 'rgba(34,197,94,0.8)' },
+                                                { label: 'Failed', data: failedData, backgroundColor: 'rgba(239,68,68,0.8)' },
+                                                { label: 'Canceled', data: canceledData, backgroundColor: 'rgba(107,114,128,0.8)' }
+                                            ]
+                                        },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+                                        }
+                                    });
+                                } catch(e) { console.error('Success vs Failure chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3"><small class="text-muted">No category breakdown</small></div>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Usage Over Time -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="mdi mdi-chart-line"></i> Usage Over Time</h5>
+                </div>
+                <div class="card-body">
+                    {% if usage_over_time %}
+                        <canvas id="usageOverTimeChart" height="120"></canvas>
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+                        <script>
+                            (function(){
+                                try {
+                                    var labels = [
+                                        {% for b in usage_over_time %}
+                                            "{{ b.label }}"{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var data = [
+                                        {% for b in usage_over_time %}
+                                            {{ b.count }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    ];
+                                    var ctx = document.getElementById('usageOverTimeChart').getContext('2d');
+                                    new Chart(ctx, {
+                                        type: 'line',
+                                        data: { labels: labels, datasets: [{ label: 'Runs', data: data, borderColor: 'rgba(51,122,183,1)', backgroundColor: 'rgba(51,122,183,0.2)', tension: 0.2 }] },
+                                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } }
+                                    });
+                                } catch(e) { console.error('Usage over time chart failed', e); }
+                            })();
+                        </script>
+                    {% else %}
+                        <div class="text-center py-3"><small class="text-muted">No usage trend data</small></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

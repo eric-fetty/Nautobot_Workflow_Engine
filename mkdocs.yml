@@ -1,0 +1,111 @@
+---
+dev_addr: "127.0.0.1:8001"
+site_dir: "nautobot_workflow_engine/static/nautobot_workflow_engine/docs"
+site_name: "Workflow Engine Documentation"
+copyright: "Copyright &copy; The Authors"
+theme:
+  name: "material"
+  navigation_depth: 4
+  custom_dir: "docs/assets/overrides"
+  hljs_languages:
+    - "django"
+    - "yaml"
+  features:
+    - "content.code.copy"
+    - "navigation.footer"
+    - "navigation.indexes"
+    - "navigation.tabs"
+    - "navigation.tabs.sticky"
+    - "navigation.tracking"
+    - "search.highlight"
+    - "search.share"
+    - "search.suggest"
+  favicon: "assets/favicon.ico"
+  logo: "assets/nautobot_logo.svg"
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: "default"
+      primary: "black"
+      toggle:
+        icon: "material/weather-sunny"
+        name: "Switch to dark mode"
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: "slate"
+      primary: "black"
+      toggle:
+        icon: "material/weather-night"
+        name: "Switch to light mode"
+extra_css:
+  - "assets/extra.css"
+
+extra:
+  generator: false
+markdown_extensions:
+  - "markdown_version_annotations":
+      admonition_tag: "???"
+  - "admonition"
+  - "toc":
+      permalink: true
+  - "attr_list"
+  - "md_in_html"
+  - "pymdownx.details"
+  - "pymdownx.highlight":
+      anchor_linenums: true
+  - "pymdownx.inlinehilite"
+  - "pymdownx.snippets"
+  # - "pymdownx.superfences":
+  #     custom_fences:
+  #       - name: "mermaid"
+  #         class: "mermaid"
+  #         format: !!python/name:pymdownx.superfences.fence_code_format
+  - "footnotes"
+plugins:
+  - "search"
+  - "mkdocstrings":
+      default_handler: "python"
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            show_root_heading: true
+watch:
+  - "README.md"
+
+validation:
+  omitted_files: "warn"
+  absolute_links: "warn"
+  unrecognized_links: "warn"
+  anchors: "warn"
+
+nav:
+  - Overview: "index.md"
+  - Getting Started:
+      - App Overview: "user/app_overview.md"
+      - Getting Started: "user/app_getting_started.md"
+  - Workflow Authoring:
+      - Reference: "user/app_use_cases.md"
+      - Custom Filters: "dev/extending.md"
+      - Frequently Asked Questions: "user/faq.md"
+  - Integrations: "user/external_interactions.md"
+  - Administrator Guide:
+      - Install and Configure: "admin/install.md"
+      - Security and Data Handling: "admin/security.md"
+      - Upgrade: "admin/upgrade.md"
+      - Uninstall: "admin/uninstall.md"
+      - Compatibility Matrix: "admin/compatibility_matrix.md"
+      - Release Notes:
+          - "admin/release_notes/index.md"
+          - v1.0: "admin/release_notes/version_1.0.md"
+  - Developer Guide:
+      - Contributing to the App: "dev/contributing.md"
+      - Development Environment: "dev/dev_environment.md"
+      - Release Checklist: "dev/release_checklist.md"
+      - Publication Checklist: "dev/publication_checklist.md"
+      - Architecture: "dev/arch_decision.md"
+      - Code Reference:
+          - "dev/code_reference/index.md"
+          - Package: "dev/code_reference/package.md"
+  - Nautobot Docs Home ↗︎: "https://docs.nautobot.com"

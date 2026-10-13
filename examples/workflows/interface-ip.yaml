@@ -1,0 +1,86 @@
+version: 1
+key: interface-ip
+name: "Add IPv4 to an Interface"
+description: "Select Tenant → Device (scoped) → Interface name → IPv4 address."
+category: "IPAM"
+enabled: true # Optional: explicitly enable workflow (default: true)
+manual_duration_minutes: 60
+inputs:
+  - key: tenant
+    label: Tenant
+    type: object
+    model: tenancy.Tenant
+    required: true
+
+  - key: device
+    label: Device
+    type: object
+    model: dcim.Device
+    required: true
+    depends_on: ["tenant"]
+    filter:
+      query: { "tenant_id": "{{ inputs.tenant.id }}" }
+
+  - key: mode
+    label: Interface Option
+    type: choice
+    choices:
+      - { value: create, label: "Create New" }
+      - { value: existing, label: "Use Existing" }
+    default: "create"
+
+  - key: interface_name
+    label: Interface Name
+    type: string
+    required: true
+    validators:
+      # allow common interface naming: letters/digits + - _ . / (e.g., Gi0/1, Ethernet1/1, xe-0/0/0)
+      - regex: "^[A-Za-z0-9._/-]{1,64}$"
+        message: "Use letters/digits and . _ - / (max 64 chars)."
+    show_if:
+      mode: create
+
+  - key: interface_obj
+    label: Existing Interface
+    type: object
+    model: dcim.Interface
+    depends_on: ["device", "mode"]
+    required: true
+    show_if:
+      mode: existing
+    filter:
+      query: { "device_id": "{{ inputs.device.id }}" }
+
+  - key: address
+    label: IPv4 CIDR
+    type: string
+    required: true
+    validators:
+      - regex: '^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)/(?:3[0-2]|[12]?\d)$'
+        message: "Enter IPv4/CIDR, e.g., 192.0.2.10/24."
+
+  - key: set_mgmt_ip
+    label: Set Management IP?
+    type: boolean
+    default: false
+    description: "Set this address as the device's primary management IP."
+
+actions:
+  - type: nautobot
+    name: add_interface_ip
+    script: scripts/add_interface_ipv4.py
+    with:
+      device: "{{ inputs.device}}"
+      interface_name: "{{ inputs.interface_name }}"
+      address: "{{ inputs.address }}"
+      interface_obj: "{{ inputs.interface_obj if inputs.mode == 'existing' else None }}"
+      tenant: "{{ inputs.tenant }}"
+      mode: "{{ inputs.mode }}"
+
+  - type: nautobot
+    name: set_management_ip
+    when: "{{ inputs.set_mgmt_ip and results.add_interface_ip.status == 'success' }}"
+    script: scripts/set_management_ip.py
+    with:
+      device: "{{ inputs.device }}"
+      address: "{{ inputs.address }}"
