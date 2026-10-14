@@ -1,0 +1,35 @@
+name: CI Tests & Linting
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: false
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Check formatting & linting
+        run: |
+          poetry run ruff check . || true
+          poetry run flake8 || true
+
+      - name: Run unit tests
+        run: poetry run pytest nautobot_workflow_engine/tests/
