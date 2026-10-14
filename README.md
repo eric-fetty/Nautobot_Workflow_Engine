@@ -1,3 +1,8 @@
+[![PyPI version](https://img.shields.io/pypi/v/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![License](https://img.shields.io/github/license/eric-fetty/Nautobot_Workflow_Engine.svg)](LICENSE)
+
 # Nautobot Workflow Engine
 
 Define automation in YAML, synchronize it through Nautobot's repository integration,
