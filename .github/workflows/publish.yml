@@ -12,7 +12,7 @@ jobs:
 
     permissions:
       id-token: write  # Mandatory for PyPI Trusted Publishing (OIDC)
-      contents: read   # Required to check out code
+      contents: write  # Set to write so it can upload wheel/tar to GitHub Releases
 
     steps:
       - name: Checkout code
