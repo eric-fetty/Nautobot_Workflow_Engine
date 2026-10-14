@@ -32,4 +32,5 @@ additional apps, Python dependencies, permissions, or remote services.
 
 Start with [installation](../admin/install.md), then follow the
 [first workflow tutorial](app_getting_started.md). See the
-[authoring reference](app_use_cases.md) for more advanced definitions.
+[authoring reference](app_use_cases.md) for more advanced definitions, and the
+[reporting dashboard](app_reporting.md) for usage and time-savings reporting.

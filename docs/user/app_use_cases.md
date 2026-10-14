@@ -388,6 +388,8 @@ Avoid relying on plugin-internal modules for custom filters. Instead, place reus
 - `actions` contains the main work, in definition order.
 - `post_actions` run after the main phase, including when main actions fail. A
   post-action failure is recorded without replacing the main result.
+- `when` — an optional conditional expression on an action; the action runs only
+  when it evaluates to true, for example only when a previous action succeeded.
 
 Give actions distinct names when later steps refer to their results. Result records
 include `status` and `return_value`; failed records may include `error`. `last` holds
@@ -435,13 +437,51 @@ other repo-backed Python modules; see [extending the app](../dev/extending.md).
 
 ## Scheduling and Workflow Lifecycle
 
-Operators can select immediate or scheduled execution, with optional
-[ServiceNow change-window validation](external_interactions.md). Scheduled runs can
-be canceled before they start; running workflows cannot be interrupted through the
-cancel control. Check [the FAQ](faq.md) for cancellation permissions.
+Operators can select one of three execution modes when launching a workflow:
+
+- **Immediate** — the run starts as soon as the form is submitted.
+- **Scheduled** — the run is created now and executes at a chosen future time.
+- **ServiceNow change window** — the run is scheduled from a validated ServiceNow
+  change ticket, and the [sync job](external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
+  keeps it aligned with the ticket.
+
+For a scheduled run, `pre_actions` execute when the schedule is created, *before*
+the run is finally scheduled to its target time. A pre-action failure blocks the
+run. Scheduled runs can be canceled before they start; running workflows cannot be
+interrupted through the cancel control. Check [the FAQ](faq.md) for cancellation
+permissions.
+
+### Run Lifecycle
+
+A run moves through these statuses as it progresses:
+
+| Status | Meaning |
+| --- | --- |
+| `scheduled` | Created for a future execution time; not yet running. |
+| `pending` | Queued and waiting to be picked up for execution. |
+| `running` | Executing its actions now. |
+| `success` | All required actions completed successfully. |
+| `failed` | One or more required actions failed. |
+| `partial` | Some actions completed and some failed. |
+| `canceled` | Canceled before or while scheduled. |
+
+The run detail view shows **live progress** while a run is running: a percentage
+and status label, AWX job completion (how many of its AWX jobs are done), and
+elapsed time. The terminal statuses (`success`, `failed`, `partial`, `canceled`)
+mark the end of the run.
 
 Set `enabled: false` to disable a workflow without discarding its run history.
 When source removal disables a workflow during synchronization, retain the stored
 history for auditing. The `show_disabled` app setting controls list visibility.
-Use categories for organization and `manual_duration_minutes` for estimated savings,
-not as a measurement of actual execution duration.
+Use categories for organization and `manual_duration_minutes` for estimated
+[time savings](app_reporting.md#time-savings), not as a measurement of actual
+execution duration.
+
+## REST API
+
+The app exposes workflow definitions through a Nautobot REST API viewset, available
+under the app's API namespace. Use it to list and read workflow metadata
+programmatically, for example to seed an external automation tool. The REST API
+honors the same `view_workflow` object permissions as the UI, so a client only
+sees the workflows its account can view. See
+[granting permissions](../admin/install.md#permissions).
