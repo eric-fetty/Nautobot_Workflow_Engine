@@ -421,7 +421,6 @@ def _ensure_materialized_package_parent(dst_file, temp_root):
         cur = cur.parent
 
 
-
 def _module_comes_from_temp_path(module):
     """Return True when a loaded module originates from a temporary filesystem path."""
     module_file = getattr(module, "__file__", None)
@@ -461,7 +460,6 @@ def _materialize_repo_package(repo):
     # recreating a materialized repository.
     _clear_temp_package_modules("scripts", "filters")
 
-
     cached_dir = _repo_pkg_cache.get(key)
     if cached_dir and os.path.isdir(cached_dir):
         if cached_dir not in sys.path:
@@ -477,11 +475,9 @@ def _materialize_repo_package(repo):
     # Import here to avoid circular import
     from .models import WorkflowFilterModule, WorkflowHelper
 
-
     materialized_paths = set()
     helper_manager = _get_internal_manager(WorkflowHelper)
     filter_manager = _get_internal_manager(WorkflowFilterModule)
-
 
     for stored_module in helper_manager.filter(source_repo=repo).order_by("file_path"):
         rel_path = pathlib.Path(stored_module.file_path)
@@ -509,7 +505,6 @@ def _materialize_repo_package(repo):
 
 def _import_repo_module(module_name, file_path):
     """Import a repository-backed Python module from an exact file path."""
-
     _clear_temp_package_modules(module_name.split(".", 1)[0], "scripts")
 
     spec = importlib.util.spec_from_file_location(module_name, str(file_path))
@@ -772,7 +767,6 @@ def _run_action_with_context(action, ctx, workflow_run):
 
         return _make_json_safe({"status": "success", "return_value": ret})
 
-
     if action.action_type == "awx":
         params = _render(action.awx_extra_vars or {}, ctx, repo=repo)
         awx_run = _run_awx_action(action, params, workflow_run)
@@ -799,7 +793,6 @@ def _execute_phase_actions(workflow_run, ctx, phase, fail_fast=False):
     phase_results = {}
     any_failed = False
     env = get_jinja_environment(workflow_run.workflow.source_repo)
-
 
     actions = workflow_run.workflow.actions.filter(phase=phase).order_by("order", "name")
 

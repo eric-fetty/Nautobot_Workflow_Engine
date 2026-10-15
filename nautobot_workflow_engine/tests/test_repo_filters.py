@@ -115,9 +115,7 @@ class RepoFilterLoadingTestCase(unittest.TestCase):
             SimpleNamespace(
                 file_path="scripts/lib/text_helpers.py",
                 content=(
-                    'def normalize_hostname(value):\n'
-                    '    return str(value).strip().lower().replace(" ", "-")\n'
-
+                    "def normalize_hostname(value):\n" '    return str(value).strip().lower().replace(" ", "-")\n'
                 ),
             )
         ]
@@ -135,9 +133,7 @@ class RepoFilterLoadingTestCase(unittest.TestCase):
 
         with patch.object(
             models, "WorkflowHelper", _fake_model_with_managers(helper_modules, object_items=[])
-
         ), patch.object(models, "WorkflowFilterModule", _fake_model_with_managers(filter_modules, object_items=[])):
-
             rendered = executors._render("{{ value | normalize_for_dns }}", {"value": " Core Switch "}, repo=self.repo)
 
         self.assertEqual(rendered, "core-switch")

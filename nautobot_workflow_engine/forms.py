@@ -1,10 +1,10 @@
 """Dynamic form generation for workflow inputs."""
 
-from datetime import datetime, timedelta, timezone as dt_timezone
 import json
 import logging
 import re
-
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
@@ -376,7 +376,7 @@ class DynamicWorkflowForm(forms.Form):
                                 "The ServiceNow change ticket format does not match this workflow's requirements.",
                             )
                     except re.error:
-                        logger.warning("Invalid ServiceNow ticket_regex on workflow %s", self.workflow.pk)
+                        logging.warning("Invalid ServiceNow ticket_regex on workflow %s", self.workflow.pk)
                 elif re.fullmatch(r"[A-Za-z0-9_-]{3,128}", normalized_ticket) is None:
                     self.add_error(
                         change_input_key,
