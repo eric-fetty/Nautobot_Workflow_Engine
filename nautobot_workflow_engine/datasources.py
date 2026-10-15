@@ -107,7 +107,11 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 
         # Check if workflow is explicitly disabled in YAML
         yaml_enabled = data.get("enabled", True)
-        yaml_approval_required = bool(data.get("approval_required", False))
+        # Prefer approval_required; accept legacy requires_approval from early drafts.
+        if "approval_required" in data:
+            yaml_approval_required = bool(data.get("approval_required"))
+        else:
+            yaml_approval_required = bool(data.get("requires_approval", False))
 
         wf, _ = Workflow.objects.update_or_create(
             key=data["key"],

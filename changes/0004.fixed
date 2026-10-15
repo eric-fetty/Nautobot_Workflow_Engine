@@ -1,0 +1,1 @@
+Fixed git sync IntegrityError when an older experimental `requires_approval` database column was left behind after renaming the field to `approval_required`.

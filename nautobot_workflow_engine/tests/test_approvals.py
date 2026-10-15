@@ -218,3 +218,64 @@ class SyncApprovalRequiredTestCase(unittest.TestCase):
 
         self.assertTrue(created_defaults["approval_required"])
         reconcile.assert_called_once_with(workflow, job_result=job_result)
+
+    def test_sync_accepts_legacy_requires_approval_yaml_key(self):
+        created_defaults = {}
+        workflow = SimpleNamespace(
+            key="sample",
+            inputs=SimpleNamespace(all=lambda: SimpleNamespace(delete=lambda: None)),
+            approval_required=False,
+            enabled=True,
+        )
+
+        class FakeWorkflowPath:
+            def exists(self):
+                return True
+
+            def glob(self, _pattern):
+                return [SimpleNamespace()]
+
+        class FakeRepoPath:
+            def __truediv__(self, _other):
+                return FakeWorkflowPath()
+
+        def update_or_create(**kwargs):
+            created_defaults.update(kwargs.get("defaults", {}))
+            workflow.key = kwargs["key"]
+            workflow.approval_required = created_defaults.get("approval_required", False)
+            workflow.enabled = created_defaults.get("enabled", True)
+            return workflow, True
+
+        repository_record = SimpleNamespace(filesystem_path="/fake/repo")
+        job_result = SimpleNamespace(log=MagicMock())
+        action_filter = SimpleNamespace(delete=MagicMock())
+        helper_filter = SimpleNamespace(exists=MagicMock(return_value=True))
+        workflow_manager = SimpleNamespace(update_or_create=MagicMock(side_effect=update_or_create))
+        input_manager = SimpleNamespace(create=MagicMock())
+        action_manager = SimpleNamespace(
+            create=MagicMock(),
+            filter=lambda **_kwargs: action_filter,
+        )
+        helper_manager = SimpleNamespace(filter=MagicMock(return_value=helper_filter))
+
+        data = {
+            "key": "sample",
+            "name": "Sample",
+            "requires_approval": True,
+            "actions": [{"type": "awx", "name": "main", "template_id": 1}],
+        }
+
+        with patch.object(datasources, "Path", return_value=FakeRepoPath()), patch.object(
+            datasources, "_sync_repo_python_modules"
+        ), patch.object(datasources, "validate_repo_filter_modules"), patch.object(
+            datasources, "_process_includes", return_value="ignored"
+        ), patch.object(datasources.yaml, "safe_load", return_value=data), patch.object(
+            datasources, "Workflow", SimpleNamespace(objects=workflow_manager)
+        ), patch.object(datasources, "WorkflowInput", SimpleNamespace(objects=input_manager)), patch.object(
+            datasources, "WorkflowAction", SimpleNamespace(objects=action_manager)
+        ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)), patch.object(
+            datasources, "reconcile_approval_definition", MagicMock()
+        ):
+            datasources.sync_workflows_from_repo(repository_record, job_result, delete=False)
+
+        self.assertTrue(created_defaults["approval_required"])
