@@ -19,6 +19,7 @@ category: "Grouping Category" # Groups workflows in the listing page
 description: "What this workflow does"
 manual_duration_minutes: 30   # Estimated time to do manually (for ROI tracking)
 enabled: true                 # Set to false to disable without deleting
+approval_required: false      # Optional; Nautobot 3.2+ approval integration (default: false)
 
 inputs:
   - key: field_key
@@ -31,6 +32,58 @@ actions:
     script: "scripts/my_script.py"
     with:
       param: "{{ inputs.field_key }}"
+```
+
+## Requiring Nautobot Approval (3.2+)
+
+On Nautobot 3.2 and later, set `approval_required: true` on a workflow to integrate with
+Nautobot's [Approval Workflows](https://docs.nautobot.com/projects/core/en/stable/user-guide/platform-functionality/approval-workflow/).
+
+When the Git repository syncs:
+
+1. The app creates (or updates) an **Approval Workflow Definition** named
+   `Workflow Engine: <workflow.key>`.
+2. The definition is scoped with constraints so it only matches scheduled jobs for that
+   workflow (`job_model__job_class_name` and `kwargs__workflow_key`).
+3. Setting `approval_required: false`, disabling the workflow, or removing it from the
+   repository deletes that definition when it is safe to do so.
+
+The synced definition is a shell only. After the first sync with the flag enabled,
+operators must open **Approvals → Workflow Definitions**, open the matching definition,
+and add at least one **stage** (approver group, minimum approvers, sequence). Without
+stages, approval requests stay pending indefinitely.
+
+### Launch behavior
+
+| Execution mode | With `approval_required: true` on Nautobot 3.2+ | Without approval (or older Nautobot) |
+| --- | --- | --- |
+| Execute Immediately | Creates a near-term one-off scheduled job so the run enters the approval pipeline. Status shows **Pending Approval** until approved. | Runs via the normal Celery immediate path. |
+| Schedule for Later / ServiceNow | Already creates a `ScheduledJob`; the scoped definition applies automatically. | Unchanged. |
+
+After approval, Nautobot enables the scheduled job and the hidden **Execute Scheduled Workflow**
+job runs the workflow. Approvers use **Approvals → Approval Dashboard**. Denying or canceling
+approval should be done from the Approvals UI; you can also cancel a **Pending Approval** or
+**Scheduled** run from the workflow run detail page when you have permission.
+
+On Nautobot versions below 3.2 the `approval_required` flag is stored but ignored (sync logs
+a skip message). Scheduled and immediate launches keep their existing behavior.
+
+```yaml
+key: privileged-change
+name: "Privileged Change"
+enabled: true
+approval_required: true
+inputs:
+  - key: device
+    label: Device
+    type: object
+    model: dcim.Device
+    required: true
+actions:
+  - type: nautobot
+    script: "scripts/echo_hostname.py"
+    with:
+      device_id: "{{ inputs.device.id }}"
 ```
 
 ## Workflow Input Types

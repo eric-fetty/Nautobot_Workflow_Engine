@@ -14,6 +14,10 @@ before changing the application version.
     standard Nautobot app post-upgrade procedure.
 5. Check synchronization, input forms, action ordering, run logs, and any integrations
     before resuming normal launches and scheduled execution.
+6. If you use `approval_required` workflows, confirm you are on Nautobot **3.2+**, run
+    migrations, re-sync the workflow Git repository, and configure at least one stage
+    on each synced definition under **Approvals → Workflow Definitions** (name pattern
+    `Workflow Engine: <workflow.key>`).
 
 Schema changes can make a package-only rollback unsafe. Retain the backup and a
 tested restoration procedure rather than assuming an older package can use the new schema.

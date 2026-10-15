@@ -200,6 +200,12 @@
                                             </div>
                                             <div class="h4 mb-1">{{ status.count }}</div>
                                             <small class="text-muted">Pending</small>
+                                        {% elif status.status == "pending_approval" %}
+                                            <div class="h3 text-warning mb-1">
+                                                <i class="mdi mdi-account-check"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Pending Approval</small>
                                         {% elif status.status == "scheduled" %}
                                             <div class="h3 text-info mb-1">
                                                 <i class="mdi mdi-calendar-clock"></i>

@@ -1,7 +1,7 @@
 """Views for the workflow engine plugin."""
 
-from datetime import timezone as dt_timezone
 import logging
+from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
 
@@ -17,10 +17,12 @@ from django.views import View
 from django.views.generic import TemplateView
 from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin, ObjectView
 
+from .approvals import nautobot_supports_approval_workflows
 from .executors import _get_workflow_queryset, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
 from .models import WorkflowInput, WorkflowRun
+from .scheduling import create_approval_gated_immediate_schedule
 from .servicenow import ServiceNowValidationError, get_change_window
 from .tables import WorkflowTable
 
@@ -33,6 +35,11 @@ STATUS_BADGE_MAP = {
     "failed": {"label": "Failed", "class": "bg-danger", "icon": "mdi-close"},
     "running": {"label": "Running", "class": "bg-primary", "icon": "mdi-play"},
     "pending": {"label": "Pending", "class": "bg-warning text-dark", "icon": "mdi-clock"},
+    "pending_approval": {
+        "label": "Pending Approval",
+        "class": "bg-warning text-dark",
+        "icon": "mdi-account-check",
+    },
     "scheduled": {"label": "Scheduled", "class": "bg-info text-dark", "icon": "mdi-calendar-clock"},
     "canceled": {"label": "Canceled", "class": "bg-secondary", "icon": "mdi-cancel"},
     "partial": {"label": "Partial", "class": "bg-warning text-dark", "icon": "mdi-alert"},
@@ -147,6 +154,9 @@ def _serialize_workflow_run_progress(workflow_run):
     elif workflow_run.status == "scheduled":
         progress_percent = 5
         progress_text = "Scheduled"
+    elif workflow_run.status == "pending_approval":
+        progress_percent = 5
+        progress_text = "Awaiting approval"
     elif workflow_run.status == "pending":
         progress_percent = max(10, min(25, time_progress))
         progress_text = "Queued"
@@ -208,9 +218,7 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
     def get_queryset(self):
         """Get workflows queryset with optional category filtering."""
         qs = _get_workflow_queryset().order_by("category", "name")
-        permitted_ids = [
-            wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflow", wf)
-        ]
+        permitted_ids = [wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflow", wf)]
         qs = qs.filter(id__in=permitted_ids)
         # Filter by category if specified
         category = self.request.GET.get("category")
@@ -450,6 +458,37 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
             )
 
             if execution_type == "immediate":
+                if wf.approval_required and nautobot_supports_approval_workflows():
+                    # Route through a near-term ScheduledJob so Nautobot's approval pipeline applies.
+                    run.scheduled_for = timezone.now()
+                    run.status = "pending_approval"
+                    run.log = (
+                        f"{run.log}\nAwaiting Nautobot approval before execution...".strip()
+                        if run.log
+                        else "Awaiting Nautobot approval before execution..."
+                    )
+                    run.save(update_fields=["scheduled_for", "status", "log"])
+                    try:
+                        create_approval_gated_immediate_schedule(run)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Failed to create approval-gated schedule for run %s", run.pk)
+                        run.status = "failed"
+                        run.finished = timezone.now()
+                        run.log = f"{run.log}\nFailed to submit for approval: {exc}".strip()
+                        run.save(update_fields=["status", "finished", "log"])
+                        messages.error(
+                            request,
+                            f"Unable to submit '{wf.name}' for approval: {exc}",
+                        )
+                        return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
+
+                    messages.info(
+                        request,
+                        f"'{wf.name}' was submitted for approval. Approve it under Approvals → Approval Dashboard "
+                        "before it will run. Ensure the synced approval definition has at least one stage configured.",
+                    )
+                    return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
+
                 # Execute immediately using existing execution path
                 # Set status to running immediately to avoid race condition with UI polling
                 run.status = "running"
@@ -828,8 +867,8 @@ class WorkflowRunCancelView(View):
                 messages.info(request, "This workflow run is already canceled.")
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=locked_run.pk)
 
-            if locked_run.status != "scheduled":
-                messages.info(request, "Only scheduled workflow runs can be canceled.")
+            if locked_run.status not in ("scheduled", "pending_approval"):
+                messages.info(request, "Only scheduled or pending-approval workflow runs can be canceled.")
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=locked_run.pk)
 
             scheduled_job = locked_run.scheduled_job

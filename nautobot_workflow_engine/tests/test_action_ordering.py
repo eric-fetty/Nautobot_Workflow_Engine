@@ -54,7 +54,9 @@ class SyncWorkflowActionOrderingTestCase(unittest.TestCase):
 
     def test_sync_workflows_from_repo_assigns_action_order_per_phase(self):
         created_actions = []
-        workflow = SimpleNamespace(key="sample", inputs=SimpleNamespace(all=lambda: SimpleNamespace(delete=lambda: None)))
+        workflow = SimpleNamespace(
+            key="sample", inputs=SimpleNamespace(all=lambda: SimpleNamespace(delete=lambda: None))
+        )
 
         class FakeWorkflowPath:
             def exists(self):
@@ -73,7 +75,9 @@ class SyncWorkflowActionOrderingTestCase(unittest.TestCase):
         helper_filter = SimpleNamespace(exists=MagicMock(return_value=True))
         workflow_manager = SimpleNamespace(update_or_create=MagicMock(return_value=(workflow, True)))
         input_manager = SimpleNamespace(create=MagicMock())
-        action_manager = SimpleNamespace(create=lambda **kwargs: created_actions.append(kwargs), filter=lambda **_kwargs: action_filter)
+        action_manager = SimpleNamespace(
+            create=lambda **kwargs: created_actions.append(kwargs), filter=lambda **_kwargs: action_filter
+        )
         helper_manager = SimpleNamespace(filter=MagicMock(return_value=helper_filter))
 
         data = {
@@ -95,7 +99,9 @@ class SyncWorkflowActionOrderingTestCase(unittest.TestCase):
             datasources, "Workflow", SimpleNamespace(objects=workflow_manager)
         ), patch.object(datasources, "WorkflowInput", SimpleNamespace(objects=input_manager)), patch.object(
             datasources, "WorkflowAction", SimpleNamespace(objects=action_manager)
-        ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)):
+        ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)), patch.object(
+            datasources, "reconcile_approval_definition"
+        ):
             datasources.sync_workflows_from_repo(repository_record, job_result, delete=False)
 
         self.assertEqual([action["phase"] for action in created_actions], ["pre", "main", "main", "post"])

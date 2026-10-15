@@ -1,14 +1,13 @@
 """Scheduling helpers shared across views, tasks, and jobs."""
 
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
 from django.utils import timezone
 from nautobot.extras.choices import JobExecutionType
 from nautobot.extras.models import Job, ScheduledJob
 
-from .models import WorkflowRun
-from .servicenow import ServiceNowValidationError, VALIDATION_PHASE_SYNC, get_change_window
+from .servicenow import VALIDATION_PHASE_SYNC, ServiceNowValidationError, get_change_window
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +34,14 @@ def disable_and_delete_scheduled_job(scheduled_job):
         logger.warning("Unable to delete scheduled job %s: %s", getattr(scheduled_job, "pk", "?"), exc)
 
 
-def create_scheduled_job_for_run(workflow_run):
-    """Create a hidden one-off ScheduledJob for a prepared workflow run."""
+def create_scheduled_job_for_run(workflow_run, *, run_status="scheduled"):
+    """Create a hidden one-off ScheduledJob for a prepared workflow run.
+
+    Args:
+        workflow_run: WorkflowRun that already has scheduled_for set.
+        run_status: Status to set on the WorkflowRun after the ScheduledJob is created
+            (``scheduled`` for deferred runs, ``pending_approval`` for approval-gated immediate).
+    """
     if not workflow_run.scheduled_for:
         raise RuntimeError("Scheduled execution requested, but no scheduled_for timestamp was set.")
 
@@ -47,12 +52,18 @@ def create_scheduled_job_for_run(workflow_run):
     except Job.DoesNotExist as exc:
         raise RuntimeError("ScheduledWorkflowExecutorJob not found in Job registry") from exc
 
+    # Include workflow_key so ApprovalWorkflowDefinition model_constraints can scope per workflow.
+    # Do not set approval_required here; Nautobot begins an approval workflow on create when a
+    # matching ApprovalWorkflowDefinition exists.
     scheduled_job_kwargs = {
         "name": f"Workflow: {workflow_run.workflow.name} (Run #{workflow_run.pk})",
         "task": job_model.class_path,
         "job_model": job_model,
         "job_queue": job_model.default_job_queue,
-        "kwargs": {"workflow_run_id": workflow_run.pk},
+        "kwargs": {
+            "workflow_run_id": str(workflow_run.pk),
+            "workflow_key": workflow_run.workflow.key,
+        },
         "start_time": workflow_run.scheduled_for,
         "one_off": True,
         "user": workflow_run.requested_by,
@@ -67,7 +78,6 @@ def create_scheduled_job_for_run(workflow_run):
         "time_zone": "UTC",
         "description": f"Scheduled execution of workflow '{workflow_run.workflow.name}'",
         "enabled": True,
-        "approval_required": False,
         "total_run_count": 0,
     }
     allowed_fields = {field.name for field in ScheduledJob._meta.fields}
@@ -75,9 +85,19 @@ def create_scheduled_job_for_run(workflow_run):
     scheduled_job = ScheduledJob.objects.create(**filtered_kwargs)
 
     workflow_run.scheduled_job = scheduled_job
-    workflow_run.status = "scheduled"
+    workflow_run.status = run_status
     workflow_run.save(update_fields=["scheduled_job", "status"])
     return scheduled_job
+
+
+def create_approval_gated_immediate_schedule(workflow_run):
+    """Create a near-term ScheduledJob so an immediate launch enters the approval pipeline."""
+    now = timezone.now()
+    if not workflow_run.scheduled_for:
+        workflow_run.scheduled_for = now
+        workflow_run.save(update_fields=["scheduled_for"])
+
+    return create_scheduled_job_for_run(workflow_run, run_status="pending_approval")
 
 
 def cancel_scheduled_run(workflow_run, reason):

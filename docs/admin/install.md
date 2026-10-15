@@ -62,6 +62,15 @@ Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
 their declared paths, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
 
+### Optional: Nautobot approval for workflows (3.2+)
+
+Workflows may set `approval_required: true` in YAML. On Nautobot 3.2+, git sync creates
+a scoped Approval Workflow Definition named `Workflow Engine: <workflow.key>`. After
+sync, open **Approvals → Workflow Definitions** and add one or more stages (approver
+group and minimum approvers). Until stages exist, approval-gated runs remain pending.
+See [Requiring Nautobot Approval](../user/app_use_cases.md#requiring-nautobot-approval-32)
+in the authoring reference.
+
 Start with the [hostname tutorial](../user/app_getting_started.md). Configure
 [AWX or ServiceNow](../user/external_interactions.md) only when a workflow requires it.
 Use HTTPS and verified certificates for remote services.

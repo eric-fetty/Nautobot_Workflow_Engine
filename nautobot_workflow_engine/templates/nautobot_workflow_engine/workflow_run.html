@@ -14,13 +14,15 @@
             <a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=object.workflow.key %}?from_run={{ object.pk }}" class="btn btn-primary">
                 <i class="mdi mdi-repeat"></i> Run Again
             </a>
-            {% if object.status == "scheduled" and perms.nautobot_workflow_engine.change_workflowrun %}
+            {% if object.status == "scheduled" or object.status == "pending_approval" %}
+                {% if perms.nautobot_workflow_engine.change_workflowrun %}
                 <form method="post" action="{% url 'plugins:nautobot_workflow_engine:workflow_run_cancel' pk=object.pk %}" style="display: inline;">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this scheduled workflow run?');">
-                        <i class="mdi mdi-cancel"></i> Cancel Scheduled Run
+                    <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this workflow run?');">
+                        <i class="mdi mdi-cancel"></i> Cancel Run
                     </button>
                 </form>
+                {% endif %}
             {% endif %}
         </div>
         <div style="min-width: 260px; padding-right: 12px;">
@@ -98,6 +100,10 @@
                                 {% elif object.status == "pending" %}
                                     <span class="badge bg-warning text-dark">
                                         <i class="mdi mdi-clock"></i> Pending
+                                    </span>
+                                {% elif object.status == "pending_approval" %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="mdi mdi-account-check"></i> Pending Approval
                                     </span>
                                 {% elif object.status == "scheduled" %}
                                     <span class="badge bg-info text-dark">

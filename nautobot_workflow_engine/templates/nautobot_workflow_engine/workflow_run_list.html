@@ -194,6 +194,10 @@
                                             <span class="badge bg-warning text-dark">
                                                 <i class="mdi mdi-clock"></i> Pending
                                             </span>
+                                        {% elif run.status == "pending_approval" %}
+                                            <span class="badge bg-warning text-dark">
+                                                <i class="mdi mdi-account-check"></i> Pending Approval
+                                            </span>
                                         {% elif run.status == "scheduled" %}
                                             <span class="badge bg-info text-dark">
                                                 <i class="mdi mdi-calendar-clock"></i> Scheduled

@@ -10,7 +10,7 @@ from nautobot.extras.models import ScheduledJob
 from .executors import run_workflow
 from .models import WorkflowRun
 from .scheduling import cancel_scheduled_run, create_scheduled_job_for_run, sync_servicenow_workflow_run
-from .servicenow import ServiceNowValidationError, VALIDATION_PHASE_EXECUTION, VALIDATION_PHASE_SYNC
+from .servicenow import VALIDATION_PHASE_EXECUTION, VALIDATION_PHASE_SYNC, ServiceNowValidationError
 
 name = "Workflow Engine"
 
@@ -22,7 +22,7 @@ class OrphanedWorkflowRunCleaner(Job):
         """Job metadata."""
 
         name = "Clean Orphaned Workflow Runs"
-        description = "Delete WorkflowRun records that are orphaned or stuck in scheduled status"
+        description = "Delete WorkflowRun records that are orphaned or stuck in scheduled/pending approval status"
         has_sensitive_variables = False
         hidden = True
 
@@ -31,9 +31,14 @@ class OrphanedWorkflowRunCleaner(Job):
         job_model = JobModel.objects.get(
             module_name="nautobot_workflow_engine.jobs", job_class_name="ScheduledWorkflowExecutorJob"
         )
-        for workflow_run in WorkflowRun.objects.filter(status__in=["scheduled", "pending"]):
-            jobs = ScheduledJob.objects.filter(job_model=job_model, kwargs={"workflow_run_id": workflow_run.id})
-            if not jobs:
+        for workflow_run in WorkflowRun.objects.filter(status__in=["scheduled", "pending", "pending_approval"]):
+            if workflow_run.scheduled_job_id:
+                continue
+            jobs = ScheduledJob.objects.filter(
+                job_model=job_model,
+                kwargs__workflow_run_id=str(workflow_run.pk),
+            )
+            if not jobs.exists():
                 self.logger.info(f"Deleted orphaned WorkflowRun instance: {workflow_run.id}")
                 workflow_run.delete()
 
@@ -63,9 +68,10 @@ class ScheduledWorkflowExecutorJob(Job):
                 )
                 return
 
-            if workflow_run.status != "scheduled":
+            if workflow_run.status not in ("scheduled", "pending_approval"):
                 self.logger.warning(
-                    f"WorkflowRun {workflow_run_id} is in status '{workflow_run.status}', expected 'scheduled'; skipping.",
+                    f"WorkflowRun {workflow_run_id} is in status '{workflow_run.status}', "
+                    "expected 'scheduled' or 'pending_approval'; skipping.",
                     extra={"grouping": "workflow-execution", "object": workflow_run},
                 )
                 return

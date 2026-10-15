@@ -9,6 +9,7 @@ from django.contrib.contenttypes.models import ContentType
 from nautobot.apps.datasources import DatasourceContent
 from nautobot.extras.models import GitRepository
 
+from .approvals import reconcile_approval_definition
 from .executors import clear_repo_script_cache, validate_repo_filter_modules
 from .models import Workflow, WorkflowAction, WorkflowFilterModule, WorkflowHelper, WorkflowInput
 
@@ -106,6 +107,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 
         # Check if workflow is explicitly disabled in YAML
         yaml_enabled = data.get("enabled", True)
+        yaml_approval_required = bool(data.get("approval_required", False))
 
         wf, _ = Workflow.objects.update_or_create(
             key=data["key"],
@@ -114,11 +116,13 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
                 "description": data.get("description", ""),
                 "category": data.get("category", ""),
                 "enabled": yaml_enabled,  # Use enabled flag from YAML
+                "approval_required": yaml_approval_required,
                 "manual_duration_minutes": data.get("manual_duration_minutes"),
                 "raw_definition": data,
                 "source_repo": repository_record,
             },
         )
+        reconcile_approval_definition(wf, job_result=job_result)
         wf.inputs.all().delete()
         for order, ip in enumerate(data.get("inputs", []), start=1):
             ct = None
@@ -170,7 +174,6 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 
         for phase, actions in phased_actions:
             for order, act in enumerate(actions, start=1):
-
                 if act.get("type") == "nautobot":
                     script_path = (act.get("script") or "").lstrip("/")
                     if not script_path:
@@ -231,7 +234,8 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 
             # Disable instead of delete to preserve history
             workflow.enabled = False
-            workflow.save()
+            workflow.save(update_fields=["enabled"])
+            reconcile_approval_definition(workflow, job_result=job_result)
             disabled_count += 1
 
         if disabled_count > 0:

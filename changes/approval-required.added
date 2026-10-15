@@ -1,0 +1,1 @@
+Added optional Nautobot 3.2+ approval integration via workflow YAML `approval_required`, including scoped Approval Workflow Definition sync and approval-gated immediate launches.

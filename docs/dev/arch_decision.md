@@ -11,6 +11,11 @@
 4. `tasks.py` monitors external jobs. `scheduling.py`, `jobs.py`, and `servicenow.py`
     coordinate deferred execution and optional change-window validation.
 5. Views, tables, and templates expose workflow status, history, inputs, and logs.
+6. On Nautobot 3.2+, `approvals.py` reconciles scoped `ApprovalWorkflowDefinition`
+    shells during git sync when `approval_required` is set. Approval-gated immediate
+    launches create a near-term `ScheduledJob` (status `pending_approval`) instead of
+    the Celery immediate path so Nautobot's approval pipeline can apply. Non-approval
+    workflows continue to use Celery immediate execution.
 
 ## Boundaries to Preserve
 
