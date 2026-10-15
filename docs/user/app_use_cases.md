@@ -65,6 +65,18 @@ job runs the workflow. Approvers use **Approvals → Approval Dashboard**. Denyi
 approval should be done from the Approvals UI; you can also cancel a **Pending Approval** or
 **Scheduled** run from the workflow run detail page when you have permission.
 
+Scheduled jobs created for deferred or approval-gated runs use a compact display name so they
+are easy to recognize on the home page and Approval Dashboard:
+
+`{Workflow name} · {requester} · {change ticket or schedule time}`
+
+For ServiceNow-backed schedules, the third segment is the change ticket from the input named by
+`schedule.servicenow.change_input_key` (for example `change_ticket`). Otherwise it is the
+scheduled time in UTC (for example `Oct 16 14:00 UTC`). Examples:
+
+- `Privileged Change · eric · CHG0001234`
+- `Privileged Change · eric · Oct 16 14:00 UTC`
+
 On Nautobot versions below 3.2 the `approval_required` flag is stored but ignored (sync logs
 a skip message). Scheduled and immediate launches keep their existing behavior.
 
