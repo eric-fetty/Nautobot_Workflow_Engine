@@ -4,6 +4,18 @@
 
 {% block title %}Workflow Engine{% endblock title %}
 
+{% block extra_styles %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
+    <style>
+        html body .badge.nwe-status-pending-approval {
+            --bs-badge-color: #ffffff;
+            background-color: #9a3412 !important;
+            color: #ffffff !important;
+            border: 0.0625rem solid #9a3412 !important;
+        }
+    </style>
+{% endblock extra_styles %}
+
 {% block header %}
     <div class="d-flex justify-content-between align-items-center ps-4">
         <div class="btn-group btn-group-sm">

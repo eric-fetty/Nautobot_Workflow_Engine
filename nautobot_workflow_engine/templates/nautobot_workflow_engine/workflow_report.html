@@ -1,7 +1,20 @@
 {% extends "generic/object_list.html" %}
 {% load helpers %}
+{% load static %}
 
 {% block title %}Workflow Dashboard{% endblock title %}
+
+{% block extra_styles %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
+    <style>
+        html body .badge.nwe-status-pending-approval {
+            --bs-badge-color: #ffffff;
+            background-color: #9a3412 !important;
+            color: #ffffff !important;
+            border: 0.0625rem solid #9a3412 !important;
+        }
+    </style>
+{% endblock extra_styles %}
 
 {% block header %}
     <div class="d-flex justify-content-between align-items-center ps-4">
@@ -201,8 +214,10 @@
                                             <div class="h4 mb-1">{{ status.count }}</div>
                                             <small class="text-muted">Pending</small>
                                         {% elif status.status == "pending_approval" %}
-                                            <div class="h3 text-warning mb-1">
-                                                <i class="mdi mdi-account-check"></i>
+                                            <div class="h3 mb-1">
+                                                <span class="badge nwe-status-pending-approval">
+                                                    <i class="mdi mdi-account-check"></i>
+                                                </span>
                                             </div>
                                             <div class="h4 mb-1">{{ status.count }}</div>
                                             <small class="text-muted">Pending Approval</small>

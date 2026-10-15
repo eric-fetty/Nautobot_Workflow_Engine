@@ -1,8 +1,22 @@
 {% extends "generic/object_detail.html" %}
 {% load helpers %}
+{% load static %}
 {% load workflow_extras %}
 
 {% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock title %}
+
+{% block extra_styles %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
+    {# Inline fallback so theme/static caching cannot leave the badge unreadable #}
+    <style>
+        html body .badge.nwe-status-pending-approval {
+            --bs-badge-color: #ffffff;
+            background-color: #9a3412 !important;
+            color: #ffffff !important;
+            border: 0.0625rem solid #9a3412 !important;
+        }
+    </style>
+{% endblock extra_styles %}
 
 {% block header %}
     <div class="d-flex justify-content-between align-items-center ps-4">
@@ -102,7 +116,7 @@
                                         <i class="mdi mdi-clock"></i> Pending
                                     </span>
                                 {% elif object.status == "pending_approval" %}
-                                    <span class="badge bg-warning text-dark">
+                                    <span class="badge nwe-status-pending-approval">
                                         <i class="mdi mdi-account-check"></i> Pending Approval
                                     </span>
                                 {% elif object.status == "scheduled" %}

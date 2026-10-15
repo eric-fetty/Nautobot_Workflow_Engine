@@ -40,7 +40,8 @@ STATUS_BADGE_MAP = {
     "pending": {"label": "Pending", "class": "bg-warning text-dark", "icon": "mdi-clock"},
     "pending_approval": {
         "label": "Pending Approval",
-        "class": "bg-warning text-dark",
+        # Custom class: Nautobot remaps .badge/.text-dark in ways that wash out warning badges.
+        "class": "nwe-status-pending-approval",
         "icon": "mdi-account-check",
     },
     "scheduled": {"label": "Scheduled", "class": "bg-info text-dark", "icon": "mdi-calendar-clock"},
