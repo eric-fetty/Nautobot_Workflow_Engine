@@ -113,8 +113,8 @@ class ActionOrderingTestCase(unittest.TestCase):
             def save(self, update_fields=None):
                 return None
 
-        first = SimpleNamespace(name="run_f5_tcpdump", phase="main", order=0, when="", action_type="nautobot")
-        second = SimpleNamespace(name="notify_submitter", phase="main", order=1, when="", action_type="nautobot")
+        first = SimpleNamespace(id=1, name="run_f5_tcpdump", phase="main", order=0, when="", action_type="nautobot")
+        second = SimpleNamespace(id=2, name="notify_submitter", phase="main", order=1, when="", action_type="nautobot")
         workflow_run = _Run([second, first])
         ctx = {"results": {}}
 

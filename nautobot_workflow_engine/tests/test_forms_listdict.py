@@ -93,7 +93,9 @@ class DynamicWorkflowFormListdictTestCase(unittest.TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Row 2, Hostname: value must be unique", form.errors.as_text())
         self.assertIn("Row 2, VLAN: VLAN must be a number.", form.errors.as_text())
-        self.assertIn("Row 2, Role: invalid choice 'bad'.", form.errors.as_text())
+        # Django escapes quotes in form.errors.as_text()
+        self.assertIn("Row 2, Role: invalid choice", form.errors.as_text())
+        self.assertIn("bad", form.errors.as_text())
 
     def test_listdict_choice_column_accepts_display_label(self):
         workflow = _workflow(_workflow_input())

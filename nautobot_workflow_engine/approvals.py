@@ -20,8 +20,11 @@ def nautobot_supports_approval_workflows() -> bool:
     try:
         from importlib.metadata import version
 
-        from nautobot.extras.models import ApprovalWorkflowDefinition  # noqa: F401
+        from nautobot.extras import models as extras_models
     except ImportError:
+        return False
+
+    if not hasattr(extras_models, "ApprovalWorkflowDefinition"):
         return False
 
     try:

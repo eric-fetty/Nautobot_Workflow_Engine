@@ -794,7 +794,7 @@ def _execute_phase_actions(workflow_run, ctx, phase, fail_fast=False):
     any_failed = False
     env = get_jinja_environment(workflow_run.workflow.source_repo)
 
-    actions = workflow_run.workflow.actions.filter(phase=phase).order_by("order", "name")
+    actions = workflow_run.workflow.actions.filter(phase=phase).order_by("order", "id")
 
     workflow_run.log += f"\n[{phase}] Executing {actions.count()} action(s)"
     workflow_run.save(update_fields=["log"])

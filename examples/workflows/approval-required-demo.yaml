@@ -1,5 +1,6 @@
+---
 version: 1
-key: approval-required-demo
+key: "approval-required-demo"
 name: "Approval Required Demo"
 description: >
   Example workflow that opts into Nautobot 3.2+ Approval Workflow Definitions.
@@ -10,14 +11,14 @@ enabled: true
 approval_required: true
 manual_duration_minutes: 5
 inputs:
-  - key: message
-    label: Message
-    type: string
+  - key: "message"
+    label: "Message"
+    type: "string"
     required: true
     default: "Approved run"
 actions:
-  - type: nautobot
-    name: echo
+  - type: "nautobot"
+    name: "echo"
     script: "scripts/echo_hostname.py"
     with:
       hostname: "{{ inputs.message }}"

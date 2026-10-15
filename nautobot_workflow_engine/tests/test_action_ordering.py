@@ -1,5 +1,7 @@
 """Focused regression tests for workflow action ordering."""
 
+# pylint: disable=protected-access
+
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch

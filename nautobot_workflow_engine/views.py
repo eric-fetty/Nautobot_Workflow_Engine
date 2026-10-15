@@ -1,6 +1,7 @@
 """Views for the workflow engine plugin."""
 
 import logging
+from datetime import timedelta
 from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
@@ -9,10 +10,12 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, OuterRef, Subquery
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.functions import TruncDay, TruncWeek
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views import View
 from django.views.generic import TemplateView
 from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin, ObjectView
@@ -21,7 +24,7 @@ from .approvals import nautobot_supports_approval_workflows
 from .executors import _get_workflow_queryset, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
-from .models import WorkflowInput, WorkflowRun
+from .models import Workflow, WorkflowInput, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .servicenow import ServiceNowValidationError, get_change_window
 from .tables import WorkflowTable
@@ -202,10 +205,13 @@ def _serialize_workflow_run_progress(workflow_run):
 class WorkflowUIViewSet(NautobotUIViewSet):
     """UIViewSet for Workflow model to enable search functionality."""
 
-    queryset = _get_workflow_queryset()
-
+    queryset = Workflow.objects.all()
     filterset_class = WorkflowFilterSet
     table_class = WorkflowTable
+
+    def get_queryset(self):
+        """Respect the show_disabled setting when listing workflows."""
+        return _get_workflow_queryset()
 
 
 class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
@@ -214,6 +220,10 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
     template_name = "nautobot_workflow_engine/workflow_list.html"
     permission_required = "nautobot_workflow_engine.view_workflow"
     queryset = _get_workflow_queryset().order_by("category", "name")  # Only show enabled workflows
+
+    def get_required_permission(self):
+        """Return the permission required to list workflows."""
+        return self.permission_required
 
     def get_queryset(self):
         """Get workflows queryset with optional category filtering."""
@@ -311,6 +321,11 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
 
     template_name = "nautobot_workflow_engine/workflow_launch.html"
     permission_required = "nautobot_workflow_engine.add_workflowrun"
+    queryset = WorkflowRun.objects.all()
+
+    def get_required_permission(self):
+        """Return the permission required to launch a workflow."""
+        return self.permission_required
 
     def get_context_data(self, **kwargs):
         """Add workflow and form to context.
@@ -428,9 +443,7 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
 
             # Capture actual form-fill duration from client (in seconds)
             try:
-                form_duration_seconds = int(request.POST.get("form_duration_seconds", "0") or "0")
-                if form_duration_seconds < 0:
-                    form_duration_seconds = 0
+                form_duration_seconds = max(int(request.POST.get("form_duration_seconds", "0") or "0"), 0)
             except ValueError:
                 form_duration_seconds = 0
 
@@ -927,8 +940,10 @@ class WorkflowRunListView(TemplateView):
 
     def _get_filter_state(self):
         """Return persisted filter/page-size state, updated from current query parameters."""
-        if hasattr(self, "_run_history_filter_state"):
-            return self._run_history_filter_state
+        cache_attr = "_workflow_run_history_filter_state"
+        cached = getattr(self.request, cache_attr, None)
+        if cached is not None:
+            return cached
 
         session_state = self.request.session.get(RUN_HISTORY_SESSION_KEY, {}).copy()
         if not isinstance(session_state, dict):
@@ -948,8 +963,8 @@ class WorkflowRunListView(TemplateView):
             self.request.session[RUN_HISTORY_SESSION_KEY] = session_state
             self.request.session.modified = True
 
-        self._run_history_filter_state = session_state
-        return self._run_history_filter_state
+        setattr(self.request, cache_attr, session_state)
+        return session_state
 
     def _get_filter_value(self, key, default=""):
         """Return effective filter value from current request/session state."""
@@ -968,11 +983,6 @@ class WorkflowRunListView(TemplateView):
 
     def get_queryset(self):
         """Get workflow runs queryset with filtering."""
-        from datetime import timedelta
-
-        from django.utils import timezone
-        from django.utils.dateparse import parse_datetime
-
         qs = WorkflowRun.objects.select_related("workflow", "requested_by").order_by("-started")
         permitted_run_ids = [
             wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflowrun", wf)
@@ -997,8 +1007,6 @@ class WorkflowRunListView(TemplateView):
         category = self._get_filter_value("category", "")
         if category:
             if category == "__uncategorized__":
-                from django.db.models import Q
-
                 qs = qs.filter(Q(workflow__category__isnull=True) | Q(workflow__category=""))
             else:
                 qs = qs.filter(workflow__category=category)
@@ -1099,13 +1107,6 @@ class WorkflowReportView(TemplateView):
 
     def get_context_data(self, **kwargs):
         """Add reporting data to context."""
-        from datetime import timedelta
-
-        from django.db.models import Q
-        from django.db.models.functions import TruncDay, TruncWeek
-        from django.utils import timezone
-        from django.utils.dateparse import parse_datetime
-
         context = super().get_context_data(**kwargs)
 
         # Parse filters from GET
@@ -1346,10 +1347,6 @@ class WorkflowReportView(TemplateView):
         - hours, minutes: breakdown of total_minutes
         - percent_of_max: percent relative to maximum monthly saved minutes in the period
         """
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         now = timezone.now()
         # Start from beginning of current month
         current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
