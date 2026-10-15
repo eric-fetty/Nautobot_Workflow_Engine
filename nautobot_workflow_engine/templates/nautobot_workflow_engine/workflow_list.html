@@ -2,7 +2,7 @@
 {% load helpers %}
 {% load static %}
 
-{% block title %}Workflow Engine{% endblock %}
+{% block title %}Workflow Engine{% endblock title %}
 
 {% block header %}
     <div class="d-flex justify-content-between align-items-center ps-4">
@@ -16,7 +16,7 @@
         </div>
         <hr>
     </div>
-{% endblock %}
+{% endblock header %}
 
 {% block content %}
     <style>
@@ -128,7 +128,7 @@
                             Workflows are loaded from Git repositories. 
                             <br>Configure a Git repository containing workflow YAML files and sync it to get started.
                         </p>
-                        <a href="/extras/git-repositories/" class="btn btn-primary">
+                        <a href="{% url 'extras:gitrepository_list' %}" class="btn btn-primary">
                             <i class="mdi mdi-git"></i> Configure Git Repository
                         </a>
                     {% endif %}
@@ -136,9 +136,9 @@
             {% endif %}
         </div>
     </div>
-{% endblock %}
+{% endblock content %}
 
 {% block javascript %}
     {{ block.super }}
     <script src="{% static 'nautobot_workflow_engine/js/workflow_list.js' %}"></script>
-{% endblock %}
+{% endblock javascript %}
