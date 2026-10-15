@@ -22,6 +22,8 @@ other application or workflow uses them.
 
 ## Uninstall the package
 
-Remove the package from your deployment's dependency configuration and follow its
-normal rebuild/restart process. Verify Nautobot starts without the app and that no
-scheduled task or source synchronization still depends on it.
+Remove `nautobot-workflow-engine` from `local_requirements.txt` (or your deployment's
+equivalent dependency configuration), uninstall the package
+(`pip uninstall nautobot-workflow-engine`), and follow the normal rebuild/restart
+process. Verify Nautobot starts without the app and that no scheduled task or source
+synchronization still depends on it.

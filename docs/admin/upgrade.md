@@ -8,10 +8,12 @@ before changing the application version.
 
 1. Back up the database and configuration through your approved operational process.
 2. Review pending and scheduled workflow runs; arrange a maintenance window so that
-    workers do not execute against a partially upgraded deployment.
+   workers do not execute against a partially upgraded deployment.
 3. Validate the new package and representative workflows in a non-production environment.
-4. Update the web, worker, and scheduler environments consistently and complete the
-    standard Nautobot app post-upgrade procedure.
+4. Upgrade the package (for example `pip install --upgrade nautobot-workflow-engine`),
+   update the web, worker, and scheduler environments consistently, and complete the
+   standard Nautobot app post-upgrade procedure (`nautobot-server post_upgrade` and
+   service restarts).
 5. Check synchronization, input forms, action ordering, run logs, and any integrations
     before resuming normal launches and scheduled execution.
 6. If you use `approval_required` workflows, confirm you are on Nautobot **3.2+**, run

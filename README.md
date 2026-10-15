@@ -24,8 +24,8 @@ The current package requires **Nautobot 3.x** and **Python 3.10 through 3.13**. 
 selected Nautobot release must also support that Python version. These are package
 requirements, not a claim that every combination has been tested.
 
-1. Follow [installation and configuration](docs/admin/install.md) using an approved
-   package in your Nautobot deployment.
+1. Install from PyPI with `pip install nautobot-workflow-engine`, then follow
+   [installation and configuration](docs/admin/install.md).
 2. Configure a trusted workflow source and synchronize its Workflow Engine content.
 3. Run the non-destructive [hostname tutorial](docs/user/app_getting_started.md).
 4. Use the [authoring reference](docs/user/app_use_cases.md) to add inputs and actions.
