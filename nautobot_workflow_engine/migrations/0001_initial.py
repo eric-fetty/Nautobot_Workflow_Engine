@@ -13,7 +13,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("contenttypes", "0002_remove_content_type_name"),
-        ("extras", "0145_objectmetadata_assigned_object_type_cascade"),
+        # Pin to the last extras migration present in Nautobot 3.0.0 (min supported).
+        # 0145 exists only on Nautobot 3.2+ and breaks migrate on the default 3.0.0 image.
+        ("extras", "0132_approval_workflow_seed_data"),
         ("taggit", "0006_rename_taggeditem_content_type_object_id_taggit_tagg_content_8fc721_idx"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
