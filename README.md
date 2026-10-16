@@ -1,7 +1,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
-[![License](https://img.shields.io/github/license/eric-fetty/Nautobot_Workflow_Engine.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 # Nautobot Workflow Engine
 
@@ -66,7 +66,6 @@ fixtures, preserve migrations, and include regression coverage for behavioral ch
 
 ## Publication Status
 
-Open-source preparation is in progress. Apache-2.0 is the intended license, subject
-to copyright-owner approval and a provenance review. No project-wide license grant
-is asserted here until those steps are complete. A private vulnerability-reporting
-contact and final artifact validation are also required before public release.
+This project is licensed under the [Apache License 2.0](LICENSE). Open-source
+preparation is otherwise in progress. A private vulnerability-reporting contact and
+final artifact validation are still required before public release.
