@@ -13,7 +13,8 @@ class InternalModelAbsoluteUrlTestCase(unittest.TestCase):
     def test_workflow_filter_module_delegates_to_source_repo(self):
         source_repo = SimpleNamespace(get_absolute_url=MagicMock(return_value="/api/extras/git-repositories/1/"))
         module = models.WorkflowFilterModule(file_path="filters/string_filters.py")
-        module.source_repo = source_repo
+        # Bypass Django FK descriptors so this stays a pure unit test.
+        module.__dict__["source_repo"] = source_repo
 
         url = module.get_absolute_url(api=True)
 
@@ -23,7 +24,7 @@ class InternalModelAbsoluteUrlTestCase(unittest.TestCase):
     def test_workflow_helper_delegates_to_source_repo(self):
         source_repo = SimpleNamespace(get_absolute_url=MagicMock(return_value="/extras/git-repositories/1/"))
         helper = models.WorkflowHelper(file_path="scripts/echo.py")
-        helper.source_repo = source_repo
+        helper.__dict__["source_repo"] = source_repo
 
         url = helper.get_absolute_url()
 
@@ -33,7 +34,7 @@ class InternalModelAbsoluteUrlTestCase(unittest.TestCase):
     def test_workflow_input_delegates_to_workflow(self):
         workflow = SimpleNamespace(get_absolute_url=MagicMock(return_value="/plugins/workflows/sample/launch/"))
         workflow_input = models.WorkflowInput(key="hostname")
-        workflow_input.workflow = workflow
+        workflow_input.__dict__["workflow"] = workflow
 
         url = workflow_input.get_absolute_url()
 
@@ -43,7 +44,7 @@ class InternalModelAbsoluteUrlTestCase(unittest.TestCase):
     def test_awx_run_delegates_to_workflow_run(self):
         workflow_run = SimpleNamespace(get_absolute_url=MagicMock(return_value="/plugins/runs/abc/"))
         awx_run = models.AwxRun(template_id=1)
-        awx_run.workflow_run = workflow_run
+        awx_run.__dict__["workflow_run"] = workflow_run
 
         url = awx_run.get_absolute_url(api=False)
 
