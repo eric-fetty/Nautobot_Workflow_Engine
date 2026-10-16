@@ -65,6 +65,8 @@ job runs the workflow. Approvers use **Approvals → Approval Dashboard**. Denyi
 approval should be done from the Approvals UI; you can also cancel a **Pending Approval** or
 **Scheduled** run from the workflow run detail page when you have permission.
 
+![Pending approval request on the Approvals My Requests view](../assets/images/authoring/10-approvals-dashboard-pending.png)
+
 Scheduled jobs created for deferred or approval-gated runs use a compact display name so they
 are easy to recognize on the home page and Approval Dashboard:
 
@@ -185,6 +187,8 @@ A searchable dropdown bound to a Nautobot model. Returns the selected object's p
     query: {"location_id": "{{ inputs.location.id }}"}
 ```
 
+![Launch form with searchable object and multi-object fields](../assets/images/authoring/01-launch-form-object-fields.png)
+
 ### Multi-Object
 
 Like `object`, but allows selecting multiple Nautobot model instances.
@@ -269,13 +273,21 @@ Each column in a `listdict` input supports the following properties:
 
 The `listdict` field renders as a table in the workflow form:
 
+![Empty listdict table with Add Row, Download Template, and Upload CSV](../assets/images/authoring/02-listdict-table-empty.png)
+
 - **Column headers** are derived from each column's `label` (or `key` if no label is specified).
 - **Add Row** appends a new empty row to the table.
 - **Download Template** generates a CSV file with headers matching the configured columns.
 - **Upload CSV** parses a CSV file into the table so the user can review and edit rows before submission.
+
+    ![listdict table after uploading a CSV for review and edit](../assets/images/authoring/03-listdict-csv-uploaded.png)
+
 - **Remove** deletes a specific row.
 - Cells with validation errors are highlighted in red with a tooltip describing the error.
 - Columns marked `unique: true` show a warning banner when duplicate values are detected.
+
+    ![listdict validation errors and unique-column warning](../assets/images/authoring/04-listdict-validation-errors.png)
+
 - CSV headers are matched against the column `key` first and then the column `label`.
 - Choice columns accept either the configured choice `value` or the human-readable choice `label` from the CSV.
 - Boolean columns accept `true/false`, `yes/no`, `on/off`, and `1/0` in CSV uploads.
@@ -320,6 +332,8 @@ Fields can be shown or hidden based on the value of another field using `show_if
 ```
 
 In this example, `device_name` is only shown when the user selects "New Installation".
+
+![Conditional field shown when its show_if controlling input is set](../assets/images/authoring/05-show-if-conditional.png)
 
 ## Cascading Dependencies
 
@@ -503,6 +517,8 @@ other repo-backed Python modules; see [extending the app](../dev/extending.md).
 ## Scheduling and Workflow Lifecycle
 
 Operators can select one of three execution modes when launching a workflow:
+
+![Execution Timing options: Immediate, Schedule for Later, and ServiceNow Change Window](../assets/images/authoring/07-execution-modes.png)
 
 - **Immediate** — the run starts as soon as the form is submitted.
 - **Scheduled** — the run is created now and executes at a chosen future time.

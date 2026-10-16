@@ -94,6 +94,8 @@ Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
 their declared paths, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
 
+![Git Repository content types including Workflow Engine](../assets/images/admin/01-git-content-types.png)
+
 ### Optional: Nautobot approval for workflows (3.2+)
 
 Workflows may set `approval_required: true` in YAML. On Nautobot 3.2+, git sync creates
@@ -163,6 +165,8 @@ need a cleanup, or optionally schedule it to run periodically:
 3. Open **Clean Orphaned Workflow Runs**.
 4. Run it now, **or** create a **Scheduled Job** (for example daily) if you expect
    stuck runs often.
+
+![Jobs list with hidden jobs shown, including Clean Orphaned Workflow Runs](../assets/images/admin/02-jobs-show-hidden-orphan-cleaner.png)
 
 It deletes only runs that have no corresponding scheduled job; runs with a live
 scheduled job are left untouched.
@@ -242,5 +246,8 @@ Assign object permissions through Nautobot and verify visibility using
 representative accounts before widening access. When a team's scope changes,
 update the constraint on the existing object permission rather than creating a
 new one, and re-check both the workflow list and the reporting dashboard.
+
+![Example object permission for Workflow Engine models](../assets/images/admin/03-object-permissions-example.png)
+
 See [security and data handling](security.md) before granting access to
 operational workflows.

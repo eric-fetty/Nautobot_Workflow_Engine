@@ -2,9 +2,12 @@
 
 The reporting dashboard summarizes how your workflows are being used. It is
 permission-aware: every figure is computed only over the workflow runs the viewer
-is allowed to see, so it reflects the same scope as the rest of the app. See
+is allowed to see, so it reflects the same scope as the rest of the app. Open it
+from **Workflows → Dashboard**. See
 [granting permissions](../admin/install.md#permissions) for how to control that
 scope.
+
+![Reporting dashboard overview with filters and summary panels](../assets/images/reporting/01-dashboard-overview.png)
 
 ## What the Dashboard Shows
 
@@ -35,6 +38,8 @@ figure is computed from:
 - **Time range** — a preset of 7, 30, 90, or 365 days, ending at now.
 - **Start / end** — an explicit date range that overrides the preset when set.
 
+![Dashboard with filters applied and figures recomputed](../assets/images/reporting/02-dashboard-filters-applied.png)
+
 ## Permission Awareness
 
 The dashboard is built from the runs the viewer is allowed to view. Before any
@@ -61,3 +66,5 @@ task takes to perform manually. It is not a measurement of actual execution time
 Because only `success` runs count, a workflow with no successful runs in the window
 contributes nothing to the savings figures. Leave `manual_duration_minutes` unset
 for a workflow to exclude it from time-savings reporting.
+
+![Time savings summary and monthly savings chart](../assets/images/reporting/03-dashboard-time-savings.png)

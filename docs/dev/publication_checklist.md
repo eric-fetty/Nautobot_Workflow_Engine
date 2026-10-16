@@ -45,8 +45,8 @@ existing application and development source are retained.
 
 ## Required Gates
 
-- [ ] Obtain copyright-owner approval for Apache-2.0 and finish third-party provenance
-  review. Add the approved license and matching package metadata; retain required notices.
+- [x] Apache-2.0 license and matching package metadata are in place; retain required notices
+  and finish any remaining third-party provenance review.
 - [ ] Establish a private vulnerability-reporting route and update the security policy.
 - [ ] Review retained author attribution for public release without removing legally
   required notices.

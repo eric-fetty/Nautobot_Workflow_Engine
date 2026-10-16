@@ -12,6 +12,22 @@ This document describes all new features and changes in the release. The format 
 <!-- towncrier release notes start -->
 
 
+## v1.1.2 (2026-10-16)
+
+### Fixed
+
+- #orphan-workflow-sync - Fixed git sync so workflows removed from a repository are disabled on the launch page (orphan disable on every sync, plus get_absolute_url helpers for change-logging).
+- #migration-nautobot-300 - Fixed initial migration dependency so Nautobot 3.0.0 can run post_upgrade (depend on extras.0132 instead of extras.0145).
+
+### Documentation
+
+- #apache-license - Added the Apache-2.0 license file and corrected the README license badge.
+- #ui-screenshots - Added UI screenshots to end-user and admin documentation for getting started, authoring, reporting, integrations, and install guides.
+
+### Housekeeping
+
+- #ci-url-tests - Fixed CI by sorting migration imports and bypassing Django FK descriptors in get_absolute_url unit tests.
+
 ## v1.1.1 (2026-10-15)
 
 ### Fixed

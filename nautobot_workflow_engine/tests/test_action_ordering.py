@@ -103,7 +103,7 @@ class SyncWorkflowActionOrderingTestCase(unittest.TestCase):
             datasources, "WorkflowAction", SimpleNamespace(objects=action_manager)
         ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)), patch.object(
             datasources, "reconcile_approval_definition"
-        ):
+        ), patch.object(datasources, "_disable_workflows_missing_from_repo"):
             datasources.sync_workflows_from_repo(repository_record, job_result, delete=False)
 
         self.assertEqual([action["phase"] for action in created_actions], ["pre", "main", "main", "post"])

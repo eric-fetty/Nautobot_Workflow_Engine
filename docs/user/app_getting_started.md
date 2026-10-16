@@ -55,10 +55,21 @@ ServiceNow configuration are needed for this walkthrough.
 
 1. Configure a Nautobot Git Repository for the trusted workflow source and select
    the Workflow Engine content it provides.
-2. Synchronize it and confirm that **Echo Hostname** appears under Workflow Engine.
+
+    ![Git Repository with Workflow Engine content selected](../assets/images/getting-started/01-git-repo-workflow-content.png)
+
+2. Synchronize it and confirm that **Echo Hostname** appears under **Workflows → Launch**.
+
+    ![Available workflows list showing Echo Hostname under Examples](../assets/images/getting-started/02-launch-list-echo-hostname.png)
+
 3. Use an account with permission to view workflows, add workflow runs, and view run results.
 4. Open the workflow, enter `router.example.com`, and choose immediate execution.
+
+    ![Echo Hostname launch form with Execute Immediately selected](../assets/images/getting-started/03-launch-form-immediate.png)
+
 5. Open the resulting run and inspect its status, returned hostname, and execution logs.
+
+    ![Successful Echo Hostname run detail with status, results, and logs](../assets/images/getting-started/04-run-detail-success.png)
 
 If the workflow does not appear, check the repository synchronization result and the
 configured `workflow_dir`. If a run remains pending, check worker availability through
@@ -75,9 +86,14 @@ Review [data handling](../admin/security.md) before submitting real operational 
 You can cancel a workflow run while it is still in **Scheduled** or **Pending Approval**
 status.
 
-1. Open **Apps → Workflow Engine → Run History**.
+1. Open **Workflows → Run History**.
+
+    ![Run History list of workflow runs](../assets/images/getting-started/05-run-history-list.png)
+
 2. Open the scheduled run you want to stop.
-3. Click **Cancel Scheduled Run** and confirm.
+3. Click **Cancel Run** and confirm.
+
+    ![Scheduled run detail with Cancel Run available](../assets/images/getting-started/06-run-detail-cancel.png)
 
 After canceling, the run status becomes **Canceled** and the scheduled execution is not started.
 
