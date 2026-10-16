@@ -178,6 +178,7 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 "nautobot_workflow_engine/migrations/*" = [
     "D",
+    "S608",  # schema_editor SQL uses quote_name / bound params, not user input
 ]
 "nautobot_workflow_engine/tests/*" = [
     "D",

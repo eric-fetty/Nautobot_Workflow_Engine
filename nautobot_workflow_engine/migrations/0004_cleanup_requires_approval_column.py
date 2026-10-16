@@ -6,7 +6,6 @@
 
 from django.db import migrations
 
-
 STALE_MIGRATION_NAMES = (
     "0002_workflow_requires_approval",
     "0003_alter_workflow_requires_approval",
