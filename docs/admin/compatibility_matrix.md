@@ -4,6 +4,7 @@ The current package declares the following requirements:
 
 | Workflow Engine | Nautobot | Python |
 | --- | --- | --- |
+| 1.1.0 | `>=3.0.0,<4.0.0` | `>=3.10,<3.14` |
 | 1.0.0 | `>=3.0.0,<4.0.0` | `>=3.10,<3.14` |
 
 These are dependency constraints, not a claim that every combination has been tested.
