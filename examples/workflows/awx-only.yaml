@@ -1,28 +1,29 @@
+---
 version: 1
-key: awx-only
+key: "awx-only"
 name: "Run AWX Compliance"
 description: "Trigger an AWX compliance scan limited by Site."
 category: "Compliance"
-enabled: false # Disabled workflow - shows how to disable workflows
+enabled: false  # Disabled workflow - shows how to disable workflows
 manual_duration_minutes: 60
 inputs:
-  - key: location
-    label: Location
-    type: object
-    model: dcim.Location
+  - key: "location"
+    label: "Location"
+    type: "object"
+    model: "dcim.Location"
     required: true
 
-  - key: severity
-    label: Severity Level
-    type: choice
+  - key: "severity"
+    label: "Severity Level"
+    type: "choice"
     choices:
-      - { value: "low", label: "Low" }
-      - { value: "medium", label: "Medium" }
-      - { value: "high", label: "High" }
+      - {value: "low", label: "Low"}
+      - {value: "medium", label: "Medium"}
+      - {value: "high", label: "High"}
 
 actions:
-  - type: awx
-    name: compliance-scan
+  - type: "awx"
+    name: "compliance-scan"
     template_id: 1234
     extra_vars:
       site: "{{ inputs.location.name }}"

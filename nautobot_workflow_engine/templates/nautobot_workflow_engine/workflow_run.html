@@ -1,8 +1,22 @@
 {% extends "generic/object_detail.html" %}
 {% load helpers %}
+{% load static %}
 {% load workflow_extras %}
 
-{% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock %}
+{% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock title %}
+
+{% block extra_styles %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
+    {# Inline fallback so theme/static caching cannot leave the badge unreadable #}
+    <style>
+        html body .badge.nwe-status-pending-approval {
+            --bs-badge-color: #ffffff;
+            background-color: #9a3412 !important;
+            color: #ffffff !important;
+            border: 0.0625rem solid #9a3412 !important;
+        }
+    </style>
+{% endblock extra_styles %}
 
 {% block header %}
     <div class="d-flex justify-content-between align-items-center ps-4">
@@ -14,13 +28,15 @@
             <a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=object.workflow.key %}?from_run={{ object.pk }}" class="btn btn-primary">
                 <i class="mdi mdi-repeat"></i> Run Again
             </a>
-            {% if object.status == "scheduled" and perms.nautobot_workflow_engine.change_workflowrun %}
+            {% if object.status == "scheduled" or object.status == "pending_approval" %}
+                {% if perms.nautobot_workflow_engine.change_workflowrun %}
                 <form method="post" action="{% url 'plugins:nautobot_workflow_engine:workflow_run_cancel' pk=object.pk %}" style="display: inline;">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this scheduled workflow run?');">
-                        <i class="mdi mdi-cancel"></i> Cancel Scheduled Run
+                    <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this workflow run?');">
+                        <i class="mdi mdi-cancel"></i> Cancel Run
                     </button>
                 </form>
+                {% endif %}
             {% endif %}
         </div>
         <div style="min-width: 260px; padding-right: 12px;">
@@ -30,7 +46,7 @@
             </div>
         </div>
     </div><hr>
-{% endblock %}
+{% endblock header %}
 
 {% block content %}
 
@@ -98,6 +114,10 @@
                                 {% elif object.status == "pending" %}
                                     <span class="badge bg-warning text-dark">
                                         <i class="mdi mdi-clock"></i> Pending
+                                    </span>
+                                {% elif object.status == "pending_approval" %}
+                                    <span class="badge nwe-status-pending-approval">
+                                        <i class="mdi mdi-account-check"></i> Pending Approval
                                     </span>
                                 {% elif object.status == "scheduled" %}
                                     <span class="badge bg-info text-dark">
@@ -532,4 +552,4 @@
         })();
     </script>
 
-{% endblock %}
+{% endblock content %}

@@ -62,6 +62,8 @@ ticket and its usable change window. Field names and state values must match the
 instance's configuration. The timezone applies to timestamps without an explicit
 offset; verify that it matches the source data. Scheduling validation also occurs
 in later scheduling/execution phases, so a change in ticket state can affect a run.
+The value of the `change_input_key` input also appears in the scheduled job title
+shown to approvers (see [Requiring Nautobot Approval](app_use_cases.md#requiring-nautobot-approval-32)).
 
 ### Keeping Scheduled Runs in Sync with ServiceNow
 

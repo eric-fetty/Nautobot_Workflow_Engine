@@ -25,7 +25,10 @@ DEFAULT_APPROVAL_FIELD_CANDIDATES = ("approval",)
 # Review: 0.0
 # Closed: 3.0
 # Cancelled: 4.0
-BLOCKED_STATE_TOKENS = {"cancelled", "closed", "new", "review", "authorize", "assess"}
+# Terminal states that can never be used for scheduling. Early lifecycle states
+# (new/assess/authorize/review) are allowed at launch; stricter allowed_states
+# and approval checks apply at sync/execution when configured.
+BLOCKED_STATE_TOKENS = {"cancelled", "canceled", "closed"}
 DEFAULT_APPROVED_TOKENS = {"approved"}
 VALIDATION_PHASE_LAUNCH = "launch"
 VALIDATION_PHASE_SYNC = "sync"
@@ -221,8 +224,12 @@ def _validate_allowed_state(config, state_value, state_display):
 
 
 def _validate_approval(config, record):
-    """Validate that a change is approved when the workflow requires it."""
-    require_approved = bool(_get_config_value(config, "require_approved", False))
+    """Validate that a change is approved when the workflow requires it.
+
+    Called only during execution-phase validation. Defaults to requiring approval
+    unless the workflow explicitly sets ``require_approved: false``.
+    """
+    require_approved = bool(_get_config_value(config, "require_approved", True))
     if not require_approved:
         return
 
@@ -244,7 +251,7 @@ def _validate_approval(config, record):
         )
 
 
-def get_change_window(
+def get_change_window(  # pylint: disable=too-many-arguments
     change_ticket,
     workflow,
     integration_name="ServiceNow",

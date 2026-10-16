@@ -1,10 +1,10 @@
 """Dynamic form generation for workflow inputs."""
 
-from datetime import datetime, timedelta, timezone as dt_timezone
 import json
 import logging
 import re
-
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
@@ -68,8 +68,6 @@ class DependentChoiceField(forms.ChoiceField):
         # For multiobject, value might be a JSON array
         if self.workflow_input.input_type == "multiobject":
             try:
-                import json
-
                 values = json.loads(value) if isinstance(value, str) else value
                 if not isinstance(values, list):
                     values = [values]
@@ -116,8 +114,6 @@ class DynamicWorkflowForm(forms.Form):
                     # can preserve preselected values even when the JS inserts
                     # a placeholder option or rebuilds the menu.
                     try:
-                        import json
-
                         if isinstance(init_val, (list, dict)):
                             field.widget.attrs["data-initial"] = json.dumps(init_val)
                         elif init_val is None:
@@ -188,8 +184,6 @@ class DynamicWorkflowForm(forms.Form):
                                     str(v).lower() if isinstance(v, bool) else str(v) for v in val
                                 ]
 
-                        import json
-
                         field.widget.attrs["data-show-if-conditions"] = json.dumps(additional_conditions)
                 # Hidden by default if depends_on, revealed by JS
                 if wi.depends_on:
@@ -200,14 +194,15 @@ class DynamicWorkflowForm(forms.Form):
 
         # Add scheduling fields to every workflow form
         execution_help_text = None
-        if self.workflow.servicenow_change_input_key:
+        servicenow_change_input_key = getattr(self.workflow, "servicenow_change_input_key", None)
+        if servicenow_change_input_key:
             execution_help_text = (
                 "Select ServiceNow Change Window to validate the configured change ticket and schedule "
                 "the workflow from that window."
             )
 
         EXECUTION_CHOICES = [("immediate", "Execute Immediately"), ("scheduled", "Schedule for Later")]
-        if self.workflow.servicenow_change_input_key:
+        if servicenow_change_input_key:
             EXECUTION_CHOICES.append(("servicenow", "Use ServiceNow Change Window"))
 
         self.fields["execution_type"] = forms.ChoiceField(
@@ -376,7 +371,7 @@ class DynamicWorkflowForm(forms.Form):
                                 "The ServiceNow change ticket format does not match this workflow's requirements.",
                             )
                     except re.error:
-                        logger.warning("Invalid ServiceNow ticket_regex on workflow %s", self.workflow.pk)
+                        logging.warning("Invalid ServiceNow ticket_regex on workflow %s", self.workflow.pk)
                 elif re.fullmatch(r"[A-Za-z0-9_-]{3,128}", normalized_ticket) is None:
                     self.add_error(
                         change_input_key,
@@ -564,8 +559,6 @@ class DynamicWorkflowForm(forms.Form):
 
             # Add validators as data attribute for JavaScript
             if wi.validators:
-                import json
-
                 field.widget.attrs["data-validators"] = json.dumps(wi.validators)
 
             return field
@@ -581,8 +574,6 @@ class DynamicWorkflowForm(forms.Form):
 
             # Add validators as data attribute for JavaScript
             if wi.validators:
-                import json
-
                 field.widget.attrs["data-validators"] = json.dumps(wi.validators)
 
             return field
@@ -688,15 +679,11 @@ class DynamicWorkflowForm(forms.Form):
 
             # Add validators as data attribute for JavaScript
             if wi.validators:
-                import json
-
                 field.widget.attrs["data-validators"] = json.dumps(wi.validators)
 
             # Set initial value if provided (should be a list)
             if wi.default:
                 if isinstance(wi.default, list):
-                    import json
-
                     field.initial = json.dumps(wi.default)
                 else:
                     field.initial = "[]"
@@ -723,8 +710,6 @@ class DynamicWorkflowForm(forms.Form):
 
             # Attach columns schema for client-side rendering
             try:
-                import json
-
                 if wi.columns is not None:
                     field.widget.attrs["data-columns"] = json.dumps(wi.columns)
             except Exception:  # noqa: S110
@@ -733,8 +718,6 @@ class DynamicWorkflowForm(forms.Form):
             # Set initial value if provided (should be a list of dicts)
             if wi.default:
                 if isinstance(wi.default, list):
-                    import json
-
                     field.initial = json.dumps(wi.default)
                 else:
                     field.initial = "[]"

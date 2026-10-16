@@ -69,7 +69,8 @@ Review [data handling](../admin/security.md) before submitting real operational 
 
 ## Cancel a scheduled workflow run
 
-You can cancel a workflow run only while it is still in **Scheduled** status.
+You can cancel a workflow run while it is still in **Scheduled** or **Pending Approval**
+status.
 
 1. Open **Apps → Workflow Engine → Run History**.
 2. Open the scheduled run you want to stop.

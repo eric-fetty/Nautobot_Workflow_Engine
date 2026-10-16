@@ -2,12 +2,12 @@
 services:
   nautobot:
     networks:
-      - custom
+      - "custom"
     environment:
       - "NAUTOBOT_DB_ENGINE=django.db.backends.postgresql"
   db:
     networks:
-      - custom
+      - "custom"
     image: "postgres:17-alpine"
     command:
       - "-c"
@@ -28,4 +28,4 @@ volumes:
 
 networks:
   custom:
-    driver: bridge
+    driver: "bridge"

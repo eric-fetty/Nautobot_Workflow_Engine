@@ -1,0 +1,10 @@
+/*
+ * Nautobot remaps .badge to body fg/bg, which destroys warning contrast.
+ * Use a self-contained deep amber chip with white type — readable on light and dark pages.
+ */
+html body .badge.nwe-status-pending-approval {
+  --bs-badge-color: #ffffff;
+  background-color: #9a3412 !important;
+  color: #ffffff !important;
+  border: 0.0625rem solid #9a3412 !important;
+}

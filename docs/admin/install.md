@@ -13,18 +13,37 @@ See [compatibility](compatibility_matrix.md) for the package version requirement
 Workflow-specific apps and Python dependencies must be available to the workers as
 well as the web application. AWX and ServiceNow are optional.
 
-## Enable the App
+## Install Guide
 
-Use your deployment's normal Nautobot app installation process with an approved
-`nautobot-workflow-engine` package. Do not assume that a public package has been
-published for a source checkout. The upstream
-[app installation guide](https://docs.nautobot.com/projects/core/en/stable/user-guide/administration/installation/app-install/)
-describes the deployment lifecycle.
+!!! note
+    Apps can be installed from the Python Package Index or locally. See the Nautobot
+    [app installation guide](https://docs.nautobot.com/projects/core/en/stable/user-guide/administration/installation/app-install/)
+    for more details. The pip package name for this app is
+    [`nautobot-workflow-engine`](https://pypi.org/project/nautobot-workflow-engine/).
 
-Add `nautobot_workflow_engine` to the existing `PLUGINS` list. Merge the following
-settings into `PLUGINS_CONFIG`; do not replace settings for other apps.
+The app is available as a Python package via PyPI and can be installed with `pip`:
+
+```no-highlight
+pip install nautobot-workflow-engine
+```
+
+To ensure the app is automatically re-installed during future upgrades, create a file
+named `local_requirements.txt` (if not already existing) in the Nautobot root directory
+(alongside `requirements.txt`) and list the package:
+
+```no-highlight
+echo nautobot-workflow-engine >> local_requirements.txt
+```
+
+Once installed, enable the app in your Nautobot configuration. Add
+`nautobot_workflow_engine` to the existing `PLUGINS` list. Merge the following settings
+into `PLUGINS_CONFIG`; do not replace settings for other apps.
 
 ```python
+PLUGINS = [
+    "nautobot_workflow_engine",
+]
+
 PLUGINS_CONFIG = {
     "nautobot_workflow_engine": {
         "workflow_dir": "workflows",
@@ -37,9 +56,22 @@ PLUGINS_CONFIG = {
 }
 ```
 
-Complete your deployment's normal app post-upgrade and service restart procedures
-before synchronizing workflows. Apply the same package and configuration to the web
-application, workers, and scheduler.
+Once the Nautobot configuration is updated, run the Post Upgrade command to run
+migrations and clear any cache:
+
+```no-highlight
+nautobot-server post_upgrade
+```
+
+Then restart (if necessary) the Nautobot services which may include Nautobot, Nautobot
+Workers, and Nautobot Scheduler:
+
+```no-highlight
+sudo systemctl restart nautobot nautobot-worker nautobot-scheduler
+```
+
+Apply the same package and configuration to the web application, workers, and
+scheduler before synchronizing workflows.
 
 ## Configuration Reference
 
@@ -61,6 +93,15 @@ Configure a Nautobot Git Repository for a trusted workflow source and select its
 Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
 their declared paths, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
+
+### Optional: Nautobot approval for workflows (3.2+)
+
+Workflows may set `approval_required: true` in YAML. On Nautobot 3.2+, git sync creates
+a scoped Approval Workflow Definition named `Workflow Engine: <workflow.key>`. After
+sync, open **Approvals → Workflow Definitions** and add one or more stages (approver
+group and minimum approvers). Until stages exist, approval-gated runs remain pending.
+See [Requiring Nautobot Approval](../user/app_use_cases.md#requiring-nautobot-approval-32)
+in the authoring reference.
 
 Start with the [hostname tutorial](../user/app_getting_started.md). Configure
 [AWX or ServiceNow](../user/external_interactions.md) only when a workflow requires it.

@@ -1,38 +1,44 @@
-name: Publish to PyPI
+---
+name: "Publish to PyPI"
 
-on:
+"on":
   release:
-    types: [published]
+    types: ["published"]
 
 jobs:
   pypi-publish:
-    name: Build and publish Python distribution to PyPI
-    runs-on: ubuntu-latest
-    environment: pypi
+    name: "Build and publish Python distribution to PyPI"
+    runs-on: "ubuntu-latest"
+    environment: "pypi"
 
     permissions:
-      id-token: write  # Mandatory for PyPI Trusted Publishing (OIDC)
-      contents: read   # Required to check out code
+      id-token: "write"  # Mandatory for PyPI Trusted Publishing (OIDC)
+      contents: "write"  # Set to write so it can upload wheel/tar to GitHub Releases
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: "Checkout code"
+        uses: "actions/checkout@v4"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: "Set up Python"
+        uses: "actions/setup-python@v5"
         with:
           python-version: "3.11"
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: "Install Poetry"
+        uses: "snok/install-poetry@v1"
         with:
-          version: latest
+          version: "latest"
           virtualenvs-create: false
 
-      - name: Build sdist and wheel
-        run: poetry build
+      - name: "Build sdist and wheel"
+        run: "poetry build"
 
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: "Publish package distributions to PyPI"
+        uses: "pypa/gh-action-pypi-publish@release/v1"
         with:
-          packages-dir: dist/
+          packages-dir: "dist/"
+
+      - name: "Upload artifacts to GitHub Release"
+        uses: "softprops/action-gh-release@v2"
+        with:
+          files: "dist/*"

@@ -26,4 +26,3 @@ def run(params):
     ip, _ = IPAddress.objects.get_or_create(address=params["address"], status=status_active, parent=prefix)
     iface.ip_addresses.add(ip)
     iface.save()
-

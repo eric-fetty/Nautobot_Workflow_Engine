@@ -18,6 +18,13 @@ class Workflow(BaseModel):
         default=False,
         help_text="Whether this workflow is available for execution. Disabled workflows preserve run history.",
     )
+    approval_required = models.BooleanField(
+        default=False,
+        help_text=(
+            "When True on Nautobot 3.2+, git sync maintains a scoped ApprovalWorkflowDefinition for this "
+            "workflow and immediate launches use a near-term ScheduledJob so they enter the approval pipeline."
+        ),
+    )
     tags = TaggableManager(blank=True)
     raw_definition = models.JSONField()
     source_repo = models.ForeignKey("extras.GitRepository", null=True, blank=True, on_delete=models.SET_NULL)
@@ -163,6 +170,7 @@ class WorkflowRun(BaseModel):
 
     STATUS_CHOICES = [
         ("pending", "Pending"),
+        ("pending_approval", "Pending Approval"),
         ("scheduled", "Scheduled"),
         ("running", "Running"),
         ("success", "Success"),

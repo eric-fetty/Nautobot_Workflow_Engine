@@ -1,3 +1,8 @@
+[![PyPI version](https://img.shields.io/pypi/v/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/nautobot-workflow-engine.svg)](https://pypi.org/project/nautobot-workflow-engine/)
+[![License](https://img.shields.io/github/license/eric-fetty/Nautobot_Workflow_Engine.svg)](LICENSE)
+
 # Nautobot Workflow Engine
 
 Define automation in YAML, synchronize it through Nautobot's repository integration,
@@ -19,8 +24,8 @@ The current package requires **Nautobot 3.x** and **Python 3.10 through 3.13**. 
 selected Nautobot release must also support that Python version. These are package
 requirements, not a claim that every combination has been tested.
 
-1. Follow [installation and configuration](docs/admin/install.md) using an approved
-   package in your Nautobot deployment.
+1. Install from PyPI with `pip install nautobot-workflow-engine`, then follow
+   [installation and configuration](docs/admin/install.md).
 2. Configure a trusted workflow source and synchronize its Workflow Engine content.
 3. Run the non-destructive [hostname tutorial](docs/user/app_getting_started.md).
 4. Use the [authoring reference](docs/user/app_use_cases.md) to add inputs and actions.

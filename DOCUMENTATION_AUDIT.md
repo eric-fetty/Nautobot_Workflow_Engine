@@ -4,6 +4,7 @@
 documentation set, note the gaps, and lay out a plan to close them.
 
 **Method.**
+
 1. Enumerated the feature surface from code: `models.py`, `views.py`, `urls.py`,
    `navigation.py`, `jobs.py`, `tasks.py`, `datasources.py`, `executors.py`,
    `scheduling.py`, `servicenow.py`, templates, and `PLUGINS_CONFIG` settings.
@@ -47,15 +48,15 @@ documentation set, note the gaps, and lay out a plan to close them.
 
 1. **Reporting dashboard — no dedicated page.** `WorkflowReportView` computes a
    rich set of metrics that no user-facing page explains:
-   - Status summary (counts by status)
-   - Workflow popularity (top 10 by run count)
-   - Category usage summary
-   - Top users
-   - Success rate by workflow
-   - Time savings (total, from successful runs)
-   - Monthly time savings (last 12 months)
-   - Success vs. failure by category
-   - Usage over time (daily buckets ≤ 90 days, weekly beyond)
+    - Status summary (counts by status)
+    - Workflow popularity (top 10 by run count)
+    - Category usage summary
+    - Top users
+    - Success rate by workflow
+    - Time savings (total, from successful runs)
+    - Monthly time savings (last 12 months)
+    - Success vs. failure by category
+    - Usage over time (daily buckets ≤ 90 days, weekly beyond)
    Filters: category, status, user, time range (7/30/90/365d), start/end date.
    Only "dashboard statistics" is named in the release notes.
 
@@ -106,35 +107,40 @@ documentation set, note the gaps, and lay out a plan to close them.
 > pages below are to be authored in a follow-up, not written here.
 
 **P0 — Reporting dashboard page (closes items 1, 2, 3).**
+
 - New page `docs/user/app_reporting.md` (nav: add "Reporting Dashboard" under the
   user section, linked from `app_overview.md`).
 - Sections:
-  1. What the dashboard shows (one line per metric, matching the code).
-  2. Filters (category, status, user, time range presets, custom start/end).
-  3. **Permission-awareness** — state clearly that all figures are computed only
-     over the runs the viewer has `view_workflowrun` permission for; cross-link
-     `admin/install.md#permissions`.
-  4. **Time savings** — where to set `manual_duration_minutes` (per workflow and
-     per run), that it is an estimate, how total and 12-month figures are
-     derived, and that only `success` runs count.
+    1. What the dashboard shows (one line per metric, matching the code).
+    2. Filters (category, status, user, time range presets, custom start/end).
+    3. **Permission-awareness** — state clearly that all figures are computed only
+       over the runs the viewer has `view_workflowrun` permission for; cross-link
+       `admin/install.md#permissions`.
+    4. **Time savings** — where to set `manual_duration_minutes` (per workflow and
+       per run), that it is an estimate, how total and 12-month figures are
+       derived, and that only `success` runs count.
 
 **P1 — Expand scheduling (closes item 4).**
+
 - In `docs/user/app_use_cases.md`, expand "Scheduling and Workflow Lifecycle" to
   describe the three modes (immediate, scheduled datetime, ServiceNow change
   window) and that pre-actions run before the run is finally scheduled.
 
 **P2 — Run lifecycle + progress (closes items 5, 6).**
+
 - Add a short "Run lifecycle" section (to `app_use_cases.md` or `faq.md`) with a
   status table for the six statuses and a note that run detail shows live
   progress (percent/label, AWX job completion, elapsed time).
 
 **P3 — Minor completeness (closes items 7, 8).**
+
 - Add a line on the `when` conditional action gate in `app_use_cases.md`.
 - Optionally add a short "REST API" note (or a page) for `WorkflowUIViewSet`.
 
 **Sequencing / effort.**
-- P0 is the highest value and self-contained; do it first (new page + nav entry
-  + one cross-link). ~ medium effort.
+
+- P0 is the highest value and self-contained; do it first (new page, nav entry,
+  and one cross-link). ~ medium effort.
 - P1 and P2 are edits to existing pages; independent of P0. ~ low effort each.
 - P3 is optional polish. ~ low effort.
 - After authoring, run `mkdocs build` and confirm the new nav entries render and

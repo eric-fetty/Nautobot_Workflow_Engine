@@ -1,14 +1,13 @@
 """Scheduling helpers shared across views, tasks, and jobs."""
 
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
 from django.utils import timezone
 from nautobot.extras.choices import JobExecutionType
 from nautobot.extras.models import Job, ScheduledJob
 
-from .models import WorkflowRun
-from .servicenow import ServiceNowValidationError, VALIDATION_PHASE_SYNC, get_change_window
+from .servicenow import VALIDATION_PHASE_SYNC, ServiceNowValidationError, get_change_window
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +15,49 @@ logger = logging.getLogger(__name__)
 def _append_log(existing, message):
     """Append a line to an existing log body."""
     return f"{existing}\n{message}".strip() if existing else message
+
+
+def _change_ticket_for_run(workflow_run):
+    """Resolve a ServiceNow change ticket for display on a scheduled job title.
+
+    Prefers ``schedule_change_ticket`` (normalized at launch/sync). Otherwise reads
+    the workflow input named by ``schedule.servicenow.change_input_key``.
+    """
+    stored = (getattr(workflow_run, "schedule_change_ticket", None) or "").strip()
+    if stored:
+        return stored
+
+    change_input_key = getattr(workflow_run.workflow, "servicenow_change_input_key", None)
+    if not change_input_key:
+        return ""
+    raw = (workflow_run.inputs or {}).get(change_input_key)
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
+
+def _requester_username(workflow_run):
+    """Return the requesting user's username, or a safe fallback."""
+    requested_by = getattr(workflow_run, "requested_by", None)
+    username = getattr(requested_by, "username", None)
+    return username.strip() if isinstance(username, str) and username.strip() else "unknown"
+
+
+def scheduled_job_name_for_run(workflow_run):
+    """Build a compact ScheduledJob name for approval widgets (no run UUID).
+
+    Format: ``{workflow name} · {requester} · {change ticket or schedule time}``.
+    """
+    workflow_name = getattr(workflow_run.workflow, "name", None) or "Workflow"
+    username = _requester_username(workflow_run)
+    ticket = _change_ticket_for_run(workflow_run)
+    if ticket:
+        third = ticket
+    elif workflow_run.scheduled_for:
+        third = workflow_run.scheduled_for.strftime("%b %d %H:%M UTC")
+    else:
+        third = "unscheduled"
+    return f"{workflow_name} · {username} · {third}"
 
 
 def disable_and_delete_scheduled_job(scheduled_job):
@@ -35,8 +77,14 @@ def disable_and_delete_scheduled_job(scheduled_job):
         logger.warning("Unable to delete scheduled job %s: %s", getattr(scheduled_job, "pk", "?"), exc)
 
 
-def create_scheduled_job_for_run(workflow_run):
-    """Create a hidden one-off ScheduledJob for a prepared workflow run."""
+def create_scheduled_job_for_run(workflow_run, *, run_status="scheduled"):
+    """Create a hidden one-off ScheduledJob for a prepared workflow run.
+
+    Args:
+        workflow_run: WorkflowRun that already has scheduled_for set.
+        run_status: Status to set on the WorkflowRun after the ScheduledJob is created
+            (``scheduled`` for deferred runs, ``pending_approval`` for approval-gated immediate).
+    """
     if not workflow_run.scheduled_for:
         raise RuntimeError("Scheduled execution requested, but no scheduled_for timestamp was set.")
 
@@ -47,12 +95,19 @@ def create_scheduled_job_for_run(workflow_run):
     except Job.DoesNotExist as exc:
         raise RuntimeError("ScheduledWorkflowExecutorJob not found in Job registry") from exc
 
+    username = _requester_username(workflow_run)
+    # Include workflow_key so ApprovalWorkflowDefinition model_constraints can scope per workflow.
+    # Do not set approval_required here; Nautobot begins an approval workflow on create when a
+    # matching ApprovalWorkflowDefinition exists.
     scheduled_job_kwargs = {
-        "name": f"Workflow: {workflow_run.workflow.name} (Run #{workflow_run.pk})",
+        "name": scheduled_job_name_for_run(workflow_run),
         "task": job_model.class_path,
         "job_model": job_model,
         "job_queue": job_model.default_job_queue,
-        "kwargs": {"workflow_run_id": workflow_run.pk},
+        "kwargs": {
+            "workflow_run_id": str(workflow_run.pk),
+            "workflow_key": workflow_run.workflow.key,
+        },
         "start_time": workflow_run.scheduled_for,
         "one_off": True,
         "user": workflow_run.requested_by,
@@ -65,9 +120,8 @@ def create_scheduled_job_for_run(workflow_run):
             "queue": "default",
         },
         "time_zone": "UTC",
-        "description": f"Scheduled execution of workflow '{workflow_run.workflow.name}'",
+        "description": f"Scheduled execution of '{workflow_run.workflow.name}' requested by {username}",
         "enabled": True,
-        "approval_required": False,
         "total_run_count": 0,
     }
     allowed_fields = {field.name for field in ScheduledJob._meta.fields}
@@ -75,9 +129,19 @@ def create_scheduled_job_for_run(workflow_run):
     scheduled_job = ScheduledJob.objects.create(**filtered_kwargs)
 
     workflow_run.scheduled_job = scheduled_job
-    workflow_run.status = "scheduled"
+    workflow_run.status = run_status
     workflow_run.save(update_fields=["scheduled_job", "status"])
     return scheduled_job
+
+
+def create_approval_gated_immediate_schedule(workflow_run):
+    """Create a near-term ScheduledJob so an immediate launch enters the approval pipeline."""
+    now = timezone.now()
+    if not workflow_run.scheduled_for:
+        workflow_run.scheduled_for = now
+        workflow_run.save(update_fields=["scheduled_for"])
+
+    return create_scheduled_job_for_run(workflow_run, run_status="pending_approval")
 
 
 def cancel_scheduled_run(workflow_run, reason):
@@ -114,9 +178,7 @@ def sync_servicenow_workflow_run(
 ):
     """Refresh a ServiceNow-backed scheduled workflow run from its change ticket."""
     now = timezone.now()
-    change_input_key = workflow_run.workflow.servicenow_change_input_key
-    input_ticket = (workflow_run.inputs or {}).get(change_input_key) if change_input_key else ""
-    change_ticket = workflow_run.schedule_change_ticket or input_ticket
+    change_ticket = _change_ticket_for_run(workflow_run)
 
     try:
         change_window = get_change_window(

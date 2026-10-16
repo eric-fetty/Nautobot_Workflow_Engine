@@ -1,7 +1,8 @@
 """Views for the workflow engine plugin."""
 
-from datetime import timezone as dt_timezone
 import logging
+from datetime import timedelta
+from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
 
@@ -9,18 +10,22 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, OuterRef, Subquery
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.functions import TruncDay, TruncWeek
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views import View
 from django.views.generic import TemplateView
 from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin, ObjectView
 
+from .approvals import nautobot_supports_approval_workflows
 from .executors import _get_workflow_queryset, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
-from .models import WorkflowInput, WorkflowRun
+from .models import Workflow, WorkflowInput, WorkflowRun
+from .scheduling import create_approval_gated_immediate_schedule
 from .servicenow import ServiceNowValidationError, get_change_window
 from .tables import WorkflowTable
 
@@ -33,6 +38,12 @@ STATUS_BADGE_MAP = {
     "failed": {"label": "Failed", "class": "bg-danger", "icon": "mdi-close"},
     "running": {"label": "Running", "class": "bg-primary", "icon": "mdi-play"},
     "pending": {"label": "Pending", "class": "bg-warning text-dark", "icon": "mdi-clock"},
+    "pending_approval": {
+        "label": "Pending Approval",
+        # Custom class: Nautobot remaps .badge/.text-dark in ways that wash out warning badges.
+        "class": "nwe-status-pending-approval",
+        "icon": "mdi-account-check",
+    },
     "scheduled": {"label": "Scheduled", "class": "bg-info text-dark", "icon": "mdi-calendar-clock"},
     "canceled": {"label": "Canceled", "class": "bg-secondary", "icon": "mdi-cancel"},
     "partial": {"label": "Partial", "class": "bg-warning text-dark", "icon": "mdi-alert"},
@@ -147,6 +158,9 @@ def _serialize_workflow_run_progress(workflow_run):
     elif workflow_run.status == "scheduled":
         progress_percent = 5
         progress_text = "Scheduled"
+    elif workflow_run.status == "pending_approval":
+        progress_percent = 5
+        progress_text = "Awaiting approval"
     elif workflow_run.status == "pending":
         progress_percent = max(10, min(25, time_progress))
         progress_text = "Queued"
@@ -192,10 +206,13 @@ def _serialize_workflow_run_progress(workflow_run):
 class WorkflowUIViewSet(NautobotUIViewSet):
     """UIViewSet for Workflow model to enable search functionality."""
 
-    queryset = _get_workflow_queryset()
-
+    queryset = Workflow.objects.all()
     filterset_class = WorkflowFilterSet
     table_class = WorkflowTable
+
+    def get_queryset(self):
+        """Respect the show_disabled setting when listing workflows."""
+        return _get_workflow_queryset()
 
 
 class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
@@ -205,12 +222,14 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
     permission_required = "nautobot_workflow_engine.view_workflow"
     queryset = _get_workflow_queryset().order_by("category", "name")  # Only show enabled workflows
 
+    def get_required_permission(self):
+        """Return the permission required to list workflows."""
+        return self.permission_required
+
     def get_queryset(self):
         """Get workflows queryset with optional category filtering."""
         qs = _get_workflow_queryset().order_by("category", "name")
-        permitted_ids = [
-            wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflow", wf)
-        ]
+        permitted_ids = [wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflow", wf)]
         qs = qs.filter(id__in=permitted_ids)
         # Filter by category if specified
         category = self.request.GET.get("category")
@@ -303,6 +322,11 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
 
     template_name = "nautobot_workflow_engine/workflow_launch.html"
     permission_required = "nautobot_workflow_engine.add_workflowrun"
+    queryset = WorkflowRun.objects.all()
+
+    def get_required_permission(self):
+        """Return the permission required to launch a workflow."""
+        return self.permission_required
 
     def get_context_data(self, **kwargs):
         """Add workflow and form to context.
@@ -420,9 +444,7 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
 
             # Capture actual form-fill duration from client (in seconds)
             try:
-                form_duration_seconds = int(request.POST.get("form_duration_seconds", "0") or "0")
-                if form_duration_seconds < 0:
-                    form_duration_seconds = 0
+                form_duration_seconds = max(int(request.POST.get("form_duration_seconds", "0") or "0"), 0)
             except ValueError:
                 form_duration_seconds = 0
 
@@ -450,6 +472,37 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
             )
 
             if execution_type == "immediate":
+                if wf.approval_required and nautobot_supports_approval_workflows():
+                    # Route through a near-term ScheduledJob so Nautobot's approval pipeline applies.
+                    run.scheduled_for = timezone.now()
+                    run.status = "pending_approval"
+                    run.log = (
+                        f"{run.log}\nAwaiting Nautobot approval before execution...".strip()
+                        if run.log
+                        else "Awaiting Nautobot approval before execution..."
+                    )
+                    run.save(update_fields=["scheduled_for", "status", "log"])
+                    try:
+                        create_approval_gated_immediate_schedule(run)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Failed to create approval-gated schedule for run %s", run.pk)
+                        run.status = "failed"
+                        run.finished = timezone.now()
+                        run.log = f"{run.log}\nFailed to submit for approval: {exc}".strip()
+                        run.save(update_fields=["status", "finished", "log"])
+                        messages.error(
+                            request,
+                            f"Unable to submit '{wf.name}' for approval: {exc}",
+                        )
+                        return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
+
+                    messages.info(
+                        request,
+                        f"'{wf.name}' was submitted for approval. Approve it under Approvals → Approval Dashboard "
+                        "before it will run. Ensure the synced approval definition has at least one stage configured.",
+                    )
+                    return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
+
                 # Execute immediately using existing execution path
                 # Set status to running immediately to avoid race condition with UI polling
                 run.status = "running"
@@ -828,8 +881,8 @@ class WorkflowRunCancelView(View):
                 messages.info(request, "This workflow run is already canceled.")
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=locked_run.pk)
 
-            if locked_run.status != "scheduled":
-                messages.info(request, "Only scheduled workflow runs can be canceled.")
+            if locked_run.status not in ("scheduled", "pending_approval"):
+                messages.info(request, "Only scheduled or pending-approval workflow runs can be canceled.")
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=locked_run.pk)
 
             scheduled_job = locked_run.scheduled_job
@@ -888,8 +941,10 @@ class WorkflowRunListView(TemplateView):
 
     def _get_filter_state(self):
         """Return persisted filter/page-size state, updated from current query parameters."""
-        if hasattr(self, "_run_history_filter_state"):
-            return self._run_history_filter_state
+        cache_attr = "_workflow_run_history_filter_state"
+        cached = getattr(self.request, cache_attr, None)
+        if cached is not None:
+            return cached
 
         session_state = self.request.session.get(RUN_HISTORY_SESSION_KEY, {}).copy()
         if not isinstance(session_state, dict):
@@ -909,8 +964,8 @@ class WorkflowRunListView(TemplateView):
             self.request.session[RUN_HISTORY_SESSION_KEY] = session_state
             self.request.session.modified = True
 
-        self._run_history_filter_state = session_state
-        return self._run_history_filter_state
+        setattr(self.request, cache_attr, session_state)
+        return session_state
 
     def _get_filter_value(self, key, default=""):
         """Return effective filter value from current request/session state."""
@@ -929,11 +984,6 @@ class WorkflowRunListView(TemplateView):
 
     def get_queryset(self):
         """Get workflow runs queryset with filtering."""
-        from datetime import timedelta
-
-        from django.utils import timezone
-        from django.utils.dateparse import parse_datetime
-
         qs = WorkflowRun.objects.select_related("workflow", "requested_by").order_by("-started")
         permitted_run_ids = [
             wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflowrun", wf)
@@ -958,8 +1008,6 @@ class WorkflowRunListView(TemplateView):
         category = self._get_filter_value("category", "")
         if category:
             if category == "__uncategorized__":
-                from django.db.models import Q
-
                 qs = qs.filter(Q(workflow__category__isnull=True) | Q(workflow__category=""))
             else:
                 qs = qs.filter(workflow__category=category)
@@ -1060,13 +1108,6 @@ class WorkflowReportView(TemplateView):
 
     def get_context_data(self, **kwargs):
         """Add reporting data to context."""
-        from datetime import timedelta
-
-        from django.db.models import Q
-        from django.db.models.functions import TruncDay, TruncWeek
-        from django.utils import timezone
-        from django.utils.dateparse import parse_datetime
-
         context = super().get_context_data(**kwargs)
 
         # Parse filters from GET
@@ -1307,10 +1348,6 @@ class WorkflowReportView(TemplateView):
         - hours, minutes: breakdown of total_minutes
         - percent_of_max: percent relative to maximum monthly saved minutes in the period
         """
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         now = timezone.now()
         # Start from beginning of current month
         current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
