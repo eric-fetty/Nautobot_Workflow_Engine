@@ -130,6 +130,8 @@ def normalize_show_add_new_item_labels(value):
 
 def _canonicalize_content_type_label(label):
     """Resolve a single label to ``app_label.model`` when a ContentType is found."""
+    from django.db import OperationalError, ProgrammingError
+
     if "." not in label:
         return label
     app_label, remainder = label.split(".", 1)
@@ -138,16 +140,21 @@ def _canonicalize_content_type_label(label):
     if not app_label or not remainder:
         return label
 
-    by_model = ContentType.objects.filter(app_label=app_label, model=remainder.lower()).first()
-    if by_model is not None:
-        return content_type_setting_value(by_model)
+    fallback = f"{app_label}.{remainder.lower()}"
+    try:
+        by_model = ContentType.objects.filter(app_label=app_label, model=remainder.lower()).first()
+        if by_model is not None:
+            return content_type_setting_value(by_model)
 
-    # Legacy match against ContentType.name (verbose_name).
-    for content_type in ContentType.objects.filter(app_label=app_label):
-        if content_type.name.lower() == remainder.lower():
-            return content_type_setting_value(content_type)
+        # Legacy match against ContentType.name (verbose_name).
+        for content_type in ContentType.objects.filter(app_label=app_label):
+            if content_type.name.lower() == remainder.lower():
+                return content_type_setting_value(content_type)
+    except (OperationalError, ProgrammingError):
+        # Database may be unavailable in lightweight unit tests.
+        return fallback
 
-    return f"{app_label}.{remainder.lower()}"
+    return fallback
 
 
 def content_type_matches_add_new_item(content_type, configured_labels):

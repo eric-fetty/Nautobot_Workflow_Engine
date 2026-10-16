@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -85,14 +86,12 @@ class SettingsHelpersTestCase(unittest.TestCase):
 class WorkflowEngineConfigFormTestCase(unittest.TestCase):
     """Validate config form locking and cleaned settings."""
 
-    def _build_form(self, data=None, locked_keys=None):
+    @contextmanager
+    def _form_patches(self, locked_keys=None):
         locked = set(locked_keys or [])
 
         def _is_locked(key):
             return key in locked
-
-        integration_qs = MagicMock()
-        integration_qs.order_by.return_value = []
 
         with (
             patch("nautobot_workflow_engine.forms.ExternalIntegration") as mock_ei,
@@ -107,10 +106,10 @@ class WorkflowEngineConfigFormTestCase(unittest.TestCase):
                 side_effect=lambda value: list(value or []) if not isinstance(value, str) else [value],
             ),
         ):
+            integration_qs = MagicMock()
+            integration_qs.order_by.return_value = []
             mock_ei.objects.all.return_value = integration_qs
-            if data is None:
-                return WorkflowEngineConfigForm()
-            return WorkflowEngineConfigForm(data)
+            yield mock_ei
 
     @staticmethod
     def _fake_get_setting(key, fallback=None):
@@ -124,6 +123,12 @@ class WorkflowEngineConfigFormTestCase(unittest.TestCase):
         }
         return defaults.get(key, fallback)
 
+    def _build_form(self, data=None, locked_keys=None):
+        with self._form_patches(locked_keys=locked_keys):
+            if data is None:
+                return WorkflowEngineConfigForm()
+            return WorkflowEngineConfigForm(data)
+
     def test_locked_fields_are_disabled(self):
         form = self._build_form(locked_keys=["workflow_dir", "show_disabled"])
         self.assertIn("workflow_dir", form.file_locked_keys)
@@ -133,19 +138,20 @@ class WorkflowEngineConfigFormTestCase(unittest.TestCase):
         self.assertFalse(form.fields["filters_dir"].disabled)
 
     def test_cleaned_settings_skips_locked_keys(self):
-        form = self._build_form(
-            data={
-                "workflow_dir": "from-post",
-                "filters_dir": "custom-filters",
-                "awx_external_integration_name": "AWX",
-                "awx_poll_seconds": "7",
-                "show_disabled": "on",
-                "show_add_new_item": ["dcim.device"],
-            },
-            locked_keys=["workflow_dir"],
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-        cleaned = form.cleaned_settings()
+        data = {
+            "workflow_dir": "from-post",
+            "filters_dir": "custom-filters",
+            "awx_external_integration_name": "AWX",
+            "awx_poll_seconds": "7",
+            "show_disabled": "on",
+            "show_add_new_item": ["dcim.device"],
+        }
+
+        with self._form_patches(locked_keys=["workflow_dir"]):
+            form = WorkflowEngineConfigForm(data)
+            self.assertTrue(form.is_valid(), form.errors)
+            cleaned = form.cleaned_settings()
+
         self.assertNotIn("workflow_dir", cleaned)
         self.assertEqual(cleaned["filters_dir"], "custom-filters")
         self.assertEqual(cleaned["awx_poll_seconds"], 7)

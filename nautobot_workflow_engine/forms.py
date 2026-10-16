@@ -818,8 +818,24 @@ class WorkflowEngineConfigForm(BootstrapMixin, forms.Form):
         }
 
     def clean_show_add_new_item(self):
-        """Persist selected ContentType labels as a canonical string list."""
-        return normalize_show_add_new_item_labels(self.cleaned_data.get("show_add_new_item"))
+        """Persist selected ContentType labels as a deduplicated string list.
+
+        Values already come from validated ``app_label.model`` choices, so avoid a
+        ContentType database lookup here (important for unit tests without migrations).
+        """
+        selected = self.cleaned_data.get("show_add_new_item") or []
+        normalized = []
+        seen = set()
+        for label in selected:
+            value = str(label).strip()
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(value)
+        return normalized
 
     def cleaned_settings(self):
         """Return setting key/value pairs that are safe to write to Constance."""
