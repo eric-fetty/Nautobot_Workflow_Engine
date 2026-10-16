@@ -2,7 +2,10 @@
 
 This example returns a hostname without changing Nautobot inventory or calling an
 external service. Complete [installation](../admin/install.md) first and ensure the
-Nautobot background workers are running.
+Nautobot background workers are running. Installation auto-enables the jobs required
+for scheduled runs; if you use ServiceNow change-window scheduling, you must still
+[enable and schedule the ServiceNow sync job](external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
+yourself.
 
 ## Define a Workflow
 
