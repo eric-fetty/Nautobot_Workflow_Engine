@@ -25,3 +25,7 @@ This document describes all new features and changes in the release. The format 
 ### Documentation
 
 - #approval-required - Documented Nautobot approval-required workflows for authors, administrators, and operators, including stage configuration and troubleshooting.
+
+### Housekeeping
+
+- Replaced the stub GitHub Actions workflow that called missing `pytest` with Docker-based `invoke unittest` and ruff checks matching the local development workflow.
