@@ -14,6 +14,7 @@ router = NautobotUIViewSetRouter()
 router.register("workflow", views.WorkflowUIViewSet)
 
 urlpatterns = [
+    path("config/", views.WorkflowEngineConfigView.as_view(), name="config"),
     path("workflows_list/", views.WorkflowListView.as_view(), name="workflows_list"),
     path("workflows/<slug:key>/launch/", views.WorkflowRunCreateView.as_view(), name="workflow_launch"),
     path("workflows/<slug:key>/inputs/<slug:child>/options/", views.InputOptionsView.as_view(), name="input_options"),

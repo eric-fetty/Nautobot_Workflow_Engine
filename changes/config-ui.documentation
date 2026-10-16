@@ -1,0 +1,1 @@
+Documented the Installed Apps configuration page as the primary way to manage Workflow Engine settings, with optional `PLUGINS_CONFIG` file overrides.

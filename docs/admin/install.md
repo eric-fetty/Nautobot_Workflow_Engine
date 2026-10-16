@@ -36,24 +36,12 @@ echo nautobot-workflow-engine >> local_requirements.txt
 ```
 
 Once installed, enable the app in your Nautobot configuration. Add
-`nautobot_workflow_engine` to the existing `PLUGINS` list. Merge the following settings
-into `PLUGINS_CONFIG`; do not replace settings for other apps.
+`nautobot_workflow_engine` to the existing `PLUGINS` list:
 
 ```python
 PLUGINS = [
     "nautobot_workflow_engine",
 ]
-
-PLUGINS_CONFIG = {
-    "nautobot_workflow_engine": {
-        "workflow_dir": "workflows",
-        "filters_dir": "filters",
-        "awx_external_integration_name": "AWX",
-        "awx_poll_seconds": 5,
-        "show_disabled": False,
-        "show_add_new_item": [],
-    },
-}
 ```
 
 Once the Nautobot configuration is updated, run the Post Upgrade command to run
@@ -70,8 +58,21 @@ Workers, and Nautobot Scheduler:
 sudo systemctl restart nautobot nautobot-worker nautobot-scheduler
 ```
 
-Apply the same package and configuration to the web application, workers, and
+Apply the same package and `PLUGINS` entry to the web application, workers, and
 scheduler before synchronizing workflows.
+
+## Configure the App
+
+Staff and superuser accounts can manage all app settings from the UI:
+
+1. Open **Apps → Installed Apps** (or **Extensibility → Installed Apps**, depending on
+   your Nautobot navigation).
+2. Find **Workflow Engine** and click the gear (**Configure**) icon.
+3. Update the settings and click **Update Configuration**.
+
+Defaults apply until you change them. Credentials for AWX and ServiceNow remain on
+Nautobot External Integrations and Secrets Groups; they are not stored in app
+settings.
 
 ## Configuration Reference
 
@@ -82,10 +83,28 @@ scheduler before synchronizing workflows.
 | `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
 | `awx_poll_seconds` | `5` | Polling interval in seconds for AWX job monitoring. |
 | `show_disabled` | `False` | Display disabled workflows in the workflow list. |
-| `show_add_new_item` | Environment-derived | Model labels that offer the create-new-item choice; set an explicit list to override `SHOW_ADD_NEW_ITEM`. |
+| `show_add_new_item` | `[]` | Object types (`app_label.model`) that offer the create-new-item choice on object inputs. Select them in the configuration UI multi-select. |
 
 The create-new-item choice passes `__create__` to the workflow. Its action code must
 handle that value; choosing it does not create an object automatically.
+
+### Optional file overrides
+
+You may still set any of the keys above under `PLUGINS_CONFIG` in
+`nautobot_config.py`. A key present in the file **overrides** the UI value and locks
+that field on the configuration page until you remove it from the file:
+
+```python
+PLUGINS_CONFIG = {
+    "nautobot_workflow_engine": {
+        # Example: force a poll interval at deploy time
+        "awx_poll_seconds": 5,
+    },
+}
+```
+
+Omit keys (or leave `PLUGINS_CONFIG["nautobot_workflow_engine"]` empty) to manage them
+from the Installed Apps configuration page.
 
 ## Configure Workflow Content
 

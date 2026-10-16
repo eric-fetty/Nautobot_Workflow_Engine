@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% load form_helpers %}
+
+{% block title %}Workflow Engine Configuration{% endblock %}
+
+{% block content %}
+<form action="." method="post" class="h-100 vstack">
+    {% csrf_token %}
+    <div class="row align-content-start flex-fill">
+        <div class="col-md-8 offset-md-2">
+            <h1 class="mb-3">Workflow Engine Configuration</h1>
+            <p class="text-secondary mb-3">
+                Configure runtime settings for this app. Values set under
+                <code>PLUGINS_CONFIG</code> in <code>nautobot_config.py</code>
+                override the settings on this page and appear as locked fields.
+            </p>
+
+            {% if file_locked_keys %}
+            <div class="alert alert-info d-flex align-items-start" role="alert">
+                <span aria-hidden="true" class="mdi mdi-information-outline me-2 mt-1"></span>
+                <div>
+                    One or more settings are locked by file configuration.
+                    Remove those keys from <code>PLUGINS_CONFIG["nautobot_workflow_engine"]</code>
+                    to edit them here.
+                </div>
+            </div>
+            {% endif %}
+
+            {% if form.non_field_errors %}
+            <div class="card border-danger mb-3">
+                <div class="card-header bg-danger-subtle border-danger text-body">
+                    <strong>Errors</strong>
+                </div>
+                <div class="card-body">
+                    {{ form.non_field_errors }}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>Git source paths</strong></div>
+                <div class="card-body">
+                    {% render_field form.workflow_dir %}
+                    {% render_field form.filters_dir %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>AWX integration</strong></div>
+                <div class="card-body">
+                    {% render_field form.awx_external_integration_name %}
+                    {% render_field form.awx_poll_seconds %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><strong>Workflow UI</strong></div>
+                <div class="card-body">
+                    {% render_field form.show_disabled %}
+                    {% render_field form.show_add_new_item %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="nb-form-sticky-footer">
+        <button type="submit" class="btn btn-primary">
+            <span aria-hidden="true" class="mdi mdi-check me-1"></span>
+            Update Configuration
+        </button>
+        <a href="{% url 'apps:apps_list' %}" class="btn btn-secondary">
+            <span aria-hidden="true" class="mdi mdi-close me-1"></span>
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

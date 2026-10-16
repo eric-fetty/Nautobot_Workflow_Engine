@@ -553,7 +553,9 @@ mark the end of the run.
 
 Set `enabled: false` to disable a workflow without discarding its run history.
 When source removal disables a workflow during synchronization, retain the stored
-history for auditing. The `show_disabled` app setting controls list visibility.
+history for auditing. The **Show disabled workflows** setting on the
+[Installed Apps configuration page](../admin/install.md#configure-the-app) controls
+list visibility.
 Use categories for organization and `manual_duration_minutes` for estimated
 [time savings](app_reporting.md#time-savings), not as a measurement of actual
 execution duration.

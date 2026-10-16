@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 import yaml
-from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from nautobot.apps.datasources import DatasourceContent
 from nautobot.extras.models import GitRepository
@@ -12,8 +11,8 @@ from nautobot.extras.models import GitRepository
 from .approvals import reconcile_approval_definition
 from .executors import clear_repo_script_cache, validate_repo_filter_modules
 from .models import Workflow, WorkflowAction, WorkflowFilterModule, WorkflowHelper, WorkflowInput, WorkflowRun
+from .settings_helpers import get_setting
 
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 WORKFLOW_CONTENT_IDENTIFIER = "nautobot_workflow_engine.workflows"
 
 
@@ -53,7 +52,7 @@ def _get_action_list(data, *keys):
 
 def _is_filter_module_path(relative_path):
     """Return True when the repository-relative path is inside the configured filters directory."""
-    filters_dir = Path(PLUGIN_CFG.get("filters_dir", "filters"))
+    filters_dir = Path(get_setting("filters_dir", fallback="filters"))
     filters_parts = filters_dir.parts
     rel_parts = relative_path.parts
     return len(rel_parts) >= len(filters_parts) and rel_parts[: len(filters_parts)] == filters_parts
@@ -310,7 +309,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
         return
 
     repo_path = Path(repository_record.filesystem_path)
-    wf_dir = PLUGIN_CFG["workflow_dir"]
+    wf_dir = get_setting("workflow_dir", fallback="workflows")
     workflows_path = repo_path / wf_dir
     if not workflows_path.exists():
         # Workflows directory removed — disable everything previously synced from this repo.

@@ -20,6 +20,10 @@ before changing the application version.
     migrations, re-sync the workflow Git repository, and configure at least one stage
     on each synced definition under **Approvals → Workflow Definitions** (name pattern
     `Workflow Engine: <workflow.key>`).
+7. App settings can be managed from **Apps → Installed Apps → Workflow Engine →
+   Configure**. If you previously set keys under `PLUGINS_CONFIG`, remove those keys
+   from `nautobot_config.py` to unlock the matching fields in the UI; file values
+   continue to override the UI while they remain present.
 
 Schema changes can make a package-only rollback unsafe. Retain the backup and a
 tested restoration procedure rather than assuming an older package can use the new schema.

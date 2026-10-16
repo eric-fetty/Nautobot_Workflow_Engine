@@ -1,0 +1,1 @@
+Added an admin-only Workflow Engine configuration page linked from Installed Apps (gear icon), backed by Constance, so all app settings can be managed in the UI instead of `nautobot_config.py`.

@@ -6,7 +6,6 @@ from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
 
-from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -14,23 +13,30 @@ from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDay, TruncWeek
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views import View
 from django.views.generic import TemplateView
-from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin, ObjectView
+from nautobot.apps.views import (
+    AdminRequiredMixin,
+    GenericView,
+    NautobotUIViewSet,
+    ObjectPermissionRequiredMixin,
+    ObjectView,
+)
 
 from .approvals import nautobot_supports_approval_workflows
 from .executors import _get_workflow_queryset, run_workflow
 from .filters import WorkflowFilterSet
-from .forms import DynamicWorkflowForm
+from .forms import DynamicWorkflowForm, WorkflowEngineConfigForm
 from .models import Workflow, WorkflowInput, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .servicenow import ServiceNowValidationError, get_change_window
+from .settings_helpers import constance_key, content_type_matches_add_new_item, get_setting
 from .tables import WorkflowTable
 
 logger = logging.getLogger(__name__)
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 
 TERMINAL_WORKFLOW_STATUSES = {"success", "failed", "partial", "canceled"}
 STATUS_BADGE_MAP = {
@@ -774,8 +780,7 @@ class InputOptionsView(View):
             data.append({"value": str(obj.pk), "label": display_name})
 
         # Check if we're supposed to prepend a "Create New XXX" to the dropdown
-        show_add_new_item = [x.lower() for x in PLUGIN_CFG.get("show_add_new_item", [])]
-        if f"{wi.content_type.app_label}.{wi.content_type.name}" in show_add_new_item:
+        if content_type_matches_add_new_item(wi.content_type, get_setting("show_add_new_item", fallback=[])):
             data.insert(0, {"value": "__create__", "label": f"Create New {wi.content_type.name.title()}"})
 
         response_data = {
@@ -1416,3 +1421,45 @@ class WorkflowReportView(TemplateView):
                 m["bar_class"] = "low"
 
         return monthly
+
+
+class WorkflowEngineConfigView(AdminRequiredMixin, GenericView):
+    """Admin-only configuration page linked from Installed Apps."""
+
+    template_name = "nautobot_workflow_engine/config.html"
+
+    def get(self, request):
+        """Render the configuration form with current settings."""
+        form = WorkflowEngineConfigForm(initial=WorkflowEngineConfigForm.initial_from_settings())
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "file_locked_keys": form.file_locked_keys,
+            },
+        )
+
+    def post(self, request):
+        """Persist unlocked settings to Constance."""
+        from constance import config
+
+        # Pass initial so disabled (file-locked) fields retain their current values.
+        form = WorkflowEngineConfigForm(
+            request.POST,
+            initial=WorkflowEngineConfigForm.initial_from_settings(),
+        )
+        if form.is_valid():
+            for key, value in form.cleaned_settings().items():
+                setattr(config, constance_key(key), value)
+            messages.success(request, "Workflow Engine configuration updated.")
+            return redirect(reverse("plugins:nautobot_workflow_engine:config"))
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "file_locked_keys": form.file_locked_keys,
+            },
+        )

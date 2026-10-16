@@ -8,9 +8,19 @@ from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
+from nautobot.apps.forms import BootstrapMixin, StaticSelect2Multiple
+from nautobot.extras.models import ExternalIntegration
 
 from .models import Workflow, WorkflowInput
 from .servicenow import normalize_change_ticket
+from .settings_helpers import (
+    FILE_OVERRIDE_HELP,
+    SETTING_META,
+    get_setting,
+    is_file_locked,
+    iter_object_content_type_choices,
+    normalize_show_add_new_item_labels,
+)
 
 
 class DependentChoiceField(forms.ChoiceField):
@@ -726,3 +736,93 @@ class DynamicWorkflowForm(forms.Form):
 
             return field
         return None
+
+
+class WorkflowEngineConfigForm(BootstrapMixin, forms.Form):
+    """Admin form for Workflow Engine settings managed via Constance."""
+
+    workflow_dir = forms.CharField(
+        label=SETTING_META["workflow_dir"]["label"],
+        help_text=SETTING_META["workflow_dir"]["help_text"],
+        required=True,
+        max_length=255,
+    )
+    filters_dir = forms.CharField(
+        label=SETTING_META["filters_dir"]["label"],
+        help_text=SETTING_META["filters_dir"]["help_text"],
+        required=True,
+        max_length=255,
+    )
+    awx_external_integration_name = forms.ChoiceField(
+        label=SETTING_META["awx_external_integration_name"]["label"],
+        help_text=SETTING_META["awx_external_integration_name"]["help_text"],
+        required=True,
+        choices=[],
+    )
+    awx_poll_seconds = forms.IntegerField(
+        label=SETTING_META["awx_poll_seconds"]["label"],
+        help_text=SETTING_META["awx_poll_seconds"]["help_text"],
+        required=True,
+        min_value=1,
+    )
+    show_disabled = forms.BooleanField(
+        label=SETTING_META["show_disabled"]["label"],
+        help_text=SETTING_META["show_disabled"]["help_text"],
+        required=False,
+    )
+    show_add_new_item = forms.MultipleChoiceField(
+        label=SETTING_META["show_add_new_item"]["label"],
+        help_text=SETTING_META["show_add_new_item"]["help_text"],
+        required=False,
+        choices=[],
+        widget=StaticSelect2Multiple(),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Disable fields locked by PLUGINS_CONFIG and seed select choices."""
+        super().__init__(*args, **kwargs)
+        current_integration = get_setting("awx_external_integration_name", fallback="AWX") or "AWX"
+        choices = [(ei.name, ei.name) for ei in ExternalIntegration.objects.all().order_by("name")]
+        names = {name for name, _label in choices}
+        if current_integration not in names:
+            choices = [(current_integration, f"{current_integration} (not found)")] + choices
+        if not choices:
+            choices = [(current_integration, current_integration)]
+        self.fields["awx_external_integration_name"].choices = choices
+
+        content_type_choices = list(iter_object_content_type_choices())
+        known_values = {value for value, _label in content_type_choices}
+        for label in normalize_show_add_new_item_labels(get_setting("show_add_new_item", fallback=[])):
+            if label not in known_values:
+                content_type_choices.append((label, f"{label} (not found)"))
+                known_values.add(label)
+        self.fields["show_add_new_item"].choices = content_type_choices
+
+        self.file_locked_keys = []
+        for key, field in self.fields.items():
+            if is_file_locked(key):
+                self.file_locked_keys.append(key)
+                field.disabled = True
+                field.help_text = f"{field.help_text} {FILE_OVERRIDE_HELP}".strip()
+
+    @classmethod
+    def initial_from_settings(cls):
+        """Build form initial data from current app settings."""
+        return {
+            "workflow_dir": get_setting("workflow_dir", fallback="workflows"),
+            "filters_dir": get_setting("filters_dir", fallback="filters"),
+            "awx_external_integration_name": get_setting("awx_external_integration_name", fallback="AWX"),
+            "awx_poll_seconds": get_setting("awx_poll_seconds", fallback=5),
+            "show_disabled": bool(get_setting("show_disabled", fallback=False)),
+            "show_add_new_item": normalize_show_add_new_item_labels(get_setting("show_add_new_item", fallback=[])),
+        }
+
+    def clean_show_add_new_item(self):
+        """Persist selected ContentType labels as a canonical string list."""
+        return normalize_show_add_new_item_labels(self.cleaned_data.get("show_add_new_item"))
+
+    def cleaned_settings(self):
+        """Return setting key/value pairs that are safe to write to Constance."""
+        if not self.is_valid():
+            return {}
+        return {key: self.cleaned_data[key] for key in self.fields if key not in self.file_locked_keys}

@@ -72,8 +72,10 @@ ServiceNow configuration are needed for this walkthrough.
     ![Successful Echo Hostname run detail with status, results, and logs](../assets/images/getting-started/04-run-detail-success.png)
 
 If the workflow does not appear, check the repository synchronization result and the
-configured `workflow_dir`. If a run remains pending, check worker availability through
-your normal Nautobot operations process.
+configured **Workflow directory** on the
+[Installed Apps configuration page](../admin/install.md#configure-the-app). If a run
+remains pending, check worker availability through your normal Nautobot operations
+process.
 
 ## Next Steps
 

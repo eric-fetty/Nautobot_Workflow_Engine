@@ -1,12 +1,11 @@
 """App declaration for nautobot_workflow_engine."""
 
 # Metadata is inherited from Nautobot. If not including Nautobot in the environment, this should be added
-import os
 import re
 from importlib import metadata
 from pathlib import Path
 
-from nautobot.apps import NautobotAppConfig
+from nautobot.apps import ConstanceConfigItem, NautobotAppConfig
 
 
 def _package_version():
@@ -30,6 +29,15 @@ def _package_version():
 
 __version__ = _package_version()
 
+_DEFAULT_SETTINGS = {
+    "awx_external_integration_name": "AWX",
+    "workflow_dir": "workflows",
+    "filters_dir": "filters",
+    "awx_poll_seconds": 5,
+    "show_disabled": False,
+    "show_add_new_item": [],
+}
+
 
 class WorkflowEngineConfig(NautobotAppConfig):
     """App configuration for the nautobot_workflow_engine app."""
@@ -41,15 +49,46 @@ class WorkflowEngineConfig(NautobotAppConfig):
     description = "General-purpose workflow engine for Nautobot"
     base_url = "workflow-engine"
     required_settings = []
-    default_settings = {
-        "awx_external_integration_name": "AWX",
-        "workflow_dir": "workflows",
-        "filters_dir": "filters",
-        "awx_poll_seconds": 5,
-        "show_disabled": False,
-        "show_add_new_item": os.getenv("SHOW_ADD_NEW_ITEM", "").split(","),
+    default_settings = dict(_DEFAULT_SETTINGS)
+    # Keys also listed in constance_config are not injected into PLUGINS_CONFIG,
+    # so the Installed Apps configuration UI (and Constance) can own them at runtime.
+    constance_config = {
+        "workflow_dir": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["workflow_dir"],
+            help_text="Directory containing workflow YAML in the workflow source.",
+            field_type=str,
+        ),
+        "filters_dir": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["filters_dir"],
+            help_text="Directory containing repository-backed Jinja filters.",
+            field_type=str,
+        ),
+        "awx_external_integration_name": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["awx_external_integration_name"],
+            help_text="Nautobot External Integration used for AWX actions.",
+            field_type=str,
+        ),
+        "awx_poll_seconds": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["awx_poll_seconds"],
+            help_text="Polling interval in seconds for AWX job monitoring.",
+            field_type=int,
+        ),
+        "show_disabled": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["show_disabled"],
+            help_text="Display disabled workflows in the workflow list.",
+            field_type=bool,
+        ),
+        "show_add_new_item": ConstanceConfigItem(
+            default=_DEFAULT_SETTINGS["show_add_new_item"],
+            help_text=(
+                "Object types (app_label.model) that offer the create-new-item choice "
+                "on object inputs. Stored as a JSON list of strings."
+            ),
+            field_type="optional_json_field",
+        ),
     }
     caching_config = {}
+    config_view_name = "plugins:nautobot_workflow_engine:config"
     docs_view_name = "plugins:nautobot_workflow_engine:docs"
     searchable_models = ["workflow"]
 

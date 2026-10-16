@@ -59,9 +59,13 @@ firewall-model dependency. Additional installed apps can be enabled with the
 comma-separated `NAUTOBOT_EXTRA_PLUGINS` environment variable. Existing deployments
 that need BGP models, SSoT, or device lifecycle management must opt in explicitly.
 
-Configure additional app settings in a private development override. Enabling an app
-does not install it; its package and compatible dependencies must already be present
-in the development image. Dependency pruning is separate from enabling plugins.
+Configure additional apps in a private development override under `PLUGINS` /
+`PLUGINS_CONFIG` as needed. Workflow Engine runtime settings are managed from
+**Apps → Installed Apps → Configure** (django-constance); leave
+`PLUGINS_CONFIG["nautobot_workflow_engine"]` empty unless you need a deploy-time
+file override. Enabling an app does not install it; its package and compatible
+dependencies must already be present in the development image. Dependency pruning
+is separate from enabling plugins.
 
 ### Updating the Documentation
 

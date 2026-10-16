@@ -8,7 +8,7 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 
 - [Overview](user/app_overview.md): capabilities and execution model.
 - [Getting started](user/app_getting_started.md): a non-destructive first workflow.
-- [Installation and configuration](admin/install.md): prerequisites and app settings.
+- [Installation and configuration](admin/install.md): prerequisites and the Installed Apps configuration page.
 
 ## Use and Extend Workflows
 

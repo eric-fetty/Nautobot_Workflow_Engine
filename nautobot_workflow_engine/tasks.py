@@ -5,7 +5,6 @@ import time
 import traceback
 
 import requests
-from django.conf import settings
 from django.utils import timezone
 from nautobot.core.celery import app  # In RQ setups, adjust to RQ equivalent
 from nautobot.extras.models import ExternalIntegration
@@ -13,17 +12,17 @@ from nautobot.extras.models import ExternalIntegration
 from .executors import parse_awx_auth, run_pre_actions_for_scheduled_run
 from .models import AwxRun, WorkflowRun
 from .scheduling import create_scheduled_job_for_run
+from .settings_helpers import get_setting
 
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 logger = logging.getLogger(__name__)
 
 
 @app.task
 def poll_awx_job(awx_run_pk: int):
     """Poll AWX job status until completion and update workflow run status."""
-    poll_seconds = int(PLUGIN_CFG.get("awx_poll_seconds", 10))
+    poll_seconds = int(get_setting("awx_poll_seconds", fallback=5))
     ar = AwxRun.objects.select_related("workflow_run").get(pk=awx_run_pk)
-    integ = ExternalIntegration.objects.get(name=PLUGIN_CFG["awx_external_integration_name"])
+    integ = ExternalIntegration.objects.get(name=get_setting("awx_external_integration_name", fallback="AWX"))
     url = integ.remote_url.rstrip("/")
     verify = integ.verify_ssl
     username, password = parse_awx_auth(integ)

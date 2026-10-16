@@ -130,14 +130,8 @@ PLUGINS.extend(
 
 # Apps configuration settings. These settings are used by various Apps that the user may have installed.
 # Each key in the dictionary is the name of an installed App and its value is a dictionary of settings.
+# Workflow Engine runtime settings are managed in the UI (Installed Apps → Configure).
+# Only set keys here when you need a deploy-time override that locks the UI field.
 PLUGINS_CONFIG = {
-    "nautobot_workflow_engine": {
-        # Optional: override ExternalIntegration name for AWX
-        "awx_external_integration_name": "AWX",  # default
-        # Directory (within GitRepository) holding workflow YAMLs
-        "workflow_dir": "workflows",  # default
-        # Polling cadence (seconds) for AWX monitoring task
-        "awx_poll_seconds": 5,
-        "show_disabled": os.getenv("SHOW_DISABLED_WORKFLOWS", "false").lower() == "true",
-    }
+    "nautobot_workflow_engine": {},
 }
