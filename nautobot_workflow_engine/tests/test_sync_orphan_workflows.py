@@ -125,7 +125,9 @@ class SyncDisablesRemovedWorkflowsTestCase(unittest.TestCase):
         filter_qs = MagicMock()
 
         with patch.object(datasources, "_disable_workflows_missing_from_repo", disable_orphans), patch.object(
-            datasources, "WorkflowHelper", SimpleNamespace(objects=SimpleNamespace(filter=MagicMock(return_value=helper_qs)))
+            datasources,
+            "WorkflowHelper",
+            SimpleNamespace(objects=SimpleNamespace(filter=MagicMock(return_value=helper_qs))),
         ), patch.object(
             datasources,
             "WorkflowFilterModule",
