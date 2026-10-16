@@ -213,7 +213,7 @@ class SyncApprovalRequiredTestCase(unittest.TestCase):
             datasources, "WorkflowAction", SimpleNamespace(objects=action_manager)
         ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)), patch.object(
             datasources, "reconcile_approval_definition", reconcile
-        ):
+        ), patch.object(datasources, "_disable_workflows_missing_from_repo"):
             datasources.sync_workflows_from_repo(repository_record, job_result, delete=False)
 
         self.assertTrue(created_defaults["approval_required"])
@@ -275,7 +275,7 @@ class SyncApprovalRequiredTestCase(unittest.TestCase):
             datasources, "WorkflowAction", SimpleNamespace(objects=action_manager)
         ), patch.object(datasources, "WorkflowHelper", SimpleNamespace(objects=helper_manager)), patch.object(
             datasources, "reconcile_approval_definition", MagicMock()
-        ):
+        ), patch.object(datasources, "_disable_workflows_missing_from_repo"):
             datasources.sync_workflows_from_repo(repository_record, job_result, delete=False)
 
         self.assertTrue(created_defaults["approval_required"])

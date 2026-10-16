@@ -113,6 +113,10 @@ class WorkflowInput(BaseModel):
         unique_together = ("workflow", "key")
         ordering = ["order", "key"]
 
+    def get_absolute_url(self, **kwargs):
+        """Return URL to the parent workflow (no dedicated detail view)."""
+        return self.workflow.get_absolute_url(**kwargs)
+
     def __str__(self):
         """Return string representation of the workflow input."""
         return f"{self.workflow}:{self.key}"
@@ -179,7 +183,7 @@ class WorkflowRun(BaseModel):
         ("partial", "Partial"),
     ]
 
-    workflow = models.ForeignKey(Workflow, on_delete=models.PROTECT)
+    workflow = models.ForeignKey(Workflow, related_name="runs", on_delete=models.PROTECT)
     requested_by = models.ForeignKey(dj_settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     inputs = models.JSONField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
@@ -240,6 +244,10 @@ class AwxRun(BaseModel):
     status = models.CharField(max_length=30, default="pending")
     raw = models.JSONField(null=True, blank=True)
 
+    def get_absolute_url(self, **kwargs):
+        """Return URL to the parent workflow run (no dedicated detail view)."""
+        return self.workflow_run.get_absolute_url(**kwargs)
+
     def __str__(self):
         """Return string representation of the AWX run."""
         return f"AWX job {self.job_id or '?'} for run {self.workflow_run_id}"
@@ -257,6 +265,13 @@ class WorkflowHelper(BaseModel):
 
         unique_together = ("source_repo", "file_path")
 
+    def get_absolute_url(self, **kwargs):
+        """Return URL to the source Git repository (no dedicated detail view).
+
+        Required so Nautobot change-logging can serialize create/delete events during git sync.
+        """
+        return self.source_repo.get_absolute_url(**kwargs)
+
     def __str__(self):
         """Return string representation of the WorkflowHelper."""
         return f"{self.source_repo.name}:{self.file_path}"
@@ -273,6 +288,13 @@ class WorkflowFilterModule(BaseModel):
         """Meta class for WorkflowFilterModule model."""
 
         unique_together = ("source_repo", "file_path")
+
+    def get_absolute_url(self, **kwargs):
+        """Return URL to the source Git repository (no dedicated detail view).
+
+        Required so Nautobot change-logging can serialize create/delete events during git sync.
+        """
+        return self.source_repo.get_absolute_url(**kwargs)
 
     def __str__(self):
         """Return string representation of the WorkflowFilterModule."""

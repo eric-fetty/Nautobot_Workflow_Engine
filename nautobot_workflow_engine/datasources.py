@@ -81,12 +81,64 @@ def _sync_repo_python_modules(repository_record, repo_path, job_result):
             job_result.log(message=f"Stored Python file: {relative_path}")
 
 
+def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result):
+    """Disable enabled workflows from this repo that were not present in the current sync.
+
+    Workflows are disabled rather than deleted so run history is preserved. Disabled
+    workflows are hidden from the launch page unless ``show_disabled`` is enabled.
+    """
+    workflows_to_disable = Workflow.objects.filter(
+        source_repo=repository_record,
+        enabled=True,
+    ).exclude(key__in=synced_workflow_keys)
+
+    disabled_count = 0
+    for workflow in workflows_to_disable:
+        action_count = workflow.actions.count()
+        input_count = workflow.inputs.count()
+        run_count = workflow.runs.count()
+
+        job_result.log(
+            message=f"Disabling workflow '{workflow.name}' (key: {workflow.key}) "
+            f"with {action_count} actions, {input_count} inputs, {run_count} runs - no longer in repository"
+        )
+
+        workflow.enabled = False
+        workflow.save(update_fields=["enabled"])
+        reconcile_approval_definition(workflow, job_result=job_result)
+        disabled_count += 1
+
+    if disabled_count > 0:
+        job_result.log(
+            message=f"Disabled {disabled_count} workflows no longer present in repository. Run history preserved."
+        )
+
+    return disabled_count
+
+
 def sync_workflows_from_repo(repository_record: GitRepository, job_result, delete=False):
-    """Sync workflow definitions and helper files from a Git repository."""
+    """Sync workflow definitions and helper files from a Git repository.
+
+    On a normal sync (``delete=False``), workflows present in the repo are upserted and
+    any previously synced workflows from this repo that are no longer present are
+    disabled so they disappear from the launch page.
+
+    When the Git repository itself is deleted (``delete=True``), all workflows sourced
+    from it are disabled and helper/filter modules are cleared.
+    """
+    if delete:
+        _disable_workflows_missing_from_repo(repository_record, set(), job_result)
+        WorkflowHelper.objects.filter(source_repo=repository_record).delete()
+        WorkflowFilterModule.objects.filter(source_repo=repository_record).delete()
+        clear_repo_script_cache(repository_record)
+        return
+
     repo_path = Path(repository_record.filesystem_path)
     wf_dir = PLUGIN_CFG["workflow_dir"]
     workflows_path = repo_path / wf_dir
     if not workflows_path.exists():
+        # Workflows directory removed — disable everything previously synced from this repo.
+        _disable_workflows_missing_from_repo(repository_record, set(), job_result)
         clear_repo_script_cache(repository_record)
         return
 
@@ -216,36 +268,8 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
                         f"[Workflow {wf.key}] Unsupported action type in phase '{phase}': {act.get('type')}"
                     )
 
-    # Disable workflows that are no longer in the repository (instead of deleting)
-    if delete:
-        workflows_to_disable = Workflow.objects.filter(
-            source_repo=repository_record,
-            enabled=True,  # Only disable currently enabled workflows
-        ).exclude(key__in=synced_workflow_keys)
-
-        disabled_count = 0
-
-        for workflow in workflows_to_disable:
-            # Count related objects for logging
-            action_count = workflow.actions.count()
-            input_count = workflow.inputs.count()
-            run_count = workflow.runs.count()
-
-            job_result.log(
-                message=f"Disabling workflow '{workflow.name}' (key: {workflow.key}) "
-                f"with {action_count} actions, {input_count} inputs, {run_count} runs - no longer in repository"
-            )
-
-            # Disable instead of delete to preserve history
-            workflow.enabled = False
-            workflow.save(update_fields=["enabled"])
-            reconcile_approval_definition(workflow, job_result=job_result)
-            disabled_count += 1
-
-        if disabled_count > 0:
-            job_result.log(
-                message=f"Disabled {disabled_count} workflows no longer present in repository. Run history preserved."
-            )
+    # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
+    _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)
 
     clear_repo_script_cache(repository_record)
 
