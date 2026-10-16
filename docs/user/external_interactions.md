@@ -12,6 +12,8 @@ URL, enable SSL verification, and attach a Secrets Group containing **Generic**
 access-type **Username** and **Password** secrets. The current client uses these
 credentials for HTTP basic authentication; it does not consume token secrets.
 
+![External Integration configured for AWX](../assets/images/integrations/01-external-integration-awx.png)
+
 Grant the account permission to launch the selected job templates and read their
 job status. Configure those templates to accept the extra variables supplied by
 the workflow.
@@ -91,6 +93,8 @@ though the underlying change window has moved or the ticket has been invalidated
 6. Check the **Enabled** box.
 7. Click **Save**.
 
+![Sync ServiceNow Scheduled Workflows job enabled](../assets/images/integrations/03-jobs-enable-servicenow-sync.png)
+
 Confirm the job detail page now shows the job as enabled. If it is still
 disabled, scheduled sync will not run.
 
@@ -107,6 +111,8 @@ runs it regularly:
    **30** minutes, or match your change-management cadence.
 4. Save the schedule and confirm it appears under **Jobs → Scheduled Jobs** and
    is enabled.
+
+    ![Scheduled Jobs list showing the recurring ServiceNow sync schedule](../assets/images/integrations/04-jobs-scheduled-servicenow-sync.png)
 
 #### Step 3: Confirm workers are running
 
