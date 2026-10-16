@@ -799,11 +799,18 @@ class WorkflowEngineConfigForm(BootstrapMixin, forms.Form):
         self.fields["show_add_new_item"].choices = content_type_choices
 
         self.file_locked_keys = []
+        settings_initial = None
         for key, field in self.fields.items():
             if is_file_locked(key):
                 self.file_locked_keys.append(key)
                 field.disabled = True
                 field.help_text = f"{field.help_text} {FILE_OVERRIDE_HELP}".strip()
+                # Disabled fields ignore POST and use initial; ensure one is present.
+                if self.initial.get(key) is None and field.initial is None:
+                    if settings_initial is None:
+                        settings_initial = self.initial_from_settings()
+                    self.initial[key] = settings_initial.get(key)
+                    field.initial = settings_initial.get(key)
 
     @classmethod
     def initial_from_settings(cls):

@@ -138,8 +138,8 @@ class WorkflowEngineConfigFormTestCase(unittest.TestCase):
         self.assertFalse(form.fields["filters_dir"].disabled)
 
     def test_cleaned_settings_skips_locked_keys(self):
+        # Locked fields are disabled and use initial (not POST), matching the config view.
         data = {
-            "workflow_dir": "from-post",
             "filters_dir": "custom-filters",
             "awx_external_integration_name": "AWX",
             "awx_poll_seconds": "7",
@@ -148,7 +148,10 @@ class WorkflowEngineConfigFormTestCase(unittest.TestCase):
         }
 
         with self._form_patches(locked_keys=["workflow_dir"]):
-            form = WorkflowEngineConfigForm(data)
+            form = WorkflowEngineConfigForm(
+                data,
+                initial=WorkflowEngineConfigForm.initial_from_settings(),
+            )
             self.assertTrue(form.is_valid(), form.errors)
             cleaned = form.cleaned_settings()
 
