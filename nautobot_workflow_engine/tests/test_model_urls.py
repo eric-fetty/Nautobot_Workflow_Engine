@@ -12,41 +12,37 @@ class InternalModelAbsoluteUrlTestCase(unittest.TestCase):
 
     def test_workflow_filter_module_delegates_to_source_repo(self):
         source_repo = SimpleNamespace(get_absolute_url=MagicMock(return_value="/api/extras/git-repositories/1/"))
-        module = models.WorkflowFilterModule(file_path="filters/string_filters.py")
-        # Bypass Django FK descriptors so this stays a pure unit test.
-        module.__dict__["source_repo"] = source_repo
+        # Call unbound to avoid Django FK descriptors in a pure unit test.
+        module = SimpleNamespace(source_repo=source_repo)
 
-        url = module.get_absolute_url(api=True)
+        url = models.WorkflowFilterModule.get_absolute_url(module, api=True)
 
         self.assertEqual(url, "/api/extras/git-repositories/1/")
         source_repo.get_absolute_url.assert_called_once_with(api=True)
 
     def test_workflow_helper_delegates_to_source_repo(self):
         source_repo = SimpleNamespace(get_absolute_url=MagicMock(return_value="/extras/git-repositories/1/"))
-        helper = models.WorkflowHelper(file_path="scripts/echo.py")
-        helper.__dict__["source_repo"] = source_repo
+        helper = SimpleNamespace(source_repo=source_repo)
 
-        url = helper.get_absolute_url()
+        url = models.WorkflowHelper.get_absolute_url(helper)
 
         self.assertEqual(url, "/extras/git-repositories/1/")
         source_repo.get_absolute_url.assert_called_once_with()
 
     def test_workflow_input_delegates_to_workflow(self):
         workflow = SimpleNamespace(get_absolute_url=MagicMock(return_value="/plugins/workflows/sample/launch/"))
-        workflow_input = models.WorkflowInput(key="hostname")
-        workflow_input.__dict__["workflow"] = workflow
+        workflow_input = SimpleNamespace(workflow=workflow)
 
-        url = workflow_input.get_absolute_url()
+        url = models.WorkflowInput.get_absolute_url(workflow_input)
 
         self.assertEqual(url, "/plugins/workflows/sample/launch/")
         workflow.get_absolute_url.assert_called_once_with()
 
     def test_awx_run_delegates_to_workflow_run(self):
         workflow_run = SimpleNamespace(get_absolute_url=MagicMock(return_value="/plugins/runs/abc/"))
-        awx_run = models.AwxRun(template_id=1)
-        awx_run.__dict__["workflow_run"] = workflow_run
+        awx_run = SimpleNamespace(workflow_run=workflow_run)
 
-        url = awx_run.get_absolute_url(api=False)
+        url = models.AwxRun.get_absolute_url(awx_run, api=False)
 
         self.assertEqual(url, "/plugins/runs/abc/")
         workflow_run.get_absolute_url.assert_called_once_with(api=False)
