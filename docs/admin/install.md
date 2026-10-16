@@ -109,14 +109,43 @@ Use HTTPS and verified certificates for remote services.
 
 ## Jobs Installed by the App
 
-Enabling the app registers several Nautobot jobs. Most are hidden because the
-engine triggers them automatically; a few require your attention.
+After you run `nautobot-server post_upgrade`, Nautobot creates Job records for
+this app. Nautobot starts most app jobs **disabled**. This app then turns on the
+two jobs it needs so scheduled and approval-gated runs work without extra clicks.
 
-| Job | Visible | Purpose |
-| --- | --- | --- |
-| Execute Scheduled Workflow | Hidden | Runs a pre-created workflow run at its scheduled time. |
-| Clean Orphaned Workflow Runs | Hidden | Deletes workflow runs stuck in **Scheduled** or **Pending** with no matching scheduled job. |
-| Sync ServiceNow Scheduled Workflows | Visible | Revalidates scheduled ServiceNow-backed runs against their change tickets. See [ServiceNow](../user/external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow). |
+### What the app enables for you
+
+These two jobs are **enabled automatically** on every `post_upgrade` (and whenever
+the database-ready signal runs for this app):
+
+| Job | Visible | Enabled by default? | Purpose |
+| --- | --- | --- | --- |
+| Execute Scheduled Workflow | Hidden | **Yes** (app turns it on) | Runs a pre-created workflow run at its scheduled time. Required for deferred, approval-gated, and ServiceNow-scheduled runs. |
+| Clean Orphaned Workflow Runs | Hidden | **Yes** (app turns it on) | Deletes workflow runs stuck in **Scheduled** or **Pending** with no matching scheduled job. |
+
+You do **not** need to find or enable these jobs in the UI for basic scheduling to
+work. They are hidden on purpose because the engine triggers them; you still do
+not need to un-hide them just to keep them enabled.
+
+!!! warning
+    Do **not** disable **Execute Scheduled Workflow** or **Clean Orphaned Workflow
+    Runs** in **Jobs → Jobs**. If the executor is disabled, Nautobot will refuse to
+    create or run scheduled workflow jobs, and deferred / approval / ServiceNow
+    schedules will fail. If you disable them by mistake, run
+    `nautobot-server post_upgrade` again; the app will turn them back on.
+
+### What you must enable yourself (ServiceNow only)
+
+| Job | Visible | Enabled by default? | Purpose |
+| --- | --- | --- | --- |
+| Sync ServiceNow Scheduled Workflows | Visible | **No — you enable it** | Revalidates scheduled ServiceNow-backed runs against their change tickets. |
+
+If you schedule workflows from ServiceNow change windows, you must enable this job
+and create a recurring schedule yourself. Step-by-step clicks:
+
+[Keeping Scheduled Runs in Sync with ServiceNow](../user/external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
+
+If you do not use ServiceNow scheduling, you can ignore that job.
 
 ### Cleaning Up Orphaned Workflow Runs
 
@@ -126,9 +155,17 @@ removed. Orphaned runs block normal operations and clutter run history. The
 **Clean Orphaned Workflow Runs** job deletes those orphaned records so history
 reflects only live runs.
 
-Run it on demand or schedule it to run periodically if you expect stuck or
-orphaned runs. It deletes only runs that have no corresponding scheduled job;
-runs with a live scheduled job are left untouched.
+The app already **enables** this job. You can run it once from the UI when you
+need a cleanup, or optionally schedule it to run periodically:
+
+1. Open **Jobs → Jobs**.
+2. Turn on the filter or option that shows **hidden** jobs (this job is hidden).
+3. Open **Clean Orphaned Workflow Runs**.
+4. Run it now, **or** create a **Scheduled Job** (for example daily) if you expect
+   stuck runs often.
+
+It deletes only runs that have no corresponding scheduled job; runs with a live
+scheduled job are left untouched.
 
 !!! warning
     This job deletes workflow run records. Review its logs after the first runs

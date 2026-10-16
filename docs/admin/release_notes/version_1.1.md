@@ -12,6 +12,17 @@ This document describes all new features and changes in the release. The format 
 <!-- towncrier release notes start -->
 
 
+## v1.1.1 (2026-10-15)
+
+### Fixed
+
+- #auto-enable-jobs - Fixed required Workflow Engine jobs remaining disabled after install by auto-enabling the scheduled executor and orphan cleaner on database ready.
+- #installed-apps-version - Fixed Installed Apps showing a stale package version by preferring pyproject.toml in source checkouts.
+
+### Documentation
+
+- #servicenow-job-docs - Documented click-by-click steps to enable and schedule the Sync ServiceNow Scheduled Workflows job during setup.
+
 ## v1.1.0 (2026-10-15)
 
 ### Added

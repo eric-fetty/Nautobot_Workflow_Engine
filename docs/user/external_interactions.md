@@ -74,16 +74,57 @@ scheduled ServiceNow-backed run against its current change ticket. For each run 
 reschedules the execution if the window has moved and cancels the run if the
 ticket is no longer in an allowed state.
 
-Enable the job and schedule it to run on a recurring interval (for example every
-15 or 30 minutes, or to match your change-management cadence) so the local
-schedule stays aligned with ServiceNow. Without this recurring sync, a run can
-fire even though the underlying change window has moved or the ticket has been
-invalidated. The job logs how many runs it synced, rescheduled, and canceled.
+Unlike the hidden executor and orphan-cleaner jobs (which the app enables for
+you during install / `post_upgrade`), **this ServiceNow sync job stays disabled
+until you turn it on**. If you skip the steps below, a run can still fire even
+though the underlying change window has moved or the ticket has been invalidated.
+
+#### Step 1: Enable the job
+
+1. Log in to Nautobot as a user who can manage jobs.
+2. In the top navigation, open **Jobs**, then click **Jobs** again (the job list).
+3. Find **Sync ServiceNow Scheduled Workflows**.
+   - It is listed under the **Workflow Engine** grouping.
+   - It is a **visible** job (you do not need the “show hidden” filter).
+4. Click the job name to open its detail page.
+5. Click **Edit**.
+6. Check the **Enabled** box.
+7. Click **Save**.
+
+Confirm the job detail page now shows the job as enabled. If it is still
+disabled, scheduled sync will not run.
+
+#### Step 2: Schedule it to run on a recurring interval
+
+Enabling the job alone is not enough. You must also create a schedule so Nautobot
+runs it regularly:
+
+1. Stay on (or reopen) **Sync ServiceNow Scheduled Workflows**.
+2. Create a **Scheduled Job** / schedule for this job (Nautobot’s schedule UI on
+   the job, or **Jobs → Scheduled Jobs** then add a schedule that points at this
+   job).
+3. Choose a **recurring** interval. A good starting point is every **15** or
+   **30** minutes, or match your change-management cadence.
+4. Save the schedule and confirm it appears under **Jobs → Scheduled Jobs** and
+   is enabled.
+
+#### Step 3: Confirm workers are running
+
+The sync job (and any scheduled workflow run) only executes if Nautobot’s
+background **worker** and **scheduler** services are running. See the
+[install prerequisites](../admin/install.md#prerequisites).
+
+After a successful sync run, check **Jobs → Job Results** for that job. The job
+logs how many runs it synced, rescheduled, and canceled.
+
+!!! warning
+    If you enable the job but never create a recurring schedule, nothing keeps
+    local schedules aligned with ServiceNow. Stale change windows can still fire.
 
 !!! note
-    This job only refreshes the schedule; it does not execute runs. Firing a
-    run still goes through the executor job, and cancellation follows the normal
-    scheduled-run rules.
+    This job only refreshes the schedule; it does not execute runs. Firing a run
+    still goes through **Execute Scheduled Workflow** (already enabled by the
+    app). Cancellation follows the normal scheduled-run rules.
 
 ## Workflow-Specific Services
 
