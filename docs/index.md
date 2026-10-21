@@ -12,7 +12,7 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 
 ## Use and Extend Workflows
 
-- [Workflow authoring reference](user/app_use_cases.md): inputs, validation, actions, and examples.
+- [Workflow authoring reference](user/app_use_cases.md): inputs, validation, actions, the UI builder, and examples.
 - [Integrations](user/external_interactions.md): AWX and ServiceNow.
 - [Custom filters](dev/extending.md): reusable Python helpers and Jinja filters.
 - [Frequently asked questions](user/faq.md): scheduling and cancellation.

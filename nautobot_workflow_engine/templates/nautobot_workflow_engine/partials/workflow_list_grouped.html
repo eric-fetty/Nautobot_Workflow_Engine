@@ -74,6 +74,11 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-end">
+                                    {% if wf.can_change %}
+                                        <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="mdi mdi-pencil"></i> Edit
+                                        </a>
+                                    {% endif %}
                                     {% if can_execute_workflows %}
                                         <a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}" class="btn btn-sm btn-primary">
                                             <i class="mdi mdi-play"></i> Launch Workflow

@@ -8,6 +8,11 @@ workflow_items = (
         name="Launch",
         permissions=["nautobot_workflow_engine.view_workflow"],
     ),
+    NavMenuItem(
+        link="plugins:nautobot_workflow_engine:workflow_builder_create",
+        name="Builder",
+        permissions=["nautobot_workflow_engine.change_workflow"],
+    ),
 )
 
 reporting_items = (

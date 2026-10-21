@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if workflow %}Edit {{ workflow.name }}{% else %}New Workflow{% endif %}{% endblock title %}
+
+{% block content %}
+    <style>
+        .workflow-builder-preview {
+            top: 4.5rem;
+        }
+        .workflow-builder-yaml {
+            max-height: 70vh;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        .workflow-builder-card .card-header .btn-link {
+            color: inherit;
+            text-decoration: none;
+        }
+    </style>
+    <div class="row">
+        <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h1 class="mb-0">{% if workflow %}Edit workflow{% else %}New workflow{% endif %}</h1>
+                <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary">Back to Launch</a>
+            </div>
+            {% if errors %}
+                <div class="alert alert-danger" role="alert">
+                    <strong>Fix these fields before saving.</strong>
+                    <ul class="mb-0 mt-2">
+                        {% for error in errors %}
+                            <li>{% if error.path %}{{ error.path }}: {% endif %}{{ error.message }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+            <form method="post" id="workflow-builder-form">
+                {% csrf_token %}
+                <input type="hidden" name="payload" id="builder-payload-input" value="">
+
+                <div class="card mb-3 workflow-builder-card">
+                    <div class="card-header">
+                        <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#builder-metadata-body" aria-expanded="true">
+                            Metadata
+                        </button>
+                    </div>
+                    <div id="builder-metadata-body" class="collapse show">
+                        <div class="card-body" id="builder-metadata"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-3 workflow-builder-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#builder-inputs-body" aria-expanded="true">
+                            Inputs
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-action="add-input">Add input</button>
+                    </div>
+                    <div id="builder-inputs-body" class="collapse show">
+                        <div class="card-body" id="builder-inputs"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-3 workflow-builder-card">
+                    <div class="card-header">
+                        <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#builder-actions-body" aria-expanded="true">
+                            Actions
+                        </button>
+                    </div>
+                    <div id="builder-actions-body" class="collapse show">
+                        <div class="card-body" id="builder-actions"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-3 workflow-builder-card">
+                    <div class="card-header">
+                        <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#builder-schedule-body" aria-expanded="true">
+                            Schedule
+                        </button>
+                    </div>
+                    <div id="builder-schedule-body" class="collapse show">
+                        <div class="card-body" id="builder-schedule"></div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 mb-4">
+                    <button type="submit" class="btn btn-primary">Save workflow</button>
+                    <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+        <div class="col-lg-5">
+            <div class="card sticky-top workflow-builder-preview">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>YAML preview</span>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" id="copy-yaml">Copy YAML</button>
+                        <button type="button" class="btn btn-outline-secondary" id="download-yaml">Download YAML</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <pre id="yaml-preview" class="workflow-builder-yaml mb-2"></pre>
+                    <div id="yaml-errors" class="text-danger small"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{ builder_config|json_script:"workflow-builder-config" }}
+{% endblock content %}
+
+{% block javascript %}
+    {{ block.super }}
+    <script src="{% static 'nautobot_workflow_engine/js/workflow_builder.js' %}"></script>
+{% endblock javascript %}

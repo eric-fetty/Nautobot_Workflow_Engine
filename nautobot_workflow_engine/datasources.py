@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from nautobot.apps.datasources import DatasourceContent
 from nautobot.extras.models import GitRepository
 
@@ -116,6 +117,139 @@ def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys
     return disabled_count
 
 
+def save_workflow_definition(data, *, source_repo, job_result=None):
+    """Create or update a workflow and replace its inputs and actions.
+
+    Git sync and the workflow builder both call this so ``raw_definition`` and the
+    normalized ``WorkflowInput`` / ``WorkflowAction`` rows stay in one transaction.
+    Nautobot script actions are checked against ``WorkflowHelper`` when ``source_repo``
+    is set, which is always the case for git sync.
+
+    Args:
+        data: Parsed workflow definition.
+        source_repo: Git repository that owns the workflow, or None for an AWX-only builder save.
+        job_result: Optional job result passed through to approval reconciliation.
+
+    Returns:
+        The saved ``Workflow`` instance.
+    """
+    with transaction.atomic():
+        return _save_workflow_definition(data, source_repo=source_repo, job_result=job_result)
+
+
+def _save_workflow_definition(data, *, source_repo, job_result=None):
+    """Persist one workflow definition. Caller holds the transaction."""
+    yaml_enabled = data.get("enabled", True)
+    # Prefer approval_required; accept legacy requires_approval from early drafts.
+    if "approval_required" in data:
+        yaml_approval_required = bool(data.get("approval_required"))
+    else:
+        yaml_approval_required = bool(data.get("requires_approval", False))
+
+    wf, _created = Workflow.objects.update_or_create(
+        key=data["key"],
+        defaults={
+            "name": data.get("name", data["key"]),
+            "description": data.get("description", ""),
+            "category": data.get("category", ""),
+            "enabled": yaml_enabled,
+            "approval_required": yaml_approval_required,
+            "manual_duration_minutes": data.get("manual_duration_minutes"),
+            "raw_definition": data,
+            "source_repo": source_repo,
+        },
+    )
+    reconcile_approval_definition(wf, job_result=job_result)
+    wf.inputs.all().delete()
+    for order, ip in enumerate(data.get("inputs", []) or [], start=1):
+        ct = None
+        if ip.get("type") in ("object", "multiobject") and ip.get("model"):
+            app_label, model = ip["model"].split(".")
+            try:
+                ct = ContentType.objects.get(app_label=app_label, model=model.lower())
+            except ContentType.DoesNotExist:
+                raise ValueError(f"[Workflow {wf.key}] Invalid model for input {ip['key']}: {ip['model']}")
+
+        # Normalize validators:
+        # - support either a single "regex" (with optional message/flags near root)
+        # - or a list under "validators", e.g. [{"regex": "...", "flags": ["IGNORECASE"], "message": "..."}]
+        validators = ip.get("validators")
+        if not validators:
+            if "regex" in ip:
+                v = {"regex": ip.get("regex")}
+                if "message" in ip:
+                    v["message"] = ip["message"]
+                if "flags" in ip:
+                    v["flags"] = ip["flags"]
+                validators = [v]
+
+        WorkflowInput.objects.create(
+            workflow=wf,
+            key=ip["key"],
+            label=ip.get("label", ip["key"]),
+            input_type=ip["type"],
+            content_type=ct,
+            required=ip.get("required", False),
+            default=ip.get("default"),
+            depends_on=ip.get("depends_on", []),
+            filter_query=ip.get("filter", {}).get("query") if isinstance(ip.get("filter"), dict) else None,
+            choices=ip.get("choices"),
+            columns=ip.get("columns"),
+            visible_when=ip.get("show_if"),
+            validators=validators,
+            order=order,
+        )
+
+    # Use bulk deletion to avoid get_absolute_url issues
+    WorkflowAction.objects.filter(workflow=wf).delete()
+
+    phased_actions = [
+        ("pre", _get_action_list(data, "pre_actions", "pre-actions", "before_actions", "before-actions")),
+        ("main", _get_action_list(data, "actions", "main_actions", "main-actions")),
+        ("post", _get_action_list(data, "post_actions", "post-actions", "after_actions", "after-actions")),
+    ]
+
+    for phase, actions in phased_actions:
+        for order, act in enumerate(actions, start=1):
+            if act.get("type") == "nautobot":
+                script_path = (act.get("script") or "").lstrip("/")
+                if not script_path:
+                    raise ValueError(f"[Workflow {wf.key}] 'script' is required for nautobot actions")
+                if source_repo is None:
+                    raise ValueError(f"[Workflow {wf.key}] Nautobot actions require a source Git repository")
+                if not WorkflowHelper.objects.filter(source_repo=source_repo, file_path=script_path).exists():
+                    raise ValueError(f"[Workflow {wf.key}] Script not found in repository: {script_path}")
+
+                WorkflowAction.objects.create(
+                    workflow=wf,
+                    phase=phase,
+                    order=order,
+                    action_type="nautobot",
+                    name=act.get("name", "nautobot"),
+                    when=act.get("when", ""),
+                    script_path="/" + script_path,
+                    with_vars=act.get("with", {}),
+                )
+
+            elif act.get("type") == "awx":
+                WorkflowAction.objects.create(
+                    workflow=wf,
+                    phase=phase,
+                    order=order,
+                    action_type="awx",
+                    name=act.get("name", "awx"),
+                    when=act.get("when", ""),
+                    awx_template_id=act.get("template_id"),
+                    awx_extra_vars=act.get("extra_vars", {}),
+                    monitor=act.get("monitor", True),
+                )
+
+            else:
+                raise ValueError(f"[Workflow {wf.key}] Unsupported action type in phase '{phase}': {act.get('type')}")
+
+    return wf
+
+
 def sync_workflows_from_repo(repository_record: GitRepository, job_result, delete=False):
     """Sync workflow definitions and helper files from a Git repository.
 
@@ -157,116 +291,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
         if workflow_key:
             synced_workflow_keys.add(workflow_key)
 
-        # Check if workflow is explicitly disabled in YAML
-        yaml_enabled = data.get("enabled", True)
-        # Prefer approval_required; accept legacy requires_approval from early drafts.
-        if "approval_required" in data:
-            yaml_approval_required = bool(data.get("approval_required"))
-        else:
-            yaml_approval_required = bool(data.get("requires_approval", False))
-
-        wf, _ = Workflow.objects.update_or_create(
-            key=data["key"],
-            defaults={
-                "name": data.get("name", data["key"]),
-                "description": data.get("description", ""),
-                "category": data.get("category", ""),
-                "enabled": yaml_enabled,  # Use enabled flag from YAML
-                "approval_required": yaml_approval_required,
-                "manual_duration_minutes": data.get("manual_duration_minutes"),
-                "raw_definition": data,
-                "source_repo": repository_record,
-            },
-        )
-        reconcile_approval_definition(wf, job_result=job_result)
-        wf.inputs.all().delete()
-        for order, ip in enumerate(data.get("inputs", []), start=1):
-            ct = None
-            if ip.get("type") in ("object", "multiobject") and ip.get("model"):
-                app_label, model = ip["model"].split(".")
-                try:
-                    ct = ContentType.objects.get(app_label=app_label, model=model.lower())
-                except ContentType.DoesNotExist:
-                    raise ValueError(f"[Workflow {wf.key}] Invalid model for input {ip['key']}: {ip['model']}")
-
-            # Normalize validators:
-            # - support either a single "regex" (with optional message/flags near root)
-            # - or a list under "validators", e.g. [{"regex": "...", "flags": ["IGNORECASE"], "message": "..."}]
-            validators = ip.get("validators")
-            if not validators:
-                if "regex" in ip:
-                    v = {"regex": ip.get("regex")}
-                    if "message" in ip:
-                        v["message"] = ip["message"]
-                    if "flags" in ip:
-                        v["flags"] = ip["flags"]
-                    validators = [v]
-
-            WorkflowInput.objects.create(
-                workflow=wf,
-                key=ip["key"],
-                label=ip.get("label", ip["key"]),
-                input_type=ip["type"],
-                content_type=ct,
-                required=ip.get("required", False),
-                default=ip.get("default"),
-                depends_on=ip.get("depends_on", []),
-                filter_query=ip.get("filter", {}).get("query"),
-                choices=ip.get("choices"),
-                columns=ip.get("columns"),
-                visible_when=ip.get("show_if"),
-                validators=validators,
-                order=order,
-            )
-        # Use bulk deletion to avoid get_absolute_url issues
-        WorkflowAction.objects.filter(workflow=wf).delete()
-
-        phased_actions = [
-            ("pre", _get_action_list(data, "pre_actions", "pre-actions", "before_actions", "before-actions")),
-            # backwards-compatible existing key
-            ("main", _get_action_list(data, "actions", "main_actions", "main-actions")),
-            ("post", _get_action_list(data, "post_actions", "post-actions", "after_actions", "after-actions")),
-        ]
-
-        for phase, actions in phased_actions:
-            for order, act in enumerate(actions, start=1):
-                if act.get("type") == "nautobot":
-                    script_path = (act.get("script") or "").lstrip("/")
-                    if not script_path:
-                        raise ValueError(f"[Workflow {wf.key}] 'script' is required for nautobot actions")
-
-                    # Verify the script exists in WorkflowHelper
-                    if not WorkflowHelper.objects.filter(source_repo=repository_record, file_path=script_path).exists():
-                        raise ValueError(f"[Workflow {wf.key}] Script not found in repository: {script_path}")
-
-                    WorkflowAction.objects.create(
-                        workflow=wf,
-                        phase=phase,
-                        order=order,
-                        action_type="nautobot",
-                        name=act.get("name", "nautobot"),
-                        when=act.get("when", ""),
-                        script_path="/" + script_path,
-                        with_vars=act.get("with", {}),
-                    )
-
-                elif act.get("type") == "awx":
-                    WorkflowAction.objects.create(
-                        workflow=wf,
-                        phase=phase,
-                        order=order,
-                        action_type="awx",
-                        name=act.get("name", "awx"),
-                        when=act.get("when", ""),
-                        awx_template_id=act.get("template_id"),
-                        awx_extra_vars=act.get("extra_vars", {}),
-                        monitor=act.get("monitor", True),
-                    )
-
-                else:
-                    raise ValueError(
-                        f"[Workflow {wf.key}] Unsupported action type in phase '{phase}': {act.get('type')}"
-                    )
+        save_workflow_definition(data, source_repo=repository_record, job_result=job_result)
 
     # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
     _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)

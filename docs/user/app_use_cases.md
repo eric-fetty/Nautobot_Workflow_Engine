@@ -34,6 +34,16 @@ actions:
       param: "{{ inputs.field_key }}"
 ```
 
+## Building a Workflow in the UI
+
+Users with the `nautobot_workflow_engine.change_workflow` permission can open **Workflows → Builder** and author the same definition the git sync accepts. The page is split into Metadata, Inputs, Actions, and Schedule. A read-only YAML pane updates from the server as you edit.
+
+**Save workflow** writes `Workflow.raw_definition` and replaces the `WorkflowInput` and `WorkflowAction` rows in one transaction, so the workflow can be launched without a repository sync. **Copy YAML** and **Download YAML** export that same definition. Nautobot script actions still execute from a Git repository: choose the repository that contains the script, and pick the script from the files synced into that repository. AWX-only workflows can omit the repository. If you attach a repository, export the YAML into that repository as well. The next sync disables workflows from that repository whose YAML is no longer present.
+
+Enabling **ServiceNow scheduling integration** stores the settings under `schedule.servicenow`. Choose the External Integration when it is not the default `ServiceNow` integration, and choose which workflow input collects the change ticket (`change_input_key`). The launch form then offers **Use ServiceNow Change Window**. Allowed states, timezone, start and end fields, ticket pattern, and whether the change must be approved are the same keys the sync job already reads. The ticket number and the change window itself are recorded on the run at launch time.
+
+Editing a workflow loads its stored definition, including keys the form does not display, and writes those keys back on save. The workflow key cannot be changed after the workflow is created.
+
 ## Requiring Nautobot Approval (3.2+)
 
 On Nautobot 3.2 and later, set `approval_required: true` on a workflow to integrate with

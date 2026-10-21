@@ -64,6 +64,27 @@ def normalize_change_ticket(change_ticket):
     return str(change_ticket).strip().upper()
 
 
+def integration_name_for_workflow(workflow, default="ServiceNow"):
+    """Return the External Integration name configured on a workflow.
+
+    Workflows that omit ``schedule.servicenow.integration_name`` keep using the
+    historical ``ServiceNow`` integration.
+
+    Args:
+        workflow: Workflow instance or any object with ``servicenow_schedule_config``.
+        default: Name used when the schedule block does not set one.
+
+    Returns:
+        External Integration name.
+    """
+    from .builders import integration_name_from_definition
+
+    config = getattr(workflow, "servicenow_schedule_config", None) or {}
+    if not isinstance(config, dict):
+        return default
+    return integration_name_from_definition({"schedule": {"servicenow": config}}, default=default)
+
+
 def _normalize_token(value):
     """Normalize free-form tokens for case-insensitive comparisons."""
     return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())

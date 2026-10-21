@@ -96,6 +96,11 @@
                 <span class="badge bg-secondary">{{ object_list|length }}</span>
             </h5>
             <div class="d-flex align-items-center gap-2">
+                {% if can_change_workflows %}
+                    <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_create' %}" class="btn btn-sm btn-primary">
+                        <i class="mdi mdi-plus"></i> Builder
+                    </a>
+                {% endif %}
                 <div class="btn-group btn-group-sm" role="group" aria-label="Display mode">
                     <a href="{% if list_display_query %}?{{ list_display_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}"
                        class="btn btn-outline-secondary {% if not is_tiles_display %}active{% endif %}">
@@ -137,10 +142,15 @@
                         </p>
                     {% else %}
                         <p class="text-muted">
-                            Workflows are loaded from Git repositories. 
+                            Workflows are loaded from Git repositories, or created in the builder.
                             <br>Configure a Git repository containing workflow YAML files and sync it to get started.
                         </p>
-                        <a href="{% url 'extras:gitrepository_list' %}" class="btn btn-primary">
+                        {% if can_change_workflows %}
+                            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_create' %}" class="btn btn-primary">
+                                <i class="mdi mdi-plus"></i> Open Builder
+                            </a>
+                        {% endif %}
+                        <a href="{% url 'extras:gitrepository_list' %}" class="btn btn-secondary">
                             <i class="mdi mdi-git"></i> Configure Git Repository
                         </a>
                     {% endif %}
