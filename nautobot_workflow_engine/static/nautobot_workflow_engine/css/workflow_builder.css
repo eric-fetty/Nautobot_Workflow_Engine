@@ -863,6 +863,21 @@ body.nwe-studio-body .nb-page-header {
     margin-bottom: 0.45rem;
 }
 
+.nwe-frow > .form-select,
+.nwe-frow > .form-control,
+.nwe-cond > .form-select,
+.nwe-cond > .form-control,
+.nwe-var-row > .form-select,
+.nwe-var-row > .form-control {
+    width: auto;
+    flex: 1 1 8.5rem;
+    min-width: 7rem;
+}
+
+.nwe-frow > .nwe-chips {
+    flex: 2 1 12rem;
+}
+
 .nwe-where {
     width: 3.2rem;
     font-size: 0.72rem;

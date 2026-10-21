@@ -846,9 +846,12 @@ function filterValueControl(input, row, base, meta, others) {
         ]);
     }
     const choices = meta?.choices || [];
-    if ((meta?.kind === "choice" || meta?.kind === "object") && row.op === "is one of") {
+    if ((meta?.kind === "choice" || meta?.kind === "object") && (row.op === "is one of" || row.op === "is not one of")) {
         const selected = new Set(String(row.value || "").split(",").map((part) => part.trim()).filter(Boolean));
-        return h("select", { class: "form-select form-select-sm", multiple: true, "data-multi": `${base}.value` }, choices.map((name) => h("option", { value: name, text: name, selected: selected.has(name) })));
+        return h("div", { class: "nwe-chips" }, choices.map((name) => h("label", { class: `nwe-check ${selected.has(name) ? "on" : ""}` }, [
+            h("input", { type: "checkbox", "data-chip": `${base}.value`, value: name, checked: selected.has(name) }),
+            h("span", { text: name }),
+        ])));
     }
     if (meta?.kind === "choice" || meta?.kind === "object") {
         return h("select", { class: "form-select form-select-sm", "data-bind": `${base}.value` }, [
@@ -1655,6 +1658,13 @@ app.addEventListener("change", (event) => {
         const list = payload.schedule.allowed_states || [];
         payload.schedule.allowed_states = target.checked ? [...list, target.dataset.state] : list.filter((name) => name !== target.dataset.state);
         renderEditor();
+        touch();
+        return;
+    }
+    if (target.dataset.chip) {
+        const boxes = document.querySelectorAll(`[data-chip="${CSS.escape(target.dataset.chip)}"]`);
+        assign(target.dataset.chip, Array.from(boxes).filter((box) => box.checked).map((box) => box.value).join(", "));
+        target.closest("label")?.classList.toggle("on", target.checked);
         touch();
         return;
     }

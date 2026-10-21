@@ -3,7 +3,7 @@
 {% load static %}
 {% block title %}Launch: {{ workflow.name }}{% endblock title %}
 {% block content %}
-  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v11">
+  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v12">
   <div class="d-flex align-items-start gap-2 mb-3 flex-wrap">
     <div>
       <h1 class="h3 mb-0">{{ workflow.name }}</h1>
@@ -1423,7 +1423,7 @@
             emptyMsg.style.color = 'var(--bs-secondary-color, #6c757d)';
             emptyMsg.style.fontStyle = 'italic';
             emptyMsg.style.padding = '8px';
-            emptyMsg.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
+            emptyMsg.textContent = 'No items yet.';
             listDisplay.appendChild(emptyMsg);
             return;
           }
@@ -2636,7 +2636,7 @@
                 resetEmpty.style.color = '#666';
                 resetEmpty.style.fontStyle = 'italic';
                 resetEmpty.style.padding = '8px';
-                resetEmpty.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
+                resetEmpty.textContent = 'No items yet.';
                 listDisplay.appendChild(resetEmpty);
               }
               var textInput = container.querySelector('input[type="text"]');
