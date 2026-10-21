@@ -9,9 +9,17 @@ workflow_items = (
         permissions=["nautobot_workflow_engine.view_workflow"],
     ),
     NavMenuItem(
+        link="plugins:nautobot_workflow_engine:workflows_list",
+        name="Manage workflows",
+        permissions=["nautobot_workflow_engine.view_workflow"],
+        # Nautobot keys menu items by URL. Launch already uses this view, so the
+        # query string keeps both entries without a second page.
+        query_params={"manage": "1"},
+    ),
+    NavMenuItem(
         link="plugins:nautobot_workflow_engine:workflow_builder_create",
-        name="Builder",
-        permissions=["nautobot_workflow_engine.change_workflow"],
+        name="Create workflow",
+        permissions=["nautobot_workflow_engine.add_workflow"],
     ),
 )
 

@@ -8,6 +8,7 @@ This document describes all new features and changes in the release. The format 
 - Operators configure approver groups and stages in the Nautobot Approvals UI after sync; the app creates definition shells only.
 - Includes related scheduling/UI polish, migration cleanup for an orphaned experimental column, and documentation for authors and administrators.
 - Package compatibility remains Nautobot `>=3.0.0,<4.0.0` and Python `>=3.10,<3.14`. The approval feature is a no-op on Nautobot versions below 3.2.
+- Workflow Jinja (`when`, `with`, `extra_vars`, choices, and filter queries) now renders in a sandbox. Templates that reach private attributes or call methods that change data are rejected. The patterns the sandbox refuses include `cycler.__init__.__globals__`, `lipsum.__globals__`, `joiner.__init__.__globals__`, `namespace.__init__.__globals__`, and `{{ user.password }}`.
 
 <!-- towncrier release notes start -->
 

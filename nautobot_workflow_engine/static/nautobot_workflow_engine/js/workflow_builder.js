@@ -31,6 +31,7 @@
     const COLUMN_TYPES = [
         ["string", "String"],
         ["integer", "Integer"],
+        ["number", "Number"],
         ["boolean", "Boolean"],
         ["choice", "Choice"],
     ];
@@ -38,7 +39,44 @@
     form.addEventListener("input", onField);
     form.addEventListener("change", onField);
     form.addEventListener("click", onClick);
-    form.addEventListener("submit", function onSubmit() {
+    form.addEventListener("submit", function onSubmit(event) {
+        if (config.read_only) {
+            event.preventDefault();
+            return;
+        }
+        if (config.approval_was_required && !state.approval_required) {
+            if (config.pending_approvals) {
+                event.preventDefault();
+                window.alert(config.pending_approvals + " runs are waiting for approval. Resolve them first.");
+                state.approval_required = true;
+                render();
+                return;
+            }
+            if ((config.approval_stages || []).length) {
+                const lines = config.approval_stages.map(function describeStage(stage) {
+                    return (
+                        stage.sequence +
+                        ". " +
+                        stage.name +
+                        " (at least " +
+                        stage.min_approvers +
+                        ", " +
+                        (stage.approver_group_name || "group") +
+                        ")"
+                    );
+                });
+                if (!window.confirm("Turn approval off?\n" + lines.join("\n"))) {
+                    event.preventDefault();
+                    state.approval_required = true;
+                    render();
+                    return;
+                }
+                const confirmInput = document.getElementById("approval-confirm");
+                if (confirmInput) {
+                    confirmInput.value = "1";
+                }
+            }
+        }
         document.getElementById("builder-payload-input").value = JSON.stringify(serialize());
     });
     document.getElementById("copy-yaml").addEventListener("click", copyYaml);
@@ -70,7 +108,7 @@
             name: payload.name || "",
             description: payload.description || "",
             category: payload.category || "",
-            enabled: payload.enabled !== false,
+            enabled: Boolean(payload.enabled),
             approval_required: Boolean(payload.approval_required),
             manual_duration_minutes: payload.manual_duration_minutes == null ? "" : String(payload.manual_duration_minutes),
             source_repo: payload.source_repo || "",
@@ -95,7 +133,9 @@
             depends_on: input.depends_on || [],
             show_if_rows: showIfToRows(input.show_if),
             validators: (input.validators || []).map(normalizeValidator),
-            choices: input.choices || [],
+            choices: Array.isArray(input.choices) ? input.choices.map(normalizeChoice) : [],
+            choices_template:
+                typeof input.choices === "string" ? input.choices : input.choices_template || "",
             model: input.model || "",
             filter_query: input.filter_query || "",
             columns: (input.columns || []).map(normalizeColumn),
@@ -172,7 +212,7 @@
             category: state.category,
             enabled: Boolean(state.enabled),
             approval_required: Boolean(state.approval_required),
-            manual_duration_minutes: state.manual_duration_minutes === "" ? null : Number(state.manual_duration_minutes),
+            manual_duration_minutes: durationForPayload(state.manual_duration_minutes),
             source_repo: state.source_repo,
             preserved: state.preserved || {},
             schedule: Object.assign({}, state.schedule),
@@ -208,7 +248,7 @@
             depends_on: input.depends_on || [],
             show_if: showIf,
             validators: (input.validators || []).map(serializeValidator),
-            choices: input.choices || [],
+            choices: input.choices_template ? input.choices_template : input.choices || [],
             model: input.model,
             filter_query: input.filter_query,
             columns: (input.columns || []).map(serializeColumn),
@@ -267,7 +307,7 @@
         if (input.type === "integer" && /^-?\d+$/.test(String(input.default))) {
             return Number(input.default);
         }
-        if (["list", "listdict", "multichoice", "multiobject"].includes(input.type)) {
+        if (["list", "listdict", "multichoice", "multiobject", "object"].includes(input.type)) {
             try {
                 return JSON.parse(input.default);
             } catch (error) {
@@ -295,6 +335,49 @@
         renderInputs();
         renderActions();
         renderSchedule();
+        if (config.read_only) {
+            form.querySelectorAll("input, select, textarea, button").forEach(function disableControl(node) {
+                if (node.type === "hidden") {
+                    return;
+                }
+                node.disabled = true;
+            });
+        }
+    }
+
+    function durationForPayload(value) {
+        if (value === "" || value == null) {
+            return null;
+        }
+        const text = String(value).trim();
+        if (!/^\d+$/.test(text)) {
+            return text;
+        }
+        return Number(text);
+    }
+
+    function normalizeChoice(choice) {
+        if (choice && typeof choice === "object") {
+            return {
+                value: choice.value == null ? "" : choice.value,
+                label: choice.label == null ? String(choice.value == null ? "" : choice.value) : choice.label,
+            };
+        }
+        return {value: choice, label: String(choice)};
+    }
+
+    function renderChoicesTemplate(input, index) {
+        const area = textArea(
+            "inputs." + index + ".choices_template",
+            input.choices_template,
+            4,
+            "{{ inputs.site }}"
+        );
+        if (!config.can_author_code) {
+            area.readOnly = true;
+        }
+        const block = field("Advanced (YAML)", area);
+        return block;
     }
 
     function renderMetadata() {
@@ -311,7 +394,12 @@
             field("Description", textArea("description", state.description, 2)),
             field("Category", textInput("category", state.category)),
             checkbox("Enabled", "enabled", state.enabled),
-            checkbox("Approval required", "approval_required", state.approval_required),
+            checkbox(
+                "Approval required",
+                "approval_required",
+                state.approval_required,
+                config.approvals_supported ? null : {disabled: "disabled"}
+            ),
             field("Manual duration (minutes)", textInput("manual_duration_minutes", state.manual_duration_minutes)),
             field(
                 "Source Git repository",
@@ -327,11 +415,15 @@
                 )
             )
         );
-        const help = el("p", {
-            class: "form-text",
-            text: "Nautobot script actions run from the repository selected here. AWX-only workflows can leave it empty. A later sync of that repository disables workflows whose YAML is not in the repo, so export the YAML into the repository if sync should keep this workflow.",
-        });
-        root.append(help);
+        if (!config.approvals_supported) {
+            root.append(el("p", {class: "form-text", text: "Requires Nautobot 3.2+"}));
+        }
+        root.append(
+            el("p", {
+                class: "form-text",
+                text: "Nautobot script actions run from the repository selected here. AWX-only workflows can leave it empty.",
+            })
+        );
     }
 
     function renderInputs() {
@@ -389,6 +481,7 @@
         card.append(renderValidators(input.validators, "inputs." + index + ".validators", "add-validator", index));
         if (input.type === "choice" || input.type === "multichoice") {
             card.append(renderChoices(input.choices, "inputs." + index + ".choices", "add-choice", index));
+            card.append(renderChoicesTemplate(input, index));
         }
         if (input.type === "object" || input.type === "multiobject") {
             card.append(
@@ -617,7 +710,7 @@
             ),
             field(
                 "When",
-                textInput(path + ".when", action.when, {placeholder: "inputs.confirm == true"})
+                textInput(path + ".when", action.when, {placeholder: "{{ inputs.confirm }}"})
             )
         );
         if (action.type === "awx") {
@@ -721,6 +814,12 @@
             return;
         }
         assign(state, target.dataset.bind, readValue(target));
+        if (target.dataset.bind === "approval_required" && config.pending_approvals && !target.checked && config.approval_was_required) {
+            window.alert(config.pending_approvals + " runs are waiting for approval. Resolve them first.");
+            state.approval_required = true;
+            render();
+            return;
+        }
         if (target.dataset.bind === "schedule.require_approved") {
             state.schedule.require_approved = target.checked;
         }
@@ -981,9 +1080,9 @@
         return wrap;
     }
 
-    function checkbox(label, bind, checked) {
+    function checkbox(label, bind, checked, options) {
         const wrap = el("div", {class: "form-check mb-3"});
-        const input = el("input", {class: "form-check-input", type: "checkbox", "data-bind": bind});
+        const input = el("input", Object.assign({class: "form-check-input", type: "checkbox", "data-bind": bind}, options || {}));
         input.checked = Boolean(checked);
         if (bind.endsWith(".type") || bind === "source_repo" || bind === "schedule.enabled" || bind.indexOf(".type") !== -1) {
             input.dataset.rerender = "1";

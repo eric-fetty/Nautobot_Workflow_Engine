@@ -17,7 +17,8 @@ import requests
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
-from jinja2 import Environment
+from jinja2 import StrictUndefined, Undefined
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 from nautobot.extras.choices import SecretsGroupAccessTypeChoices, SecretsGroupSecretTypeChoices
 from nautobot.extras.models import ExternalIntegration, SecretsGroupAssociation
 
@@ -571,24 +572,182 @@ def validate_repo_filter_modules(repo):
     _load_repo_filter_registry(repo, force_reload=True)
 
 
-def get_jinja_environment(repo=None):
-    """Build a Jinja environment with built-in filters and any repo-backed filters."""
-    env = Environment(autoescape=False)  # noqa: S701
+TEMPLATE_SOURCE_LIMIT = 10 * 1024
+WEB_RENDER_LIMIT = 1024 * 1024
+_RANGE_LIMIT = 10_000
+_DENIED_ATTRIBUTES = frozenset({"password", "token", "parameters", "get_secret_value", "get_value", "objects"})
+_SENSITIVE_MODELS = (
+    ("users", "user"),
+    ("users", "token"),
+    ("extras", "secret"),
+    ("extras", "secretsgroup"),
+    ("extras", "secretsgroupassociation"),
+    ("sessions", "session"),
+)
+_sensitive_model_cache = None
+
+
+def _sensitive_models():
+    """Return model classes whose attributes must not be readable from a template."""
+    global _sensitive_model_cache
+    if _sensitive_model_cache is not None:
+        return _sensitive_model_cache
+    from django.apps import apps
+
+    models = []
+    for app_label, model_name in _SENSITIVE_MODELS:
+        try:
+            model = apps.get_model(app_label, model_name)
+        except LookupError:
+            continue
+        if model is not None:
+            models.append(model)
+    _sensitive_model_cache = tuple(models)
+    return _sensitive_model_cache
+
+
+def _is_token(obj):
+    """Return True when ``obj`` is a Nautobot API token."""
+    for model in _sensitive_models():
+        if model._meta.label_lower == "users.token" and isinstance(obj, model):
+            return True
+    return False
+
+
+def _is_sensitive_object(obj):
+    """Return True when every attribute of ``obj`` is off limits in a template."""
+    module = getattr(type(obj), "__module__", "") or ""
+    if module.startswith("django.contrib.sessions"):
+        return True
+    return any(isinstance(obj, model) for model in _sensitive_models())
+
+
+def _limited_range(*args):
+    """A ``range`` implementation capped so a template cannot allocate a huge sequence."""
+    values = range(*args)
+    if len(values) > _RANGE_LIMIT:
+        raise OverflowError(f"range is limited to {_RANGE_LIMIT} values")
+    return values
+
+
+class WorkflowSandboxedEnvironment(ImmutableSandboxedEnvironment):
+    """Jinja environment that blocks attribute escapes and secret-bearing models."""
+
+    def __init__(self, *args, **kwargs):
+        """Build the sandbox and install the capped range global."""
+        kwargs.setdefault("autoescape", False)
+        super().__init__(*args, **kwargs)
+        self.globals["range"] = _limited_range
+
+    def is_safe_attribute(self, obj, attr, value):
+        """Reject private attributes, secrets, and every attribute of sensitive models."""
+        if attr.startswith("_") or attr in _DENIED_ATTRIBUTES:
+            return False
+        if attr == "key" and _is_token(obj):
+            return False
+        if _is_sensitive_object(obj):
+            return False
+        return super().is_safe_attribute(obj, attr, value)
+
+
+class SafeUser(dict):
+    """Template view of a user: identity fields only, never a password or token."""
+
+    def __getattr__(self, name):
+        """Expose the allowlisted fields as attributes."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    @classmethod
+    def from_user(cls, user):
+        """Build a SafeUser from a Django user, or return one that was already safe."""
+        if isinstance(user, cls):
+            return user
+        if user is None:
+            return cls(
+                id=None,
+                username="",
+                email="",
+                first_name="",
+                last_name="",
+                full_name="",
+                groups=[],
+            )
+        full_name = ""
+        if hasattr(user, "get_full_name"):
+            try:
+                full_name = user.get_full_name() or ""
+            except Exception:
+                full_name = ""
+        return cls(
+            id=getattr(user, "pk", None),
+            username=getattr(user, "username", "") or "",
+            email=getattr(user, "email", "") or "",
+            first_name=getattr(user, "first_name", "") or "",
+            last_name=getattr(user, "last_name", "") or "",
+            full_name=full_name,
+            groups=_group_names(user),
+        )
+
+
+def _group_names(user):
+    """Return group names without failing when the user has no group relation."""
+    groups = getattr(user, "groups", None)
+    if groups is None:
+        return []
+    if isinstance(groups, (list, tuple)):
+        return [str(name) for name in groups]
+    if hasattr(groups, "values_list"):
+        try:
+            return [str(name) for name in groups.values_list("name", flat=True)]
+        except Exception:
+            return []
+    return []
+
+
+def _prepare_context(ctx):
+    """Copy a template context and replace any user object with SafeUser."""
+    if not isinstance(ctx, Mapping):
+        return ctx
+    prepared = dict(ctx)
+    if "user" in prepared:
+        prepared["user"] = SafeUser.from_user(prepared.get("user"))
+    return prepared
+
+
+def get_jinja_environment(repo=None, *, strict=False):
+    """Build a sandboxed Jinja environment with built-in filters and repo filters.
+
+    ``strict=True`` uses ``StrictUndefined`` for builder validation and dry-run.
+    Runtime rendering keeps Jinja's default ``Undefined`` so existing templates that
+    mention an empty input still render.
+    """
+    env = WorkflowSandboxedEnvironment(undefined=StrictUndefined if strict else Undefined)
     env.filters.update(_get_builtin_filters())
     if repo and getattr(repo, "id", None):
         env.filters.update(_load_repo_filter_registry(repo))
     return env
 
 
-def _render(value, ctx, repo=None, env=None):
+def _render(value, ctx, repo=None, env=None, max_output=None):
     """Recursively render Jinja2 templates in strings, dicts, and lists."""
     env = env or get_jinja_environment(repo)
+    ctx = _prepare_context(ctx)
     if isinstance(value, str):
-        return env.from_string(value).render(ctx)
+        if ("{{" in value or "{%" in value) and len(value.encode("utf-8")) > TEMPLATE_SOURCE_LIMIT:
+            raise ValueError("Template is longer than 10 kB.")
+        rendered = env.from_string(value).render(ctx)
+        if max_output and isinstance(rendered, str) and len(rendered) > max_output:
+            return rendered[:max_output]
+        return rendered
     if isinstance(value, dict):
-        return {k: _render(v, ctx, repo=repo, env=env) for k, v in value.items()}
+        return {k: _render(v, ctx, repo=repo, env=env, max_output=max_output) for k, v in value.items()}
     if isinstance(value, list):
-        return [_render(v, ctx, repo=repo, env=env) for v in value]
+        return [_render(v, ctx, repo=repo, env=env, max_output=max_output) for v in value]
     return value
 
 
@@ -730,7 +889,7 @@ def _build_execution_context(workflow_run, enhanced_inputs, phase_results):
         "inputs": enhanced_inputs,
         "results": {},
         "last": None,
-        "user": workflow_run.requested_by,
+        "user": SafeUser.from_user(workflow_run.requested_by),
         "phase_results": phase_results,
         "phases": phase_results,
     }
@@ -800,7 +959,20 @@ def _execute_phase_actions(workflow_run, ctx, phase, fail_fast=False):
     workflow_run.save(update_fields=["log"])
     for action in actions:
         cond = (action.when or "").strip() or "true"
-        should = env.from_string(cond).render(ctx).lower() in ("true", "1", "yes", "on", "y")
+        try:
+            rendered_when = env.from_string(cond).render(_prepare_context(ctx))
+        except Exception as exc:
+            any_failed = True
+            result = {"status": "failed", "return_value": None, "error": str(exc)}
+            workflow_run.log += f"\n[{phase}] Action '{action.name}' failed while evaluating when: {exc}"
+            workflow_run.save(update_fields=["log"])
+            ctx["results"][action.name] = result
+            ctx["last"] = {"name": action.name, **result}
+            phase_results[action.name] = result
+            if fail_fast and any_failed:
+                break
+            continue
+        should = str(rendered_when).lower() in ("true", "1", "yes", "on", "y")
         if not should:
             workflow_run.log += f"\n[{phase}] Skipped action '{action.name}' (when={cond!r} → False)"
             workflow_run.save(update_fields=["log"])

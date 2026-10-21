@@ -21,7 +21,7 @@
     <div class="row">
         <div class="col-lg-7">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h1 class="mb-0">{% if workflow %}Edit workflow{% else %}New workflow{% endif %}</h1>
+                <h1 class="mb-0">{% if builder_config.read_only %}View workflow{% elif workflow %}Edit workflow{% else %}New workflow{% endif %}</h1>
                 <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary">Back to Launch</a>
             </div>
             {% if errors %}
@@ -34,9 +34,19 @@
                     </ul>
                 </div>
             {% endif %}
+            {% if builder_config.banner %}
+                <div class="alert alert-info" role="status">{{ builder_config.banner }}</div>
+            {% endif %}
+            {% if builder_config.duplicate_url %}
+                <form method="post" action="{{ builder_config.duplicate_url }}" class="mb-3">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-primary">Duplicate as Nautobot-managed</button>
+                </form>
+            {% endif %}
             <form method="post" id="workflow-builder-form">
                 {% csrf_token %}
                 <input type="hidden" name="payload" id="builder-payload-input" value="">
+                <input type="hidden" name="approval_confirm" id="approval-confirm" value="">
 
                 <div class="card mb-3 workflow-builder-card">
                     <div class="card-header">

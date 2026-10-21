@@ -3,8 +3,11 @@
 ## Trust Boundary
 
 Workflow scripts, helper modules, and custom Jinja filters execute Python in the
-Nautobot environment. They are trusted code, not sandboxed user content. Restrict
-who can modify and synchronize workflow sources, and review changes before use.
+Nautobot environment. Scripts and filters are trusted code that was reviewed in Git.
+Jinja templates in `when`, `with`, `extra_vars`, choice lists, and filter queries
+render in a sandbox that blocks private attributes, secret-bearing models, and
+methods that change data. Restrict who can author templates and who can publish,
+and review Git changes before use.
 Individual actions may have access beyond the permissions of the person launching
 the workflow, depending on the script and integration credentials.
 

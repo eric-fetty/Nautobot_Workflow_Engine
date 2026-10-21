@@ -47,7 +47,8 @@ class BuilderSerializationTestCase(unittest.TestCase):
                         "validators": [
                             {"regex": "^[a-z0-9-]+$", "message": "Use a hostname.", "flags": ["IGNORECASE"]}
                         ],
-                    }
+                    },
+                    {"key": "mode", "type": "string"},
                 ]
             )
         )
@@ -100,6 +101,7 @@ class BuilderSerializationTestCase(unittest.TestCase):
                         "depends_on": ["location"],
                         "filter_query": {"location_id": "{{ inputs.location.id }}"},
                     },
+                    {"key": "location", "type": "string"},
                     {"key": "devices", "type": "multiobject", "model": "dcim.Device"},
                 ]
             )
@@ -107,7 +109,7 @@ class BuilderSerializationTestCase(unittest.TestCase):
         self.assertEqual(definition["inputs"][0]["model"], "dcim.Device")
         self.assertEqual(definition["inputs"][0]["filter"]["query"]["location_id"], "{{ inputs.location.id }}")
         self.assertEqual(definition["inputs"][0]["depends_on"], ["location"])
-        self.assertEqual(definition["inputs"][1]["type"], "multiobject")
+        self.assertEqual(definition["inputs"][2]["type"], "multiobject")
 
     def test_list_input(self):
         definition = definition_from_builder(
@@ -191,7 +193,7 @@ class BuilderSerializationTestCase(unittest.TestCase):
                             "type": "nautobot",
                             "name": "Check",
                             "script": "/scripts/check.py",
-                            "when": "inputs.enabled",
+                            "when": "{{ inputs.enabled }}",
                             "with": {"hostname": "{{ inputs.hostname }}"},
                         }
                     ],
@@ -302,6 +304,7 @@ class BuilderSerializationTestCase(unittest.TestCase):
                         "show_if": {"confirm": ["yes", True]},
                         "validators": [{"regex": "^[a-z]+$"}],
                     },
+                    {"key": "confirm", "type": "string"},
                     {
                         "key": "rows",
                         "type": "listdict",
@@ -359,3 +362,56 @@ class BuilderSerializationTestCase(unittest.TestCase):
         self.assertIn("actions.main[1].template_id", paths)
         self.assertIn("schedule.change_input_key", paths)
         self.assertIn("schedule.timezone", paths)
+
+    def test_preserved_cannot_inject_action_aliases(self):
+        definition = definition_from_builder(_base(preserved={"main_actions": [{"type": "awx"}], "owner": "net"}))
+        self.assertNotIn("main_actions", definition)
+        self.assertEqual(definition["owner"], "net")
+
+    def test_non_dict_preserved_is_reported(self):
+        with self.assertRaises(BuilderValidationError) as raised:
+            definition_from_builder(_base(preserved=["nope"]))
+        self.assertIn("preserved", {item["path"] for item in raised.exception.errors})
+
+    def test_when_must_be_a_template(self):
+        with self.assertRaises(BuilderValidationError) as raised:
+            definition_from_builder(
+                _base(actions={"main": [{"type": "awx", "name": "run", "template_id": 1, "when": "inputs.confirm"}]})
+            )
+        self.assertIn("{{ inputs.confirm }}", raised.exception.errors[0]["message"])
+
+    def test_duplicate_action_names_and_choice_default(self):
+        with self.assertRaises(BuilderValidationError) as raised:
+            definition_from_builder(
+                _base(
+                    inputs=[
+                        {
+                            "key": "mode",
+                            "type": "choice",
+                            "default": "nope",
+                            "choices": [{"value": "yes", "label": "Yes"}],
+                        }
+                    ],
+                    actions={
+                        "main": [
+                            {"type": "awx", "name": "run", "template_id": 1},
+                            {"type": "awx", "name": "run", "template_id": 2},
+                        ]
+                    },
+                )
+            )
+        paths = {item["path"] for item in raised.exception.errors}
+        self.assertIn("inputs[0].default", paths)
+        self.assertIn("actions.main[1].name", paths)
+
+    def test_input_reference_cycle_is_rejected(self):
+        with self.assertRaises(BuilderValidationError) as raised:
+            definition_from_builder(
+                _base(
+                    inputs=[
+                        {"key": "left", "type": "string", "depends_on": ["right"]},
+                        {"key": "right", "type": "string", "depends_on": ["left"]},
+                    ]
+                )
+            )
+        self.assertIn("cycle", str(raised.exception).lower())

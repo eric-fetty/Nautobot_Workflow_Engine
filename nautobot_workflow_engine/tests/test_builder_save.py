@@ -30,6 +30,7 @@ def _definition():
                     "validators": [{"regex": "^[a-z]+$", "message": "letters"}],
                 },
                 {"key": "device", "type": "object", "model": "dcim.Device"},
+                {"key": "mode", "type": "string"},
             ],
             "actions": {
                 "pre": [{"type": "awx", "name": "pre", "template_id": 7, "monitor": False}],
@@ -61,9 +62,7 @@ class SaveWorkflowDefinitionMappingTestCase(unittest.TestCase):
             key="sample-workflow",
             inputs=SimpleNamespace(all=lambda: SimpleNamespace(delete=lambda: None)),
         )
-        workflow_manager = SimpleNamespace(
-            update_or_create=MagicMock(side_effect=lambda **kwargs: (workflow, True))
-        )
+        workflow_manager = SimpleNamespace(update_or_create=MagicMock(side_effect=lambda **kwargs: (workflow, True)))
         input_manager = SimpleNamespace(create=lambda **kwargs: created_inputs.append(kwargs))
         action_manager = SimpleNamespace(
             create=lambda **kwargs: created_actions.append(kwargs),
@@ -73,15 +72,23 @@ class SaveWorkflowDefinitionMappingTestCase(unittest.TestCase):
             filter=MagicMock(return_value=SimpleNamespace(exists=MagicMock(return_value=helper_exists)))
         )
         content_type = SimpleNamespace(id=9)
-        return created_inputs, created_actions, [
-            patch.object(save_workflow_definition.__globals__["transaction"], "atomic", return_value=nullcontext()),
-            patch("nautobot_workflow_engine.datasources.Workflow", SimpleNamespace(objects=workflow_manager)),
-            patch("nautobot_workflow_engine.datasources.WorkflowInput", SimpleNamespace(objects=input_manager)),
-            patch("nautobot_workflow_engine.datasources.WorkflowAction", SimpleNamespace(objects=action_manager)),
-            patch("nautobot_workflow_engine.datasources.WorkflowHelper", SimpleNamespace(objects=helper_manager)),
-            patch("nautobot_workflow_engine.datasources.ContentType", SimpleNamespace(objects=SimpleNamespace(get=MagicMock(return_value=content_type)))),
-            patch("nautobot_workflow_engine.datasources.reconcile_approval_definition"),
-        ], content_type
+        return (
+            created_inputs,
+            created_actions,
+            [
+                patch.object(save_workflow_definition.__globals__["transaction"], "atomic", return_value=nullcontext()),
+                patch("nautobot_workflow_engine.datasources.Workflow", SimpleNamespace(objects=workflow_manager)),
+                patch("nautobot_workflow_engine.datasources.WorkflowInput", SimpleNamespace(objects=input_manager)),
+                patch("nautobot_workflow_engine.datasources.WorkflowAction", SimpleNamespace(objects=action_manager)),
+                patch("nautobot_workflow_engine.datasources.WorkflowHelper", SimpleNamespace(objects=helper_manager)),
+                patch(
+                    "nautobot_workflow_engine.datasources.ContentType",
+                    SimpleNamespace(objects=SimpleNamespace(get=MagicMock(return_value=content_type))),
+                ),
+                patch("nautobot_workflow_engine.datasources.reconcile_approval_definition"),
+            ],
+            content_type,
+        )
 
     def test_row_mapping_is_idempotent(self):
         definition = _definition()
@@ -124,6 +131,7 @@ class SaveWorkflowDefinitionMappingTestCase(unittest.TestCase):
                 active.stop()
         self.assertIn("Script not found in repository", str(raised.exception))
         self.assertEqual(created_actions, [])
+        self.assertEqual(created_inputs, [])
 
 
 class BuilderLaunchFormTestCase(TestCase):

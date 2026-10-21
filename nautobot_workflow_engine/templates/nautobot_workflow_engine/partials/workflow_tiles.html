@@ -35,7 +35,11 @@
                             </small>
                         </div>
                         <div style="margin-top: auto;" class="d-grid gap-2">
-                            {% if wf.can_change %}
+                            {% if wf.managed_by == "git" %}
+                                <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-outline-secondary w-100">
+                                    <i class="mdi mdi-eye"></i> View
+                                </a>
+                            {% elif wf.can_change %}
                                 <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-outline-secondary w-100">
                                     <i class="mdi mdi-pencil"></i> Edit
                                 </a>
@@ -107,7 +111,11 @@
                                     </small>
                                 </div>
                                 <div style="margin-top: auto;" class="d-grid gap-2">
-                                    {% if wf.can_change %}
+                                    {% if wf.managed_by == "git" %}
+                                        <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-outline-secondary w-100">
+                                            <i class="mdi mdi-eye"></i> View
+                                        </a>
+                                    {% elif wf.can_change %}
                                         <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-outline-secondary w-100">
                                             <i class="mdi mdi-pencil"></i> Edit
                                         </a>

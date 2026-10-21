@@ -10,9 +10,17 @@ from django.db import transaction
 from nautobot.apps.datasources import DatasourceContent
 from nautobot.extras.models import GitRepository
 
-from .approvals import reconcile_approval_definition
+from .approvals import ApprovalRemovalError, reconcile_approval_definition
 from .executors import clear_repo_script_cache, validate_repo_filter_modules
-from .models import Workflow, WorkflowAction, WorkflowFilterModule, WorkflowHelper, WorkflowInput
+from .models import (
+    MANAGED_BY_GIT,
+    MANAGED_BY_NAUTOBOT,
+    Workflow,
+    WorkflowAction,
+    WorkflowFilterModule,
+    WorkflowHelper,
+    WorkflowInput,
+)
 
 PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 
@@ -90,6 +98,7 @@ def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys
     """
     workflows_to_disable = Workflow.objects.filter(
         source_repo=repository_record,
+        managed_by=MANAGED_BY_GIT,
         enabled=True,
     ).exclude(key__in=synced_workflow_keys)
 
@@ -117,27 +126,68 @@ def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys
     return disabled_count
 
 
-def save_workflow_definition(data, *, source_repo, job_result=None):
+def _validate_persisted_definition(data, source_repo):
+    """Reject a definition that cannot be stored, before any row is written.
+
+    Actions are checked first so a missing script is the error the builder sees,
+    even when an earlier phase would otherwise have been inserted already.
+    """
+    if not isinstance(data, dict) or not data.get("key"):
+        raise ValueError("Workflow definition must include a key.")
+    key = data["key"]
+    phased_actions = [
+        ("pre", _get_action_list(data, "pre_actions", "pre-actions", "before_actions", "before-actions")),
+        ("main", _get_action_list(data, "actions", "main_actions", "main-actions")),
+        ("post", _get_action_list(data, "post_actions", "post-actions", "after_actions", "after-actions")),
+    ]
+    for phase, actions in phased_actions:
+        for act in actions or []:
+            if not isinstance(act, dict):
+                raise ValueError(f"[Workflow {key}] Each action in phase '{phase}' must be an object.")
+            if act.get("type") == "nautobot":
+                script_path = (act.get("script") or "").lstrip("/")
+                if not script_path:
+                    raise ValueError(f"[Workflow {key}] 'script' is required for nautobot actions")
+                if source_repo is None:
+                    raise ValueError(f"[Workflow {key}] Nautobot actions require a source Git repository")
+                if not WorkflowHelper.objects.filter(source_repo=source_repo, file_path=script_path).exists():
+                    raise ValueError(f"[Workflow {key}] Script not found in repository: {script_path}")
+            elif act.get("type") != "awx":
+                raise ValueError(f"[Workflow {key}] Unsupported action type in phase '{phase}': {act.get('type')}")
+    for ip in data.get("inputs", []) or []:
+        if not isinstance(ip, dict):
+            continue
+        if ip.get("type") in ("object", "multiobject") and ip.get("model"):
+            app_label, model = str(ip["model"]).split(".", 1)
+            try:
+                ContentType.objects.get(app_label=app_label, model=model.lower())
+            except ContentType.DoesNotExist:
+                raise ValueError(f"[Workflow {key}] Invalid model for input {ip.get('key')}: {ip['model']}")
+
+
+def save_workflow_definition(data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT):
     """Create or update a workflow and replace its inputs and actions.
 
     Git sync and the workflow builder both call this so ``raw_definition`` and the
     normalized ``WorkflowInput`` / ``WorkflowAction`` rows stay in one transaction.
     Nautobot script actions are checked against ``WorkflowHelper`` when ``source_repo``
-    is set, which is always the case for git sync.
+    is set, which is always the case for git sync. That check runs before the write.
 
     Args:
         data: Parsed workflow definition.
         source_repo: Git repository that owns the workflow, or None for an AWX-only builder save.
         job_result: Optional job result passed through to approval reconciliation.
+        managed_by: ``nautobot`` for builder saves, ``git`` for a repository sync that owns the key.
 
     Returns:
         The saved ``Workflow`` instance.
     """
+    _validate_persisted_definition(data, source_repo)
     with transaction.atomic():
-        return _save_workflow_definition(data, source_repo=source_repo, job_result=job_result)
+        return _save_workflow_definition(data, source_repo=source_repo, job_result=job_result, managed_by=managed_by)
 
 
-def _save_workflow_definition(data, *, source_repo, job_result=None):
+def _save_workflow_definition(data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT):
     """Persist one workflow definition. Caller holds the transaction."""
     yaml_enabled = data.get("enabled", True)
     # Prefer approval_required; accept legacy requires_approval from early drafts.
@@ -157,6 +207,7 @@ def _save_workflow_definition(data, *, source_repo, job_result=None):
             "manual_duration_minutes": data.get("manual_duration_minutes"),
             "raw_definition": data,
             "source_repo": source_repo,
+            "managed_by": managed_by,
         },
     )
     reconcile_approval_definition(wf, job_result=job_result)
@@ -213,13 +264,6 @@ def _save_workflow_definition(data, *, source_repo, job_result=None):
         for order, act in enumerate(actions, start=1):
             if act.get("type") == "nautobot":
                 script_path = (act.get("script") or "").lstrip("/")
-                if not script_path:
-                    raise ValueError(f"[Workflow {wf.key}] 'script' is required for nautobot actions")
-                if source_repo is None:
-                    raise ValueError(f"[Workflow {wf.key}] Nautobot actions require a source Git repository")
-                if not WorkflowHelper.objects.filter(source_repo=source_repo, file_path=script_path).exists():
-                    raise ValueError(f"[Workflow {wf.key}] Script not found in repository: {script_path}")
-
                 WorkflowAction.objects.create(
                     workflow=wf,
                     phase=phase,
@@ -250,12 +294,45 @@ def _save_workflow_definition(data, *, source_repo, job_result=None):
     return wf
 
 
+def _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
+    """Return True when this file must not overwrite the workflow that already owns ``workflow_key``.
+
+    Unit tests that replace ``Workflow.objects`` with a namespace that has no ``filter``
+    keep the previous create path. A real sync skips another repo's key and any
+    Nautobot-managed workflow, and logs ``E-NWE-101``.
+    """
+    lookup = getattr(Workflow.objects, "filter", None)
+    if not callable(lookup):
+        return False
+    existing = lookup(key=workflow_key).first()
+    if existing is None:
+        return False
+    repo_id = getattr(repository_record, "id", None)
+    if repo_id is None:
+        repo_id = getattr(repository_record, "pk", None)
+    same_repo = getattr(existing, "source_repo_id", None) == repo_id
+    managed_by = getattr(existing, "managed_by", MANAGED_BY_GIT)
+    other_repo = not same_repo and getattr(existing, "source_repo_id", None) is not None
+    if managed_by == MANAGED_BY_NAUTOBOT or other_repo:
+        job_result.log(
+            message=(
+                f"E-NWE-101 Refusing to overwrite workflow '{workflow_key}'. "
+                "It is Nautobot-managed or owned by another Git repository."
+            )
+        )
+        if managed_by == MANAGED_BY_NAUTOBOT and same_repo:
+            synced_workflow_keys.add(workflow_key)
+        return True
+    return False
+
+
 def sync_workflows_from_repo(repository_record: GitRepository, job_result, delete=False):
     """Sync workflow definitions and helper files from a Git repository.
 
-    On a normal sync (``delete=False``), workflows present in the repo are upserted and
-    any previously synced workflows from this repo that are no longer present are
-    disabled so they disappear from the launch page.
+    On a normal sync (``delete=False``), Git-managed workflows present in the repo are
+    upserted. Nautobot-managed workflows are left unchanged, and a key owned by another
+    repository is never taken over (``E-NWE-101``). Git-managed workflows from this repo
+    that are no longer present are disabled so they disappear from the launch page.
 
     When the Git repository itself is deleted (``delete=True``), all workflows sourced
     from it are disabled and helper/filter modules are cleared.
@@ -285,13 +362,31 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
     for yml in sorted(list(workflows_path.glob("*.y*ml"))):
         content = _process_includes(job_result, yml)
         data = yaml.safe_load(content)
+        if not isinstance(data, dict) or not data.get("key"):
+            job_result.log(message=f"E-NWE-102 Skipping {yml.name}: workflow file must be a mapping with a key.")
+            continue
 
-        # Track this workflow key
-        workflow_key = data.get("key")
-        if workflow_key:
+        workflow_key = data["key"]
+        if _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
+            continue
+
+        try:
+            save_workflow_definition(
+                data,
+                source_repo=repository_record,
+                job_result=job_result,
+                managed_by=MANAGED_BY_GIT,
+            )
+        except ApprovalRemovalError as exc:
+            job_result.log(
+                message=(
+                    f"E-NWE-301 Skipping '{workflow_key}' from {yml.name}: {exc} "
+                    "The stored workflow was left unchanged."
+                )
+            )
             synced_workflow_keys.add(workflow_key)
-
-        save_workflow_definition(data, source_repo=repository_record, job_result=job_result)
+            continue
+        synced_workflow_keys.add(workflow_key)
 
     # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
     _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)

@@ -3,12 +3,24 @@
 from django.conf import settings as dj_settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from nautobot.apps.models import BaseModel
+from nautobot.apps.models import BaseModel, ChangeLoggedModel
 from taggit.managers import TaggableManager
 
+MANAGED_BY_NAUTOBOT = "nautobot"
+MANAGED_BY_GIT = "git"
+MANAGED_BY_CHOICES = (
+    (MANAGED_BY_NAUTOBOT, "Nautobot"),
+    (MANAGED_BY_GIT, "Git"),
+)
 
-class Workflow(BaseModel):
-    """A workflow definition with inputs and actions."""
+
+class Workflow(ChangeLoggedModel, BaseModel):
+    """A workflow definition with inputs and actions.
+
+    ``managed_by`` records who owns the definition. Git sync updates and disables
+    only Git-managed workflows. Nautobot-managed workflows stay as saved in the UI
+    until two-way sync lands.
+    """
 
     key = models.SlugField(unique=True)
     name = models.CharField(max_length=200)
@@ -28,6 +40,17 @@ class Workflow(BaseModel):
     tags = TaggableManager(blank=True)
     raw_definition = models.JSONField()
     source_repo = models.ForeignKey("extras.GitRepository", null=True, blank=True, on_delete=models.SET_NULL)
+    managed_by = models.CharField(
+        max_length=16,
+        choices=MANAGED_BY_CHOICES,
+        default=MANAGED_BY_NAUTOBOT,
+        help_text="nautobot: edited in the UI and left alone by Git sync. git: the repository file is the source of truth.",
+    )
+    approval_stage_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Approval stages saved when approval is turned off, so they can be restored.",
+    )
     manual_duration_minutes = models.PositiveIntegerField(
         null=True,
         blank=True,

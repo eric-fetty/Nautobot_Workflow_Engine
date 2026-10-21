@@ -1,0 +1,1 @@
+Fixed the workflow builder so Git sync no longer overwrites or disables UI-built workflows, invalid saves are rejected before any rows are written, and each builder save is recorded in the changelog.

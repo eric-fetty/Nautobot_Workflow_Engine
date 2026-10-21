@@ -22,7 +22,7 @@ INPUT_TYPES = (
     "list",
     "listdict",
 )
-COLUMN_TYPES = ("string", "integer", "boolean", "choice")
+COLUMN_TYPES = ("string", "integer", "boolean", "choice", "number")
 OBJECT_TYPES = ("object", "multiobject")
 CHOICE_TYPES = ("choice", "multichoice")
 ACTION_TYPES = ("nautobot", "awx")
@@ -103,6 +103,8 @@ SERVICENOW_MANAGED = {
     "ticket_regex",
     "require_approved",
 }
+
+
 class BuilderValidationError(Exception):
     """Raised when a builder payload cannot be serialized.
 
@@ -137,12 +139,16 @@ def definition_from_builder(payload):
     schedule = _schedule(payload.get("schedule"), [item["key"] for item in inputs], errors)
     actions = _actions(payload.get("actions", {}), errors)
 
+    preserved = _mapping(payload.get("preserved"), "preserved", errors)
+    _check_input_references(inputs, errors)
+    _check_duplicate_action_names(actions, errors)
     if errors:
         raise BuilderValidationError(errors)
 
-    for key, value in _mapping(payload.get("preserved"), "preserved", errors).items():
-        if key not in definition and key not in ("schedule", "inputs", "pre_actions", "actions", "post_actions"):
-            definition[key] = value
+    for key, value in preserved.items():
+        if key in TOP_LEVEL_MANAGED or key in definition:
+            continue
+        definition[key] = value
     if schedule:
         definition["schedule"] = schedule
     definition["inputs"] = inputs
@@ -150,6 +156,9 @@ def definition_from_builder(payload):
         phase_actions = actions[phase]
         if phase_actions:
             definition[PHASE_YAML_KEYS[phase]] = phase_actions
+    _reject_unsafe_templates(definition, errors)
+    if errors:
+        raise BuilderValidationError(errors)
     return definition
 
 
@@ -221,7 +230,7 @@ def empty_builder_payload():
         "name": "",
         "description": "",
         "category": "",
-        "enabled": True,
+        "enabled": False,
         "approval_required": False,
         "manual_duration_minutes": None,
         "preserved": {},
@@ -284,7 +293,7 @@ def _metadata(payload, errors):
         "name": name or key,
         "description": description,
         "category": category,
-        "enabled": bool(payload.get("enabled", True)),
+        "enabled": bool(payload.get("enabled", False)),
         "approval_required": approval_required,
     }
     manual_duration = payload.get("manual_duration_minutes")
@@ -368,10 +377,22 @@ def _one_input(item, path, errors):
         built["validators"] = validators
 
     if input_type in CHOICE_TYPES:
-        choices = _choices(item.get("choices"), f"{path}.choices", errors)
+        raw_choices = item.get("choices")
+        if not raw_choices and item.get("choices_template"):
+            raw_choices = item.get("choices_template")
+        choices = _choices(raw_choices, f"{path}.choices", errors)
         if not choices:
             errors.append({"path": f"{path}.choices", "message": "Add at least one choice."})
         built["choices"] = choices
+        if isinstance(choices, list) and "default" in built:
+            allowed = set()
+            for choice in choices:
+                if isinstance(choice, dict):
+                    allowed.add(choice.get("value"))
+                    allowed.add(str(choice.get("value")))
+            default_values = built["default"] if isinstance(built["default"], list) else [built["default"]]
+            if any(value not in allowed and str(value) not in allowed for value in default_values):
+                errors.append({"path": f"{path}.default", "message": "Default must be one of the choices."})
 
     if input_type in OBJECT_TYPES:
         model = item.get("model") or ""
@@ -455,7 +476,9 @@ def _schedule(raw_schedule, input_keys, errors):
         try:
             re.compile(ticket_regex)
         except re.error:
-            errors.append({"path": "schedule.ticket_regex", "message": "Ticket pattern is not a valid regular expression."})
+            errors.append(
+                {"path": "schedule.ticket_regex", "message": "Ticket pattern is not a valid regular expression."}
+            )
         else:
             servicenow["ticket_regex"] = ticket_regex
 
@@ -493,6 +516,25 @@ def _actions(raw_actions, errors):
     return phases
 
 
+def _check_duplicate_action_names(actions, errors):
+    """Reject the same action name in more than one step."""
+    seen = {}
+    for phase in PHASES:
+        for index, action in enumerate(actions.get(phase) or []):
+            name = action.get("name")
+            if not name:
+                continue
+            if name in seen:
+                errors.append(
+                    {
+                        "path": f"actions.{phase}[{index}].name",
+                        "message": f"Duplicate action name '{name}'.",
+                    }
+                )
+            else:
+                seen[name] = f"actions.{phase}[{index}]"
+
+
 def _one_action(item, path, errors):
     """Return one canonical action dict."""
     action_type = item.get("type")
@@ -503,6 +545,13 @@ def _one_action(item, path, errors):
     built = {"type": action_type, "name": name}
     when = _optional_text(item.get("when"), f"{path}.when", WHEN_MAX_LENGTH, errors)
     if when:
+        if "{{" not in when and "{%" not in when:
+            errors.append(
+                {
+                    "path": f"{path}.when",
+                    "message": "Wrap the condition in `{{ }}`, for example `{{ inputs.confirm }}`",
+                }
+            )
         built["when"] = when
 
     if action_type == "nautobot":
@@ -570,7 +619,9 @@ def _schedule_for_builder(raw_schedule):
     else:
         schedule["require_approved"] = None
     schedule["preserved_schedule"] = preserved_schedule
-    schedule["preserved_servicenow"] = {key: value for key, value in servicenow.items() if key not in SERVICENOW_MANAGED}
+    schedule["preserved_servicenow"] = {
+        key: value for key, value in servicenow.items() if key not in SERVICENOW_MANAGED
+    }
     return schedule
 
 
@@ -604,7 +655,26 @@ def _input_for_builder(item):
     filter_query = ""
     raw_filter = item.get("filter")
     if isinstance(raw_filter, dict) and raw_filter.get("query") is not None:
-        filter_query = _mapping_to_yaml(raw_filter.get("query"))
+        query = raw_filter.get("query")
+        filter_query = query if isinstance(query, str) else _mapping_to_yaml(query)
+    raw_choices = item.get("choices")
+    choices_template = raw_choices if isinstance(raw_choices, str) else ""
+    if isinstance(raw_choices, list):
+        choices = []
+        for choice in raw_choices:
+            if isinstance(choice, dict):
+                choices.append(
+                    {
+                        "value": choice.get("value"),
+                        "label": choice.get("label")
+                        if choice.get("label") not in (None, "")
+                        else str(choice.get("value")),
+                    }
+                )
+            elif isinstance(choice, (str, int, float)) and not isinstance(choice, bool):
+                choices.append({"value": choice, "label": str(choice)})
+    else:
+        choices = []
     preserved = {key: value for key, value in item.items() if key not in INPUT_MANAGED}
     if isinstance(raw_filter, dict):
         extra_filter = {key: value for key, value in raw_filter.items() if key != "query"}
@@ -619,7 +689,8 @@ def _input_for_builder(item):
         "depends_on": _clean_string_list(item.get("depends_on")),
         "show_if": item.get("show_if") if isinstance(item.get("show_if"), dict) else {},
         "validators": validators if isinstance(validators, list) else [],
-        "choices": item.get("choices") if isinstance(item.get("choices"), list) else [],
+        "choices": choices,
+        "choices_template": choices_template,
         "model": item.get("model") or "",
         "filter_query": filter_query,
         "columns": [_column_for_builder(column) for column in item.get("columns") or [] if isinstance(column, dict)],
@@ -712,8 +783,18 @@ def _columns(raw_columns, path, errors):
 
 
 def _choices(raw_choices, path, errors):
-    """Return canonical ``{value, label}`` choice entries."""
+    """Return canonical ``{value, label}`` choice entries.
+
+    A Jinja string is kept as-is so documented workflows stay editable. Scalar list
+    items become ``{value, label}`` pairs.
+    """
     if raw_choices in (None, "", []):
+        return []
+    if isinstance(raw_choices, str):
+        text = raw_choices.strip()
+        if "{{" in text or "{%" in text:
+            return text
+        errors.append({"path": path, "message": "Choices must be a list of value and label."})
         return []
     if not isinstance(raw_choices, list):
         errors.append({"path": path, "message": "Choices must be a list of value and label."})
@@ -721,6 +802,13 @@ def _choices(raw_choices, path, errors):
     choices = []
     for index, choice in enumerate(raw_choices):
         choice_path = f"{path}[{index}]"
+        if isinstance(choice, (str, int, float)) and not isinstance(choice, bool):
+            value = choice.strip() if isinstance(choice, str) else choice
+            if value in ("", None):
+                errors.append({"path": f"{choice_path}.value", "message": "Each choice needs a value."})
+                continue
+            choices.append({"value": value, "label": str(value)})
+            continue
         if not isinstance(choice, dict):
             errors.append({"path": choice_path, "message": "Each choice must be an object with value and label."})
             continue
@@ -858,6 +946,8 @@ def _normalize_default(value, input_type, path, errors):
             return value
         errors.append({"path": path, "message": "Default must be a list."})
         return None
+    if input_type == "object" and isinstance(value, dict):
+        return value
     if isinstance(value, (str, int, float)) and not isinstance(value, bool):
         return value
     if isinstance(value, bool):
@@ -988,6 +1078,390 @@ def _timezone_exists(name):
         return True
     try:
         zoneinfo.ZoneInfo(name)
-    except zoneinfo.ZoneInfoNotFoundError:
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
         return False
     return True
+
+
+_ATTR = r"[a-z_][a-z0-9_]{0,63}"
+_INPUT_REF = rf"inputs\.{_ATTR}(?:\.{_ATTR}){{0,3}}"
+_RESULT_REF = rf"results\.{_ATTR}(?:\.{_ATTR}){{0,3}}"
+_REF = rf"(?:{_INPUT_REF}|{_RESULT_REF})"
+_COND_ATOM = rf"(?:not\s+)?{_REF}(?:\s+(?:==|!=)\s+'(?:[^'\\]|\\.)*'|\s+in\s+\[[^\]]*\]|\s+is\s+none)?"
+_SINGLE_REF_RE = re.compile(rf"^{{\{{\s*{_REF}\s*\}}}}$")
+_CONDITION_RE = re.compile(rf"^{{\{{\s*{_COND_ATOM}(?:\s+(?:and|or)\s+{_COND_ATOM})*\s*\}}}}$")
+AUTHOR_CODE_MESSAGE = "You need the *Author templates and scripts* permission to change this field."
+TEMPLATE_SOURCE_LIMIT = 10 * 1024
+LOOKUP_TRANSFORMS = frozenset(
+    {
+        "exact",
+        "iexact",
+        "in",
+        "contains",
+        "icontains",
+        "startswith",
+        "istartswith",
+        "isnull",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+    }
+)
+BUILDER_MODEL_DENYLIST = (
+    "users.*",
+    "auth.*",
+    "sessions.*",
+    "admin.*",
+    "extras.secret*",
+    "extras.gitrepository",
+    "extras.jobresult",
+    "extras.objectchange",
+    "django_celery_*",
+    "nautobot_workflow_engine.*",
+)
+DEFAULT_MODEL_ALLOWLIST = (
+    "dcim.*",
+    "ipam.*",
+    "circuits.*",
+    "tenancy.*",
+    "virtualization.*",
+    "cloud.*",
+    "wireless.*",
+    "vpn.*",
+    "load_balancers.*",
+    "extras.tag",
+    "extras.status",
+    "extras.role",
+    "extras.dynamicgroup",
+)
+
+
+def _check_input_references(inputs, errors):
+    """Require depends_on and show_if targets to exist, and reject self-references and cycles."""
+    keys = [item.get("key") for item in inputs if item.get("key")]
+    keyset = set(keys)
+    graph = {key: [] for key in keyset}
+    for item in inputs:
+        key = item.get("key")
+        if not key:
+            continue
+        deps = list(item.get("depends_on") or [])
+        show_if = item.get("show_if") if isinstance(item.get("show_if"), dict) else {}
+        deps.extend(show_if.keys())
+        for dep in deps:
+            if dep == key:
+                errors.append({"path": "inputs", "message": f"Input '{key}' cannot reference itself."})
+                continue
+            if dep not in keyset:
+                errors.append({"path": "inputs", "message": f"Input '{key}' references unknown input '{dep}'."})
+                continue
+            graph[key].append(dep)
+
+    visiting = set()
+    visited = set()
+
+    def walk(node, stack):
+        if node in visiting:
+            errors.append(
+                {
+                    "path": "inputs",
+                    "message": f"Inputs reference each other in a cycle: {' -> '.join(stack + [node])}.",
+                }
+            )
+            return
+        if node in visited:
+            return
+        visiting.add(node)
+        for dep in graph.get(node, []):
+            walk(dep, stack + [node])
+        visiting.remove(node)
+        visited.add(node)
+
+    for key in keys:
+        walk(key, [])
+
+
+def _reject_unsafe_templates(definition, errors):
+    """Compile every template and reject sandbox escapes and syntax errors."""
+    from jinja2 import TemplateSyntaxError
+    from jinja2.exceptions import SecurityError
+
+    from .executors import get_jinja_environment
+
+    env = get_jinja_environment()
+
+    def walk(value, path):
+        if isinstance(value, str):
+            if "{{" not in value and "{%" not in value:
+                return
+            if len(value.encode("utf-8")) > TEMPLATE_SOURCE_LIMIT:
+                errors.append({"path": path, "message": "Template is longer than 10 kB."})
+                return
+            try:
+                env.from_string(value).render({})
+            except SecurityError as exc:
+                errors.append({"path": path, "message": f"Template was rejected: {exc}"})
+            except TemplateSyntaxError as exc:
+                errors.append({"path": path, "message": f"Template syntax is invalid: {exc}"})
+            except Exception:
+                return
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                child = f"{path}.{key}" if path else str(key)
+                walk(item, child)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{path}[{index}]")
+
+    walk(definition, "")
+
+
+def is_safe_template_value(value):
+    """Return True when a code field is a literal, a single reference, or condition-builder output."""
+    if value in (None, "", {}, []):
+        return True
+    if isinstance(value, (bool, int, float)):
+        return True
+    if isinstance(value, str):
+        if "{{" not in value and "{%" not in value:
+            return True
+        text = value.strip()
+        return bool(_SINGLE_REF_RE.match(text) or _CONDITION_RE.match(text))
+    if isinstance(value, list):
+        return all(is_safe_template_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and "{{" not in key and "{%" not in key and is_safe_template_value(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+def _filter_query_value(item):
+    """Return the filter query stored on an input, or None."""
+    if not isinstance(item, dict):
+        return None
+    raw_filter = item.get("filter")
+    if isinstance(raw_filter, dict):
+        return raw_filter.get("query")
+    return None
+
+
+def _choices_need_author(old, new):
+    """Jinja choice strings are code. Static choice lists are not."""
+    if old == new:
+        return False
+    return isinstance(old, str) or isinstance(new, str)
+
+
+def _actions_by_name(definition):
+    """Index actions by phase and name."""
+    found = {}
+    if not isinstance(definition, dict):
+        return found
+    for phase, key in PHASE_YAML_KEYS.items():
+        for action in definition.get(key) or []:
+            if isinstance(action, dict) and action.get("name"):
+                found[(phase, action.get("name"))] = action
+    return found
+
+
+def code_changes(old_definition, new_definition):
+    """Return pointers for code fields whose new value is not in the safe subset.
+
+    Labels, order, and unchanged templates are not changes. A script path change
+    always counts, because choosing a script is a code action.
+    """
+    old_definition = old_definition if isinstance(old_definition, dict) else {}
+    new_definition = new_definition if isinstance(new_definition, dict) else {}
+    changes = []
+    old_inputs = {
+        item.get("key"): item
+        for item in old_definition.get("inputs") or []
+        if isinstance(item, dict) and item.get("key")
+    }
+    for index, item in enumerate(new_definition.get("inputs") or []):
+        if not isinstance(item, dict):
+            continue
+        previous = old_inputs.get(item.get("key"), {})
+        pointer = f"/inputs/{index}"
+        old_query = _filter_query_value(previous)
+        new_query = _filter_query_value(item)
+        if old_query != new_query and not is_safe_template_value(new_query):
+            changes.append(f"{pointer}/filter/query")
+        if _choices_need_author(previous.get("choices"), item.get("choices")):
+            changes.append(f"{pointer}/choices")
+    old_actions = _actions_by_name(old_definition)
+    for phase, key in PHASE_YAML_KEYS.items():
+        for index, action in enumerate(new_definition.get(key) or []):
+            if not isinstance(action, dict):
+                continue
+            previous = old_actions.get((phase, action.get("name")), {})
+            pointer = f"/{key}/{index}"
+            if (action.get("script") or "") != (previous.get("script") or ""):
+                changes.append(f"{pointer}/script")
+            for field in ("when", "with", "extra_vars"):
+                if action.get(field) != previous.get(field) and not is_safe_template_value(action.get(field)):
+                    changes.append(f"{pointer}/{field}")
+    return changes
+
+
+def _pattern_match(label, pattern):
+    """Match a lower-case ``app.model`` label against an allow or deny pattern."""
+    label = label.lower()
+    pattern = pattern.lower()
+    if pattern.endswith("*"):
+        return label.startswith(pattern[:-1])
+    return label == pattern
+
+
+def _model_label(label):
+    """Normalize ``app.Model`` or ``app.model`` to a lower-case label."""
+    text = str(label or "").strip()
+    if "." not in text:
+        return ""
+    app, model = text.split(".", 1)
+    return f"{app}.{model}".lower()
+
+
+def content_type_allowed(label):
+    """Return True when a model may appear in the builder or in an options lookup.
+
+    The denylist wins over ``builder_model_allowlist``.
+    """
+    from django.conf import settings
+
+    normalized = _model_label(label)
+    if not normalized:
+        return False
+    for pattern in BUILDER_MODEL_DENYLIST:
+        if _pattern_match(normalized, pattern):
+            return False
+    configured = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get("builder_model_allowlist")
+    allowlist = configured if isinstance(configured, (list, tuple)) and configured else DEFAULT_MODEL_ALLOWLIST
+    return any(_pattern_match(normalized, pattern) for pattern in allowlist)
+
+
+def script_path_allowed(path):
+    """Return True when a script path stays inside the configured scripts directory."""
+    from django.conf import settings
+
+    configured = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get("scripts_dir", "scripts")
+    scripts_dir = str(configured or "scripts").strip().strip("/")
+    normalized = str(path or "").strip().lstrip("/")
+    if not normalized or not scripts_dir:
+        return False
+    if ".." in normalized.split("/"):
+        return False
+    return normalized == scripts_dir or normalized.startswith(scripts_dir + "/")
+
+
+def _lookup_field(model, name):
+    """Return a concrete or relation field for one lookup hop."""
+    try:
+        return model._meta.get_field(name)
+    except Exception:
+        for field in model._meta.get_fields():
+            if getattr(field, "attname", None) == name:
+                return field
+    return None
+
+
+def lookup_allowed(model, lookup):
+    """Return True when a filter lookup stays on allowlisted models.
+
+    At most three relations may be traversed. The only trailing transforms are
+    the documented exact/iexact/in/contains/comparison lookups.
+    """
+    if model is None or not isinstance(lookup, str) or not lookup or "{{" in lookup or "{%" in lookup:
+        return False
+    parts = lookup.split("__")
+    current = model
+    hops = 0
+    for index, part in enumerate(parts):
+        is_last = index == len(parts) - 1
+        if is_last and part in LOOKUP_TRANSFORMS:
+            return True
+        field = _lookup_field(current, part)
+        if field is None:
+            return False
+        if getattr(field, "is_relation", False):
+            related = getattr(field, "related_model", None)
+            if related is None:
+                return False
+            label = f"{related._meta.app_label}.{related.__name__}"
+            if not content_type_allowed(label):
+                return False
+            hops += 1
+            if hops > 3:
+                return False
+            if is_last:
+                return True
+            current = related
+            continue
+        rest = parts[index + 1 :]
+        if not rest:
+            return True
+        return len(rest) == 1 and rest[0] in LOOKUP_TRANSFORMS
+    return False
+
+
+def builder_policy_errors(definition):
+    """Return field errors for models and scripts the builder is not allowed to save.
+
+    Git sync does not use this. Repository YAML can still name other models.
+    """
+    errors = []
+    if not isinstance(definition, dict):
+        return errors
+    for index, item in enumerate(definition.get("inputs") or []):
+        if not isinstance(item, dict):
+            continue
+        model_label = item.get("model")
+        if model_label and not content_type_allowed(model_label):
+            errors.append({"path": f"inputs[{index}].model", "message": "That model is not available in the builder."})
+            continue
+        query = _filter_query_value(item)
+        if not model_label or not isinstance(query, dict):
+            continue
+        model = _model_for_label(model_label)
+        if model is None:
+            continue
+        for lookup in query:
+            if not isinstance(lookup, str) or "{{" in lookup or "{%" in lookup:
+                continue
+            if not lookup_allowed(model, lookup):
+                errors.append(
+                    {
+                        "path": f"inputs[{index}].filter.query",
+                        "message": f"Filter lookup '{lookup}' is not allowed.",
+                    }
+                )
+    for phase, key in PHASE_YAML_KEYS.items():
+        for index, action in enumerate(definition.get(key) or []):
+            if not isinstance(action, dict):
+                continue
+            script = action.get("script")
+            if script and not script_path_allowed(script):
+                errors.append(
+                    {
+                        "path": f"actions.{phase}[{index}].script",
+                        "message": "Choose a script from the scripts directory.",
+                    }
+                )
+    return errors
+
+
+def _model_for_label(label):
+    """Return the model class for ``app.Model``, or None when it is not installed."""
+    from django.apps import apps
+
+    normalized = _model_label(label)
+    if "." not in normalized:
+        return None
+    app, model = normalized.split(".", 1)
+    try:
+        return apps.get_model(app, model)
+    except LookupError:
+        return None

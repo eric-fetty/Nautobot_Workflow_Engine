@@ -74,7 +74,11 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-end">
-                                    {% if wf.can_change %}
+                                    {% if wf.managed_by == "git" %}
+                                        <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="mdi mdi-eye"></i> View
+                                        </a>
+                                    {% elif wf.can_change %}
                                         <a href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}" class="btn btn-sm btn-outline-secondary">
                                             <i class="mdi mdi-pencil"></i> Edit
                                         </a>
