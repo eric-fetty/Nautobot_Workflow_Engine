@@ -9,6 +9,7 @@ from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
@@ -1699,6 +1700,15 @@ def _tag_choices(user):
     return list(queryset.order_by("name").values_list("name", flat=True)[:200])
 
 
+def _script_label(path):
+    """Turn ``scripts/check_reachability.py`` into ``Check reachability``."""
+    stem = str(path or "").rsplit("/", 1)[-1]
+    if stem.endswith(".py"):
+        stem = stem[:-3]
+    words = stem.replace("_", " ").replace("-", " ").strip()
+    return words[:1].upper() + words[1:] if words else path
+
+
 def _builder_config(request, payload, workflow=None, is_edit=False):
     """Return JSON-serializable data for the builder page.
 
@@ -1720,6 +1730,10 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         if not script_path_allowed(file_path):
             continue
         scripts_by_repo.setdefault(str(repo_id), []).append(file_path)
+    scripts = []
+    for repo_id, paths in scripts_by_repo.items():
+        for file_path in paths:
+            scripts.append({"repo": repo_id, "path": file_path, "name": _script_label(file_path)})
     content_types = []
     for content_type in ContentType.objects.order_by("app_label", "model"):
         model = content_type.model_class()
@@ -1728,10 +1742,17 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         label = f"{content_type.app_label}.{model.__name__}"
         if not content_type_allowed(label):
             continue
+        verbose = str(model._meta.verbose_name)
+        friendly = verbose[:1].upper() + verbose[1:]
+        try:
+            app_name = str(apps.get_app_config(content_type.app_label).verbose_name)
+        except LookupError:
+            app_name = content_type.app_label
         content_types.append(
             {
                 "value": label,
-                "label": f"{content_type.app_label} | {model._meta.verbose_name}",
+                "label": friendly,
+                "app": str(app_name),
             }
         )
     read_only = workflow is not None and not user.has_perm("nautobot_workflow_engine.change_workflow", workflow)
@@ -1773,7 +1794,18 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "payload": payload,
         "repositories": repositories,
         "scripts_by_repo": scripts_by_repo,
+        "scripts": scripts,
         "content_types": content_types,
+        "snow_states": [
+            "New",
+            "Assess",
+            "Authorize",
+            "Scheduled",
+            "Implement",
+            "Review",
+            "Closed",
+            "Canceled",
+        ],
         "integrations": [
             {"name": item.name, "url": getattr(item, "remote_url", "") or ""}
             for item in ExternalIntegration.objects.restrict(user, "view").order_by("name")
@@ -1855,6 +1887,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "duplicate_url": duplicate_url,
         "adopt_url": "",
         "filter_count_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-filter-count"),
+        "filter_fields_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-filter-fields"),
         "load_git_url": (
             reverse("plugins-api:nautobot_workflow_engine-api:workflow-load-git", kwargs={"key": workflow.key})
             if workflow is not None

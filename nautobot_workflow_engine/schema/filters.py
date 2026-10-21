@@ -25,7 +25,11 @@ def split_filter(query):
         parts = key.split("__")
         suffix = parts[-1] if len(parts) > 1 else ""
         if suffix in ("n", "ne"):
-            exclude["__".join(parts[:-1])] = value
+            field = "__".join(parts[:-1])
+            if isinstance(value, list):
+                exclude[f"{field}__in"] = value
+            else:
+                exclude[field] = value
             continue
         if suffix in _ALIAS:
             include["__".join(parts[:-1]) + "__" + _ALIAS[suffix]] = value

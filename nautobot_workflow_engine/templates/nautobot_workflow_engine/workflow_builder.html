@@ -2,9 +2,11 @@
 {% load static %}
 
 {% block title %}{% if workflow %}Edit {{ workflow.name }}{% else %}New workflow{% endif %}{% endblock title %}
+{% block page_title %}{% endblock page_title %}
+{% block breadcrumbs_wrapper %}{% endblock breadcrumbs_wrapper %}
 
 {% block content %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v6">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v11">
     <div id="builder-app" class="nwe-studio">
         {% if errors %}
             <div class="alert alert-danger" role="alert">
@@ -71,5 +73,5 @@
 
 {% block javascript %}
     {{ block.super }}
-    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v7"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v11"></script>
 {% endblock javascript %}

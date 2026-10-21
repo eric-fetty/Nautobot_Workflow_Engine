@@ -70,6 +70,10 @@ const state = {
     compare: false,
     counts: {},
     preview: {},
+    modelFields: {},
+    modelOpen: -1,
+    modelQuery: "",
+    yamlLine: 0,
 };
 
 const app = document.getElementById("builder-app");
@@ -86,7 +90,10 @@ function h(tag, attrs, kids) {
         else if (key === "checked") node.checked = Boolean(value);
         else if (key === "value") node.value = value == null ? "" : String(value);
         else if (key === "disabled") node.disabled = Boolean(value);
-        else node.setAttribute(key, value === true ? "" : String(value));
+        else if (key === "multiple") node.multiple = Boolean(value);
+        else if (key === "selected") {
+            if (value) node.setAttribute("selected", "");
+        } else node.setAttribute(key, value === true ? "" : String(value));
     });
     (kids || []).forEach((kid) => {
         if (kid == null || kid === false) return;
@@ -142,8 +149,7 @@ function localIssues() {
         (payload.actions[phase] || []).forEach((action) => {
             const who = action.label || action.name || "Step";
             if (!action.name) buckets.steps.push(`${who}: add a step key.`);
-            if (action.type === "nautobot" && !action.script) buckets.steps.push(`${who}: Choose which script to run`);
-            if (action.type === "awx" && !action.template_id) buckets.steps.push(`${who}: choose an AWX template.`);
+            if (action.type === "awx" && !action.template_name && !action.template_id) buckets.steps.push(`${who}: Choose an AWX job template`);
         });
     });
     if (payload.schedule.enabled && !payload.schedule.integration_name) {
@@ -293,9 +299,17 @@ function paintSave() {
         return;
     }
     if (state.save === "saved" || config.draft_at) {
-        const recent = state.savedAt && Date.now() - state.savedAt < 15000;
-        node.append(h("span", { text: recent ? "Draft saved · just now" : "Draft saved" }));
+        const recent = state.savedAt && Date.now() - state.savedAt < 8000;
+        node.append(h("span", { text: `Draft saved · ${recent ? "just now" : savedAgo()}` }));
     }
+}
+
+function savedAgo() {
+    const then = state.savedAt || Date.parse(config.draft_at || "") || Date.now();
+    const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
+    if (minutes < 1) return "just now";
+    if (minutes === 1) return "1 min ago";
+    return `${minutes} min ago`;
 }
 
 function paintChrome() {
@@ -313,57 +327,106 @@ function renderAll() {
     renderPreview();
 }
 
+function scriptName(path) {
+    const found = (config.scripts || []).find((item) => item.path === path);
+    if (found) return found.name;
+    if (!path || !String(path).endsWith(".py")) return "";
+    const stem = String(path).split("/").pop().replace(/\.py$/, "").replace(/[_-]+/g, " ");
+    return stem.charAt(0).toUpperCase() + stem.slice(1);
+}
+
+function tile(type) {
+    const icons = {
+        string: "T",
+        integer: "#",
+        boolean: "◐",
+        choice: "◉",
+        multichoice: "☑",
+        object: "▣",
+        multiobject: "▣",
+        list: "≡",
+        listdict: "▦",
+        nautobot: "{ }",
+        awx: "⚙",
+    };
+    return h("span", { class: `nwe-tile t-${type}`, text: icons[type] || "•" });
+}
+
+function modelMeta(model) {
+    return (state.modelFields || {})[model] || [];
+}
+
+function fieldMeta(model, key) {
+    return modelMeta(model).find((item) => item.key === key) || null;
+}
+
+function ensureFields(model) {
+    if (!model || state.modelFields[model] || state.fieldLoads?.[model]) return;
+    state.fieldLoads = state.fieldLoads || {};
+    state.fieldLoads[model] = true;
+    api(config.filter_fields_url, { model }).then((result) => {
+        state.modelFields[model] = result.ok ? result.data.fields || [] : [];
+        state.modelExamples = state.modelExamples || {};
+        state.modelExamples[model] = result.ok ? result.data.examples || [] : [];
+        renderEditor();
+    });
+}
+
+function inputByKey(key) {
+    return payload.inputs.find((input) => input.key === key);
+}
+
 function renderHeader() {
     const header = document.getElementById("studio-header");
     const [text, kind] = statusText();
     const block = publishBlock();
     const git = gitIndicator();
     header.replaceChildren(
-        h("a", { class: "btn btn-light btn-sm", href: config.list_url, title: "Back to workflows", text: "←" }),
-        h("div", {}, [
-            h("h1", { class: "nwe-title", id: "nwe-title", text: payload.name || "Untitled workflow" }),
-            h("div", { class: "nwe-state" }, [
-                h("span", { class: `nwe-pill ${kind === "ok" ? "nwe-pill-ok" : "nwe-pill-draft"}` }, [
-                    h("span", { class: "dot" }),
-                    text,
+        h("a", { class: "nwe-back", href: config.list_url, title: "Back to workflows", text: "←" }),
+        h("div", { class: "nwe-ident" }, [
+            h("span", { class: "nwe-wf-icon", text: "↻" }),
+            h("div", {}, [
+                h("h1", { class: "nwe-title", id: "nwe-title", text: payload.name || "Untitled workflow" }),
+                h("div", { class: "nwe-state" }, [
+                    h("span", { class: `nwe-pill ${kind === "ok" ? "nwe-pill-ok" : "nwe-pill-draft"}` }, [
+                        h("span", { class: "dot" }),
+                        text,
+                    ]),
+                    h("button", { type: "button", class: "nwe-info", "data-action": "how", title: "How editing works", text: "ⓘ" }),
+                    h("span", { class: "nwe-saved", id: "nwe-save" }),
                 ]),
-                h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "how", title: "How editing works", text: "ⓘ" }),
-                h("span", { id: "nwe-save" }),
             ]),
         ]),
-        h("div", { class: "ms-auto d-flex flex-wrap align-items-center gap-2" }, [
+        h("div", { class: "nwe-tools" }, [
             git.bad
                 ? h("button", { type: "button", class: "btn btn-sm btn-outline-danger", "data-action": "retry", text: git.text })
-                : h("span", { class: "text-secondary small", text: git.text }),
-            h("div", { class: "form-check form-switch m-0" }, [
+                : h("span", { class: "nwe-synced", text: git.text }),
+            h("label", { class: "nwe-switch" }, [
                 h("input", {
-                    class: "form-check-input",
                     type: "checkbox",
-                    id: "nwe-enabled",
                     "data-action": "enabled",
                     checked: payload.enabled,
                     disabled: !config.published_number || config.read_only,
                 }),
-                h("label", { class: "form-check-label", for: "nwe-enabled", text: "Enabled", title: config.published_number ? "Applies immediately. It does not make a Git commit." : "Publish it first" }),
+                h("span", { class: "nwe-switch-ui" }),
+                h("span", { text: "Enabled" }),
             ]),
-            h("div", { class: "btn-group btn-group-sm" }, [
-                h("button", { type: "button", class: `btn ${state.yaml ? "btn-light" : "btn-secondary"}`, "data-action": "mode", "data-mode": "visual", text: "Visual" }),
-                h("button", { type: "button", class: `btn ${state.yaml ? "btn-secondary" : "btn-light"}`, "data-action": "mode", "data-mode": "yaml", text: "YAML" }),
+            h("div", { class: "nwe-seg" }, [
+                h("button", { type: "button", class: state.yaml ? "" : "on", "data-action": "mode", "data-mode": "visual", text: "Visual" }),
+                h("button", { type: "button", class: state.yaml ? "on" : "", "data-action": "mode", "data-mode": "yaml", text: "YAML" }),
             ]),
             h("div", { class: "position-relative" }, [
-                h("button", { type: "button", class: "btn btn-light btn-sm", "data-action": "menu", text: "⋯" }),
+                h("button", { type: "button", class: "nwe-more", "data-action": "menu", text: "⋯" }),
                 state.menu ? menu() : null,
             ]),
-            h("div", { class: "d-flex align-items-center gap-2" }, [
-                block ? h("a", { href: "#", class: "nwe-why text-danger", "data-action": "goto", "data-section": block.section, text: block.message }) : null,
-                h("button", {
-                    type: "button",
-                    class: "btn nwe-publish",
-                    "data-action": "publish",
-                    disabled: Boolean(block) || config.read_only,
-                    text: config.can_publish ? "Publish changes" : "Request publish",
-                }),
-            ]),
+            block ? h("a", { href: "#", class: "nwe-why", "data-action": "goto", "data-section": block.section, text: block.message }) : null,
+            h("button", {
+                type: "button",
+                class: "btn nwe-publish",
+                "data-action": "publish",
+                disabled: Boolean(block) || config.read_only,
+                text: config.can_publish ? "Publish changes" : "Request publish",
+            }),
         ]),
     );
     if (state.how) header.querySelector(".nwe-state")?.append(howPop());
@@ -518,6 +581,9 @@ function renderEditor() {
             ]),
         ]),
     );
+    const area = document.getElementById("nwe-yaml");
+    const gutter = document.getElementById("nwe-gutter");
+    if (area && gutter) area.addEventListener("scroll", () => { gutter.scrollTop = area.scrollTop; });
 }
 
 function sectionView() {
@@ -529,79 +595,118 @@ function sectionView() {
     return detailsView();
 }
 
+function gridField(label, control, help, wide) {
+    return h("div", { class: wide ? "nwe-field nwe-span" : "nwe-field" }, [
+        label ? h("label", { class: "form-label", text: label }) : null,
+        control,
+        help ? h("div", { class: "form-text", text: help }) : null,
+    ]);
+}
+
 function detailsView() {
     const manual = Number(payload.manual_duration_minutes || 0);
     const hours = manual ? Math.round((48 * Math.max(0, manual - 4)) / 60) : 0;
-    return h("div", {}, [
+    return h("div", { class: "nwe-section" }, [
         h("div", { class: "nwe-kicker", text: "Step 1 of 5" }),
         h("h2", { text: "Details" }),
-        h("p", { class: "text-secondary", text: "What this workflow is, and how long it takes by hand." }),
-        field("Name", h("input", { class: "form-control", "data-bind": "name", value: payload.name || "" }), "The name on the list and the launch form."),
-        field("Description", h("textarea", { class: "form-control", rows: "3", "data-bind": "description", value: payload.description || "" }), "Shown under the name."),
-        field("Category", h("input", { class: "form-control", "data-bind": "category", value: payload.category || "" }), "Groups the workflow on the list."),
-        field(
-            "Manual effort per run (minutes)",
-            h("input", { class: "form-control", type: "number", min: "0", "data-bind": "manual_duration_minutes", value: payload.manual_duration_minutes ?? "" }),
-            `Example: 48 runs × ${manual || "—"} min by hand, minus about 4 min per automated run ≈ ${hours} hours saved a month on the dashboard.`,
-        ),
-        field(
-            "Repository",
-            h("select", { class: "form-select", "data-bind": "source_repo" }, [
-                h("option", { value: "", text: "Choose a repository…" }),
-                ...(config.repositories || []).map((repo) => h("option", { value: repo.id, text: repo.name, selected: String(payload.source_repo || "") === String(repo.id) })),
+        h("p", { class: "nwe-sub", text: "How this workflow shows up for the people who run it." }),
+        h("div", { class: "nwe-card" }, [
+            h("div", { class: "nwe-grid" }, [
+                gridField("Name", h("input", { class: "form-control", "data-bind": "name", value: payload.name || "" }), "Start with a verb. Shown on the Workflows list and the launch form.", true),
+                gridField("Description", h("textarea", { class: "form-control", rows: "3", "data-bind": "description", value: payload.description || "" }), "Shown at the top of the launch form.", true),
+                gridField("Category · optional", h("input", { class: "form-control", "data-bind": "category", value: payload.category || "" }), "Groups related workflows on the list."),
+                gridField(
+                    "Manual effort per run (minutes) · optional",
+                    h("div", { class: "input-group" }, [
+                        h("input", { class: "form-control", type: "number", min: "0", "data-bind": "manual_duration_minutes", value: payload.manual_duration_minutes ?? "" }),
+                        h("span", { class: "input-group-text", text: "minutes" }),
+                    ]),
+                    "How long this takes by hand. The dashboard calculates time saved from it.",
+                ),
+                gridField(
+                    "Repository",
+                    h("select", { class: "form-select", "data-bind": "source_repo" }, [
+                        h("option", { value: "", text: "Choose a repository…" }),
+                        ...(config.repositories || []).map((repo) => h("option", { value: repo.id, text: repo.name, selected: String(payload.source_repo || "") === String(repo.id) })),
+                    ]),
+                    "Published YAML is committed here. Drafts stay in Nautobot.",
+                    true,
+                ),
             ]),
-            "Published YAML is committed here. Drafts stay in Nautobot.",
-        ),
-        h("details", { class: "mt-2" }, [
-            h("summary", { text: "Advanced · workflow ID" }),
-            field(
-                "Workflow ID",
-                h("input", { class: "form-control", "data-bind": "key", value: payload.key || "", disabled: Boolean(config.key) }),
-                config.key ? "Locked after the first save. Referenced in URLs and in Git." : "Made from the name. It locks once the workflow is saved.",
-            ),
+            hours ? h("div", { class: "nwe-effort", text: `Example: 48 runs × ${manual} min by hand, minus about 4 min per automated run ≈ ${hours} hours saved a month on the dashboard.` }) : null,
+            h("details", { class: "nwe-advanced" }, [
+                h("summary", { text: "Advanced · workflow ID" }),
+                gridField(
+                    "Workflow ID",
+                    h("input", { class: "form-control", "data-bind": "key", value: payload.key || "", disabled: Boolean(config.key) }),
+                    config.key ? "Locked after the first publish, because run history and approvals refer to it." : "Made from the name. It locks after the first publish.",
+                ),
+            ]),
         ]),
     ]);
 }
 
 function inputsView() {
-    return h("div", {}, [
-        h("div", { class: "nwe-kicker", text: "Step 2 of 5" }),
-        h("div", { class: "d-flex align-items-center" }, [
-            h("h2", { class: "me-auto", text: "Inputs" }),
-            h("button", { type: "button", class: "btn btn-light btn-sm", "data-action": "add-type", text: "+ Add input" }),
+    return h("div", { class: "nwe-section" }, [
+        h("div", { class: "d-flex align-items-start" }, [
+            h("div", { class: "me-auto" }, [
+                h("div", { class: "nwe-kicker", text: "Step 2 of 5" }),
+                h("h2", { text: "Inputs" }),
+                h("p", { class: "nwe-sub", text: "The fields people fill in when they run the workflow, in this order." }),
+            ]),
+            h("button", { type: "button", class: "btn btn-light", "data-action": "add-type", text: "+ Add input" }),
         ]),
-        h("p", { class: "text-secondary", text: "The fields people fill in when they run the workflow, in this order." }),
         state.addType ? typePicker() : null,
-        ...payload.inputs.map((input, index) => inputRow(input, index)),
-        h("button", { type: "button", class: "btn btn-light w-100", "data-action": "add-type", text: "+ Add input" }),
+        h("div", { class: "nwe-in-list" }, payload.inputs.map((input, index) => inputRow(input, index))),
+        h("button", { type: "button", class: "nwe-add-row", "data-action": "add-type", text: "+ Add input" }),
+        h("div", { class: "nwe-hint", text: "Drag to reorder · click a row to edit" }),
     ]);
 }
 
 function typePicker() {
-    return h("div", { class: "nwe-card" }, [
-        h("div", { class: "fw-semibold mb-2", text: "What should people enter?" }),
-        h("div", { class: "d-flex flex-wrap gap-2" }, TYPES.map(([type, label]) => h("button", { type: "button", class: "btn btn-outline-secondary btn-sm", "data-action": "add-input", "data-type": type, text: label }))),
+    return h("div", { class: "nwe-card nwe-typegrid" }, [
+        h("div", { class: "nwe-kicker", text: "What should people enter?" }),
+        h("div", { class: "nwe-typegrid-items" }, TYPES.map(([type, label]) => h("button", { type: "button", class: "nwe-type-item", "data-action": "add-input", "data-type": type }, [
+            tile(type),
+            h("span", {}, [h("b", { text: label })]),
+        ]))),
     ]);
+}
+
+function inputPills(input) {
+    const pills = [];
+    if (input.required) pills.push(["Required", ""]);
+    if ((input.filter_rows || []).length || (input.filter_mode === "jinja" && input.filter_query)) pills.push(["Filtered", "blue"]);
+    const waits = (input.depends_on || []).map((key) => inputByKey(key)?.label || key);
+    if (waits.length) pills.push([`Waits for ${waits.join(", ")}`, "amber"]);
+    if (input.show_if && (typeof input.show_if === "string" ? input.show_if.trim() : Object.keys(input.show_if).length)) pills.push(["Conditional", ""]);
+    if ((input.validators || []).length) pills.push(["Validated", ""]);
+    return pills;
+}
+
+function inputSubtitle(input) {
+    const type = TYPE_LABEL[input.type] || input.type;
+    if ((input.type === "object" || input.type === "multiobject") && input.model) {
+        const model = (config.content_types || []).find((item) => item.value === input.model);
+        return `${type} · ${model ? model.label : input.model}`;
+    }
+    if (input.type === "choice" || input.type === "multichoice") return `${type} · ${(input.choices || []).length} options`;
+    return type;
 }
 
 function inputRow(input, index) {
     const open = state.openInput === index;
-    const tags = [];
-    if (input.required) tags.push("Required");
-    if ((input.filter_rows || []).length || input.filter_mode === "jinja") tags.push("Filtered");
-    if ((input.depends_on || []).length) tags.push(`Waits for ${(input.depends_on || []).join(", ")}`);
-    if (input.show_if && (typeof input.show_if === "string" ? input.show_if : Object.keys(input.show_if).length)) tags.push("Conditional");
-    if ((input.validators || []).length) tags.push("Validated");
-    return h("div", {}, [
-        h("div", { class: `nwe-row ${open ? "open" : ""}`, draggable: "true", "data-drag": "input", "data-index": String(index) }, [
-            h("span", { class: "text-secondary", text: "⋮⋮", title: "Drag to reorder" }),
-            h("button", { type: "button", class: "btn btn-link text-start flex-grow-1 p-0 text-decoration-none", "data-action": "open-input", "data-index": String(index) }, [
-                h("span", { class: "fw-semibold", "data-row-label": String(index), text: input.label || "Untitled" }),
-                h("span", { class: "text-secondary small ms-2", text: TYPE_LABEL[input.type] || input.type }),
-                ...tags.map((tag) => h("span", { class: "badge text-bg-light ms-1", text: tag })),
+    return h("div", { class: `nwe-in ${open ? "open" : ""}`, draggable: "true", "data-drag": "input", "data-index": String(index) }, [
+        h("div", { class: "nwe-in-head", "data-action": "open-input", "data-index": String(index) }, [
+            h("span", { class: "nwe-grip", text: "⋮⋮", title: "Drag to reorder" }),
+            tile(input.type),
+            h("div", { class: "nwe-in-copy" }, [
+                h("div", { class: "nwe-in-name", "data-row-label": String(index), text: input.label || "Untitled" }),
+                h("div", { class: "nwe-in-meta", text: inputSubtitle(input) }),
             ]),
-            h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "remove-input", "data-index": String(index), title: "Remove", text: "🗑" }),
-            h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "open-input", "data-index": String(index), text: open ? "▴" : "▾" }),
+            h("div", { class: "nwe-pills" }, inputPills(input).map(([text, tone]) => h("span", { class: `nwe-soft ${tone}`, text }))),
+            h("button", { type: "button", class: "nwe-icon", "data-action": "remove-input", "data-index": String(index), title: "Remove", text: "🗑" }),
+            h("span", { class: "nwe-chev", text: open ? "▴" : "▾" }),
         ]),
         open ? inputEditor(input, index) : null,
     ]);
@@ -609,40 +714,66 @@ function inputRow(input, index) {
 
 function inputEditor(input, index) {
     const base = `inputs.${index}`;
-    return h("div", { class: "nwe-card" }, [
-        field("Label", h("input", { class: "form-control", "data-bind": `${base}.label`, value: input.label || "" })),
-        field("Field type", h("select", { class: "form-select", "data-bind": `${base}.type` }, TYPES.map(([type, label]) => h("option", { value: type, text: label, selected: input.type === type })))),
-        field("Help text", h("input", { class: "form-control", "data-bind": `${base}.help_text`, value: input.help_text || "" }), "Optional. Shown under the field."),
-        input.type === "string" || input.type === "integer" || input.type === "list"
-            ? field("Placeholder", h("input", { class: "form-control", "data-bind": `${base}.placeholder`, value: input.placeholder || "" }))
-            : null,
-        input.type === "integer"
-            ? h("div", { class: "row" }, [
-                h("div", { class: "col" }, [field("Minimum", h("input", { class: "form-control", type: "number", "data-bind": `${base}.min_value`, value: input.min_value ?? "" }))]),
-                h("div", { class: "col" }, [field("Maximum", h("input", { class: "form-control", type: "number", "data-bind": `${base}.max_value`, value: input.max_value ?? "" }))]),
-            ])
-            : null,
-        input.type === "choice" || input.type === "multichoice" ? choicesEditor(input, index) : null,
-        input.type === "object" || input.type === "multiobject" ? filterEditor(input, index) : null,
-        input.type === "list"
-            ? h("div", { class: "row" }, [
-                h("div", { class: "col" }, [field("At least", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.min_items`, value: input.min_items ?? "" }))]),
-                h("div", { class: "col" }, [field("At most", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.max_items`, value: input.max_items ?? "" }))]),
-            ])
-            : null,
-        input.type === "listdict" ? tableEditor(input, index) : null,
-        h("div", { class: "form-check form-switch" }, [
-            h("input", { class: "form-check-input", type: "checkbox", "data-bind": `${base}.required`, "data-check": "1", checked: input.required, id: `req-${index}` }),
-            h("label", { class: "form-check-label", for: `req-${index}`, text: "Required" }),
+    const object = input.type === "object" || input.type === "multiobject";
+    if (object && input.model) ensureFields(input.model);
+    return h("div", { class: "nwe-in-body" }, [
+        h("div", { class: "nwe-grid" }, [
+            gridField("Label", h("input", { class: "form-control", "data-bind": `${base}.label`, value: input.label || "" })),
+            gridField("Field type", h("select", { class: "form-select", "data-bind": `${base}.type` }, TYPES.map(([type, label]) => h("option", { value: type, text: label, selected: input.type === type })))),
+            object ? gridField("Which kind of object?", modelPicker(input, index), input.type === "multiobject" ? "People can pick several. Steps get a list." : "") : null,
+            gridField("Help text · optional", h("input", { class: "form-control", "data-bind": `${base}.help_text`, value: input.help_text || "" }), "Shown under the field."),
+            input.type === "string" || input.type === "integer" || input.type === "list"
+                ? gridField("Example shown in the empty field · optional", h("input", { class: "form-control", "data-bind": `${base}.placeholder`, value: input.placeholder || "" }))
+                : null,
+            input.type === "integer" ? gridField("Smallest allowed · optional", h("input", { class: "form-control", type: "number", "data-bind": `${base}.min_value`, value: input.min_value ?? "" })) : null,
+            input.type === "integer" ? gridField("Largest allowed · optional", h("input", { class: "form-control", type: "number", "data-bind": `${base}.max_value`, value: input.max_value ?? "" })) : null,
+            input.type === "list" ? gridField("At least · lines", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.min_items`, value: input.min_items ?? "" })) : null,
+            input.type === "list" ? gridField("At most · lines", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.max_items`, value: input.max_items ?? "" })) : null,
+            input.type === "choice" || input.type === "multichoice" ? h("div", { class: "nwe-span" }, [choicesEditor(input, index)]) : null,
+            object ? h("div", { class: "nwe-span" }, [filterEditor(input, index)]) : null,
+            input.type === "listdict" ? h("div", { class: "nwe-span" }, [tableEditor(input, index)]) : null,
+            h("div", { class: "nwe-span nwe-behav" }, [
+                h("label", { class: "nwe-switch" }, [
+                    h("input", { type: "checkbox", "data-bind": `${base}.required`, checked: input.required }),
+                    h("span", { class: "nwe-switch-ui" }),
+                    h("span", {}, [
+                        h("b", { text: "Required" }),
+                        h("small", { text: object ? "People must pick one to run it" : "People must fill it in to run it" }),
+                    ]),
+                ]),
+                visibilityEditor(input, index),
+            ]),
         ]),
-        h("details", { class: "mt-3" }, [
-            h("summary", { text: "Advanced · variable name" }),
-            field(
+        h("details", { class: "nwe-advanced" }, [
+            h("summary", { text: "Advanced · variable name, wait for fields" }),
+            gridField(
                 "Variable name",
                 h("input", { class: "form-control", "data-bind": `${base}.key`, value: input.key || "", disabled: inputLocked(input) }),
-                inputLocked(input) ? "Locked because a published version uses it." : `Referenced as {{ inputs.${input.key || "name"} }} · made from the label.`,
+                inputLocked(input) ? "Locked because a published version uses it." : `Referenced as {{ inputs.${input.key || "name"} }}. Made from the label until you edit it.`,
             ),
         ]),
+    ]);
+}
+
+function modelPicker(input, index) {
+    const current = (config.content_types || []).find((item) => item.value === input.model);
+    const query = state.modelOpen === index ? state.modelQuery.toLowerCase() : "";
+    const groups = new Map();
+    (config.content_types || []).forEach((item) => {
+        const hay = `${item.label} ${item.app} ${item.value}`.toLowerCase();
+        if (query && !hay.includes(query)) return;
+        if (!groups.has(item.app)) groups.set(item.app, []);
+        groups.get(item.app).push(item);
+    });
+    return h("div", { class: "nwe-model" }, [
+        h("button", { type: "button", class: "form-select text-start", "data-action": "model-open", "data-index": String(index), text: current ? current.label : "Choose…" }),
+        state.modelOpen === index ? h("div", { class: "nwe-model-pop" }, [
+            h("input", { class: "form-control form-control-sm", placeholder: "Search objects…", "data-model-search": String(index), value: state.modelQuery || "" }),
+            ...[...groups.entries()].map(([app, rows]) => h("div", {}, [
+                h("div", { class: "nwe-model-app", text: app }),
+                ...rows.map((item) => h("button", { type: "button", class: "nwe-model-item", "data-action": "pick-model", "data-index": String(index), "data-model": item.value, text: item.label })),
+            ])),
+        ]) : null,
     ]);
 }
 
@@ -660,50 +791,205 @@ function choicesEditor(input, index) {
 }
 
 function filterEditor(input, index) {
-    const models = config.content_types || [];
+    if (!input.model) return h("div", { class: "form-text", text: "Choose an object type to filter what people can pick." });
+    const model = (config.content_types || []).find((item) => item.value === input.model);
+    const noun = (model ? model.label : "object").toLowerCase();
     scheduleCount(index);
-    return h("div", {}, [
-        field("Which kind of object?", (() => {
-            const select = h("select", { class: "form-select", "data-bind": `inputs.${index}.model` }, [
-                h("option", { value: "", text: "Choose…" }),
-                ...models.map((model) => h("option", { value: model.value, text: model.label })),
-            ]);
-            select.value = input.model || "";
-            return select;
-        })()),
-        h("div", { class: "d-flex justify-content-between" }, [
-            h("div", { class: "form-label", text: "Only offer objects where…" }),
-            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "filter-mode", "data-index": String(index), text: input.filter_mode === "jinja" ? "Switch to the filter builder" : "Switch to advanced (Jinja)" }),
+    const waits = (input.filter_rows || []).filter((row) => row.source === "input" && row.input).map((row) => inputByKey(row.input)?.label || row.input);
+    return h("div", { class: "nwe-filter" }, [
+        h("div", { class: "d-flex align-items-center mb-2" }, [
+            h("div", { class: "form-label m-0", text: `Only offer ${noun}s where…` }),
+            h("button", { type: "button", class: "btn btn-link btn-sm ms-auto", "data-action": "filter-mode", "data-index": String(index), text: input.filter_mode === "jinja" ? "Back to the filter builder" : "Switch to advanced (Jinja)" }),
         ]),
         input.filter_mode === "jinja"
-            ? field("Jinja or YAML query", h("textarea", { class: "form-control", rows: "4", "data-bind": `inputs.${index}.filter_query`, value: input.filter_query || "" }))
+            ? h("textarea", { class: "form-control font-monospace", rows: "4", "data-bind": `inputs.${index}.filter_query`, value: input.filter_query || "" })
             : h("div", {}, [
                 ...(input.filter_rows || []).map((row, rowIndex) => filterRow(input, index, row, rowIndex)),
+                !(input.filter_rows || []).length ? h("div", { class: "form-text", text: `No conditions: every ${noun} is offered.` }) : null,
                 h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-filter", "data-index": String(index), text: "+ Add condition" }),
-                h("div", { class: "small mt-2", id: `nwe-count-${index}`, text: state.counts[index] || "The count updates as you edit the filter." }),
+                h("div", { class: "nwe-count", id: `nwe-count-${index}`, text: state.counts[index] || "The count updates as you edit the filter." }),
             ]),
+        waits.length ? h("div", { class: "nwe-dep", text: `${input.label || "This field"} appears on the form after ${waits.join(", ")} is filled in, because this filter uses it. This was set up for you.` }) : null,
     ]);
 }
 
 function filterRow(input, index, row, rowIndex) {
     const base = `inputs.${index}.filter_rows.${rowIndex}`;
+    const fields = modelMeta(input.model);
+    const meta = fieldMeta(input.model, row.field);
+    const operators = meta?.operators || ["is", "is not", "contains", "starts with"];
     const others = payload.inputs.filter((item, itemIndex) => itemIndex !== index && item.key);
-    return h("div", { class: "d-flex flex-wrap gap-2 mb-2 align-items-center" }, [
-        h("span", { class: "small text-secondary", text: rowIndex === 0 ? "WHERE" : "AND" }),
-        h("input", { class: "form-control", style: "max-width:10rem", placeholder: "Field", "data-bind": `${base}.field`, value: row.field || "" }),
-        h("select", { class: "form-select", style: "max-width:9rem", "data-bind": `${base}.op` }, OPS.map((op) => h("option", { value: op, text: op, selected: (row.op || "is") === op }))),
-        h("select", { class: "form-select", style: "max-width:11rem", "data-bind": `${base}.source` }, [
+    return h("div", { class: "nwe-frow" }, [
+        h("span", { class: "nwe-where", text: rowIndex === 0 ? "WHERE" : "AND" }),
+        fields.length
+            ? h("select", { class: "form-select form-select-sm", "data-bind": `${base}.field` }, [
+                h("option", { value: "", text: "Field" }),
+                ...fields.map((item) => h("option", { value: item.key, text: item.label, selected: row.field === item.key })),
+            ])
+            : h("input", { class: "form-control form-control-sm", placeholder: "Loading fields…", "data-bind": `${base}.field`, value: row.field || "" }),
+        h("select", { class: "form-select form-select-sm", "data-bind": `${base}.op` }, operators.map((op) => h("option", { value: op, text: op, selected: (row.op || "is") === op }))),
+        row.op === "is empty" ? h("span", { class: "form-text m-0", text: "No value needed" }) : h("select", { class: "form-select form-select-sm", "data-bind": `${base}.source` }, [
             h("option", { value: "value", text: "Fixed value", selected: row.source !== "input" }),
             h("option", { value: "input", text: "From another input", selected: row.source === "input" }),
         ]),
-        row.source === "input"
-            ? h("select", { class: "form-select", style: "max-width:12rem", "data-bind": `${base}.input` }, [
-                h("option", { value: "", text: "Choose an input…" }),
-                ...others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key })),
-            ])
-            : h("input", { class: "form-control", style: "max-width:12rem", "data-bind": `${base}.value`, value: row.value ?? "" }),
-        h("button", { type: "button", class: "btn btn-light", "data-action": "remove-filter", "data-index": String(index), "data-row": String(rowIndex), text: "×" }),
+        filterValueControl(input, row, base, meta, others),
+        h("button", { type: "button", class: "nwe-icon", "data-action": "remove-filter", "data-index": String(index), "data-row": String(rowIndex), text: "×" }),
     ]);
+}
+
+function filterValueControl(input, row, base, meta, others) {
+    if (row.op === "is empty") return null;
+    if (row.source === "input") {
+        return h("select", { class: "form-select form-select-sm", "data-bind": `${base}.input` }, [
+            h("option", { value: "", text: "Choose an input…" }),
+            ...others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key })),
+        ]);
+    }
+    const choices = meta?.choices || [];
+    if ((meta?.kind === "choice" || meta?.kind === "object") && row.op === "is one of") {
+        const selected = new Set(String(row.value || "").split(",").map((part) => part.trim()).filter(Boolean));
+        return h("select", { class: "form-select form-select-sm", multiple: true, "data-multi": `${base}.value` }, choices.map((name) => h("option", { value: name, text: name, selected: selected.has(name) })));
+    }
+    if (meta?.kind === "choice" || meta?.kind === "object") {
+        return h("select", { class: "form-select form-select-sm", "data-bind": `${base}.value` }, [
+            h("option", { value: "", text: meta.kind === "object" ? "Choose an object…" : "Choose…" }),
+            ...choices.map((name) => h("option", { value: name, text: name, selected: String(row.value) === name })),
+        ]);
+    }
+    if (meta?.kind === "number") {
+        return h("input", { class: "form-control form-control-sm", type: "number", "data-bind": `${base}.value`, value: row.value ?? "" });
+    }
+    return h("input", { class: "form-control form-control-sm", "data-bind": `${base}.value`, value: row.value ?? "", placeholder: "Value" });
+}
+
+function writeWhen(row) {
+    if (!row || !row.input) return "";
+    const literal = row.value === true || row.value === "true" ? "true" : row.value === false || row.value === "false" ? "false" : JSON.stringify(String(row.value ?? ""));
+    if (row.op === "is not") return `{{ inputs.${row.input} != ${literal} }}`;
+    if (literal === "true") return `{{ inputs.${row.input} }}`;
+    return `{{ inputs.${row.input} == ${literal} }}`;
+}
+
+function varBucket(action) {
+    if (action.type === "awx") {
+        if (!action.extra_vars || typeof action.extra_vars !== "object" || Array.isArray(action.extra_vars)) action.extra_vars = {};
+        return action.extra_vars;
+    }
+    if (!action.with || typeof action.with !== "object" || Array.isArray(action.with)) action.with = {};
+    return action.with;
+}
+
+function applyShowPart(index, part, value, rerender) {
+    const input = payload.inputs[index];
+    if (!input) return;
+    const row = parseShow(input.show_if) || { input: "", op: "is", value: "" };
+    row[part] = value;
+    input._showMode = "visual";
+    input.show_if = writeShow(row);
+    if (rerender) renderAll();
+    touch();
+}
+
+function applyWhenPart(phase, index, part, value, rerender) {
+    const actionRow = payload.actions[phase] && payload.actions[phase][index];
+    if (!actionRow) return;
+    const row = parseShow(actionRow.when) || { input: "", op: "is", value: "" };
+    row[part] = value;
+    actionRow._whenMode = "visual";
+    actionRow.when = writeWhen(row);
+    if (rerender) renderAll();
+    touch();
+}
+
+function parseShow(value) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+        const entry = Object.entries(value)[0];
+        if (!entry) return null;
+        return { input: entry[0], op: "is", value: entry[1] };
+    }
+    if (typeof value !== "string") return null;
+    const bare = value.trim().match(/^\{\{\s*inputs\.([A-Za-z0-9_]+)\s*\}\}$/);
+    if (bare) return { input: bare[1], op: "is", value: true };
+    const match = value.trim().match(/^\{\{\s*inputs\.([A-Za-z0-9_]+)\s*(==|!=)\s*(.+?)\s*\}\}$/);
+    if (!match) return null;
+    let raw = match[3].trim();
+    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) raw = raw.slice(1, -1);
+    if (raw === "true") raw = true;
+    if (raw === "false") raw = false;
+    return { input: match[1], op: match[2] === "!=" ? "is not" : "is", value: raw };
+}
+
+function writeShow(row) {
+    if (!row || !row.input) return {};
+    if (row.op === "is not") {
+        const literal = typeof row.value === "boolean" ? String(row.value) : JSON.stringify(String(row.value ?? ""));
+        return `{{ inputs.${row.input} != ${literal} }}`;
+    }
+    let stored = row.value;
+    if (stored === "true") stored = true;
+    if (stored === "false") stored = false;
+    return { [row.input]: stored };
+}
+
+function visibilityEditor(input, index) {
+    const advanced = input._showMode === "jinja" || (typeof input.show_if === "string" && input.show_if.trim() && !parseShow(input.show_if));
+    if (advanced) {
+        return h("div", {}, [
+            h("label", { class: "form-label", text: "Visibility" }),
+            h("textarea", { class: "form-control font-monospace", rows: "2", "data-bind": `inputs.${index}.show_if`, value: typeof input.show_if === "string" ? input.show_if : "" }),
+            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "show-visual", "data-index": String(index), text: "Back to the condition builder" }),
+        ]);
+    }
+    const row = parseShow(input.show_if);
+    if (!row) {
+        return h("div", {}, [
+            h("label", { class: "form-label", text: "Visibility" }),
+            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-show", "data-index": String(index), text: "+ Only show this field when…" }),
+            h("div", { class: "form-text", text: "Always shown" }),
+        ]);
+    }
+    const others = payload.inputs.filter((item, itemIndex) => itemIndex !== index && item.key);
+    const source = inputByKey(row.input);
+    return h("div", {}, [
+        h("label", { class: "form-label", text: "Visibility" }),
+        h("div", { class: "nwe-cond" }, [
+            h("span", { class: "nwe-where", text: "Show only when" }),
+            h("select", { class: "form-select form-select-sm", "data-show": "input", "data-index": String(index) }, [
+                ...others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key })),
+            ]),
+            h("select", { class: "form-select form-select-sm", "data-show": "op", "data-index": String(index) }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
+            showValue(source, row, index),
+            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "show-jinja", "data-index": String(index), text: "Switch to advanced (Jinja)" }),
+            h("button", { type: "button", class: "nwe-icon", "data-action": "clear-show", "data-index": String(index), text: "×" }),
+        ]),
+    ]);
+}
+
+function whenValue(source, row, phase, index) {
+    const attrs = { class: "form-select form-select-sm", "data-when": "value", "data-phase": phase, "data-index": String(index) };
+    if (source && source.type === "boolean") {
+        return h("select", attrs, [
+            h("option", { value: "true", text: "Yes", selected: row.value === true || row.value === "true" }),
+            h("option", { value: "false", text: "No", selected: row.value === false || row.value === "false" }),
+        ]);
+    }
+    if (source && (source.choices || []).length) {
+        return h("select", attrs, source.choices.map((choice) => h("option", { value: choice.value, text: choice.label || choice.value, selected: String(row.value) === String(choice.value) })));
+    }
+    return h("input", { class: "form-control form-control-sm", "data-when": "value", "data-phase": phase, "data-index": String(index), value: row.value ?? "" });
+}
+
+function showValue(source, row, index) {
+    if (source && source.type === "boolean") {
+        return h("select", { class: "form-select form-select-sm", "data-show": "value", "data-index": String(index) }, [
+            h("option", { value: "true", text: "Yes", selected: row.value === true || row.value === "true" }),
+            h("option", { value: "false", text: "No", selected: row.value === false || row.value === "false" }),
+        ]);
+    }
+    if (source && (source.choices || []).length) {
+        return h("select", { class: "form-select form-select-sm", "data-show": "value", "data-index": String(index) }, source.choices.map((choice) => h("option", { value: choice.value, text: choice.label || choice.value, selected: String(row.value) === String(choice.value) })));
+    }
+    return h("input", { class: "form-control form-control-sm", "data-show": "value", "data-index": String(index), value: row.value ?? "" });
 }
 
 function tableEditor(input, index) {
@@ -736,37 +1022,103 @@ function tableEditor(input, index) {
 }
 
 function stepsView() {
-    return h("div", {}, [
+    const phases = [
+        ["pre", "Before", "bi", "Runs first, and again when a scheduled run is booked. If a step fails, the run stops here."],
+        ["main", "Main", "play", "Runs in order. If a step fails, it’s recorded and the remaining main steps still run."],
+        ["post", "Always run at the end", "flag", "Runs last, even after failures. Use it for cleanup and notes. A failure here doesn’t fail the run."],
+    ];
+    return h("div", { class: "nwe-section" }, [
         h("div", { class: "nwe-kicker", text: "Step 3 of 5" }),
         h("h2", { text: "Steps" }),
-        h("p", { class: "text-secondary", text: "What happens when someone runs this workflow, from top to bottom." }),
-        ...PHASES.map(([phase, label, help]) => h("div", {}, [
-            h("div", { class: "nwe-phase" }, [
-                h("div", { class: "fw-semibold", text: `${label} · ${(payload.actions[phase] || []).length}` }),
+        h("p", { class: "nwe-sub", text: "What happens when someone runs this workflow, from top to bottom." }),
+        ...phases.map(([phase, label, icon, help]) => phaseBlock(phase, label, icon, help)),
+    ]);
+}
+
+function phaseBlock(phase, label, icon, help) {
+    const list = payload.actions[phase] || [];
+    return h("div", { class: `nwe-phase ph-${phase}` }, [
+        h("div", { class: "nwe-phase-head" }, [
+            h("span", { class: `nwe-phase-ico ${icon}`, text: icon === "play" ? "▶" : icon === "flag" ? "⚑" : "🛡" }),
+            h("div", {}, [
+                h("div", { class: "fw-semibold", text: `${label}  ${list.length} step${list.length === 1 ? "" : "s"}` }),
                 h("div", { class: "small text-secondary", text: help }),
             ]),
-            ...(payload.actions[phase] || []).map((action, index) => stepCard(phase, action, index)),
-            h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "add-step", "data-phase": phase, text: "+ Add step" }),
-        ])),
+        ]),
+        h("div", { class: "nwe-phase-body" }, [
+            insertPoint(phase, 0),
+            ...list.flatMap((action, index) => [stepCard(phase, action, index), insertPoint(phase, index + 1)]),
+        ]),
     ]);
+}
+
+function insertPoint(phase, index) {
+    return h("div", { class: "nwe-insert" }, [
+        h("button", { type: "button", "data-action": "add-step", "data-phase": phase, "data-at": String(index), title: "Add a step here", text: "+" }),
+    ]);
+}
+
+function paramEntries(action) {
+    const raw = action.type === "awx" ? action.extra_vars : action.with;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    return Object.entries(raw);
+}
+
+function valueChip(value) {
+    const text = String(value ?? "");
+    const match = text.match(/^\{\{\s*inputs\.([A-Za-z0-9_]+)(?:\.([A-Za-z0-9_.]+))?\s*\}\}$/);
+    if (!match) return h("span", { text });
+    const input = inputByKey(match[1]);
+    const label = input ? input.label || input.key : match[1];
+    return h("span", { class: "nwe-var", text: match[2] ? `${label} › ${match[2]}` : label });
+}
+
+function stepSummary(action) {
+    const bits = [];
+    paramEntries(action).forEach(([key, value], index) => {
+        if (index) bits.push(", ");
+        bits.push(h("span", { class: "nwe-param", text: key }));
+        bits.push(" = ");
+        bits.push(valueChip(value));
+    });
+    if (action.type === "awx") {
+        if (!action.template_name) return h("span", { class: "nwe-missing", text: "Choose an AWX job template" });
+        return h("span", {}, ["Launch AWX template ", h("b", { text: action.template_name }), bits.length ? " with " : "", ...bits]);
+    }
+    const name = scriptName(action.script);
+    if (!name) return h("span", { class: "nwe-missing", text: "Choose which script to run" });
+    return h("span", {}, ["Run script ", h("b", { text: name }), bits.length ? " with " : "", ...bits]);
+}
+
+function whenPlain(action) {
+    const row = parseShow(action.when);
+    if (!row) return action.when ? "a custom condition is true" : "";
+    const input = inputByKey(row.input);
+    const label = input ? input.label || input.key : row.input;
+    const shown = row.value === true || row.value === "true" ? "Yes" : row.value === false || row.value === "false" ? "No" : row.value;
+    return `“${label}” ${row.op} ${shown}`;
 }
 
 function stepCard(phase, action, index) {
     const open = state.openStep === `${phase}:${index}`;
-    const missing = action.type !== "awx" && !action.script;
-    const sentence = action.type === "awx"
-        ? `Launch AWX template ${action.template_id || "…"}`
-        : missing
-            ? "Choose which script to run"
-            : `Run script ${action.script}`;
-    return h("div", { class: `nwe-card ${missing ? "bad" : ""}`, draggable: "true", "data-drag": "step", "data-phase": phase, "data-index": String(index) }, [
-        h("div", { class: "d-flex align-items-start gap-2" }, [
-            h("span", { class: "text-secondary", text: "⋮⋮" }),
-            h("button", { type: "button", class: "btn btn-link text-start p-0 text-decoration-none flex-grow-1", "data-action": "open-step", "data-phase": phase, "data-index": String(index) }, [
-                h("div", { class: "fw-semibold", text: action.label || "Untitled step" }),
-                h("div", { class: `small ${missing ? "text-danger" : "text-secondary"}`, text: sentence }),
+    const missing = action.type === "awx" ? !action.template_name && !action.template_id : !scriptName(action.script);
+    const flags = [];
+    if (action.when) flags.push(`Only if ${whenPlain(action)}`);
+    if (action.monitor) flags.push("Waits for the job to finish");
+    return h("div", { class: `nwe-step ${open ? "open" : ""} ${missing ? "bad" : ""}`, draggable: "true", "data-drag": "step", "data-phase": phase, "data-index": String(index) }, [
+        h("div", { class: "nwe-step-head", "data-action": "open-step", "data-phase": phase, "data-index": String(index) }, [
+            h("span", { class: "nwe-grip", text: "⋮⋮" }),
+            tile(action.type === "awx" ? "awx" : "nautobot"),
+            h("div", { class: "flex-grow-1" }, [
+                h("div", { class: "nwe-step-title" }, [
+                    action.label || "Untitled step",
+                    h("span", { class: "nwe-soft", text: action.type === "awx" ? "AWX job" : "Nautobot script" }),
+                ]),
+                h("div", { class: "nwe-step-sum" }, [stepSummary(action)]),
+                flags.length ? h("div", { class: "nwe-pills" }, flags.map((text) => h("span", { class: "nwe-soft blue", text }))) : null,
             ]),
-            h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "remove-step", "data-phase": phase, "data-index": String(index), text: "🗑" }),
+            h("button", { type: "button", class: "nwe-icon", "data-action": "remove-step", "data-phase": phase, "data-index": String(index), text: "🗑" }),
+            h("span", { class: "nwe-chev", text: open ? "▴" : "▾" }),
         ]),
         open ? stepEditor(phase, action, index) : null,
     ]);
@@ -774,25 +1126,84 @@ function stepCard(phase, action, index) {
 
 function stepEditor(phase, action, index) {
     const base = `actions.${phase}.${index}`;
-    const scripts = (config.scripts_by_repo && config.scripts_by_repo[payload.source_repo]) || [];
-    return h("div", { class: "mt-3" }, [
-        field("Step name", h("input", { class: "form-control", "data-bind": `${base}.label`, value: action.label || "" })),
-        field("Type", h("select", { class: "form-select", "data-bind": `${base}.type` }, [
-            h("option", { value: "nautobot", text: "Nautobot script", selected: action.type !== "awx" }),
-            h("option", { value: "awx", text: "AWX job", selected: action.type === "awx" }),
-        ])),
-        action.type === "awx"
-            ? field("Template ID", h("input", { class: "form-control", "data-bind": `${base}.template_id`, value: action.template_id ?? "" }))
-            : field("Script", h("input", { class: "form-control", list: "nwe-scripts", "data-bind": `${base}.script`, value: action.script || "", placeholder: "Choose which script to run" }), scripts.length ? "" : "Choose a repository to list its scripts."),
-        h("datalist", { id: "nwe-scripts" }, scripts.map((path) => h("option", { value: path }))),
-        field("Run only if", h("input", { class: "form-control", "data-bind": `${base}.when`, value: action.when || "", placeholder: "{{ inputs.confirm }}" }), "Leave empty to always run. A visual condition is still a Jinja expression."),
-        h("details", {}, [
+    const scripts = (config.scripts || []).filter((item) => !payload.source_repo || item.repo === String(payload.source_repo));
+    const choices = scripts.length ? scripts : (config.scripts || []);
+    return h("div", { class: "nwe-step-body" }, [
+        h("div", { class: "nwe-grid" }, [
+            gridField("Step name", h("input", { class: "form-control", "data-bind": `${base}.label`, value: action.label || "" }), "A friendly label, shown on this card and in run history."),
+            action.type === "awx"
+                ? gridField("Job template", h("input", { class: "form-control", "data-bind": `${base}.template_name`, value: action.template_name || "", placeholder: "Network · Reboot device" }), "The template’s name. The numeric id stays under Advanced.")
+                : gridField("Script", h("select", { class: `form-select ${scriptName(action.script) ? "" : "is-invalid"}`, "data-bind": `${base}.script` }, [
+                    h("option", { value: "", text: "Choose a script…" }),
+                    ...choices.map((item) => h("option", { value: item.path, text: item.name, selected: action.script === item.path })),
+                ]), scriptName(action.script) ? action.script : "Choose which script to run."),
+            h("div", { class: "nwe-span" }, [varsEditor(phase, action, index)]),
+            action.type === "awx" ? h("div", { class: "nwe-span" }, [
+                h("label", { class: "nwe-switch" }, [
+                    h("input", { type: "checkbox", "data-bind": `${base}.monitor`, checked: Boolean(action.monitor) }),
+                    h("span", { class: "nwe-switch-ui" }),
+                    h("span", {}, [h("b", { text: "Wait for the AWX job to finish" }), h("small", { text: "The run waits until AWX reports success or failure." })]),
+                ]),
+            ]) : null,
+            h("div", { class: "nwe-span" }, [whenEditor(phase, action, index)]),
+        ]),
+        h("details", { class: "nwe-advanced" }, [
             h("summary", { text: "Advanced · step key" }),
-            field(
+            gridField(
                 "Step key",
                 h("input", { class: "form-control", "data-bind": `${base}.name`, value: action.name || "", disabled: stepLocked(action) }),
-                stepLocked(action) ? `Locked because v${config.published_number} uses it.` : "Made from the step name. Later steps use {{ results." + (action.name || "name") + " }}.",
+                stepLocked(action) ? `Locked because v${config.published_number} uses it.` : `Made from the step name. Later steps use {{ results.${action.name || "name"} }}.`,
             ),
+            action.type === "awx" ? gridField("Template id", h("input", { class: "form-control", type: "number", min: "1", "data-bind": `${base}.template_id`, value: action.template_id ?? "" }), "The numeric job template id AWX expects.") : null,
+        ]),
+    ]);
+}
+
+function varsEditor(phase, action, index) {
+    const entries = paramEntries(action);
+    const raw = action.type === "awx" ? action.extra_vars : action.with;
+    if (typeof raw === "string") {
+        return gridField(action.type === "awx" ? "Extra variables" : "Script parameters", h("textarea", { class: "form-control font-monospace", rows: "3", "data-bind": `actions.${phase}.${index}.${action.type === "awx" ? "extra_vars" : "with"}`, value: raw }));
+    }
+    return h("div", {}, [
+        h("label", { class: "form-label", text: action.type === "awx" ? "Extra variables" : "Script parameters" }),
+        ...entries.map(([key, value]) => h("div", { class: "nwe-var-row" }, [
+            h("input", { class: "form-control form-control-sm", "data-var-key": `${phase}:${index}`, "data-old": key, value: key }),
+            h("input", { class: "form-control form-control-sm", "data-var-val": `${phase}:${index}`, "data-old": key, value: value }),
+            h("button", { type: "button", class: "nwe-icon", "data-action": "rm-var", "data-phase": phase, "data-index": String(index), "data-key": key, text: "×" }),
+        ])),
+        h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-var", "data-phase": phase, "data-index": String(index), text: action.type === "awx" ? "+ Add variable" : "+ Add parameter" }),
+    ]);
+}
+
+function whenEditor(phase, action, index) {
+    const advanced = action._whenMode === "jinja" || (action.when && !parseShow(action.when));
+    if (advanced) {
+        return h("div", {}, [
+            h("label", { class: "form-label", text: "Condition" }),
+            h("textarea", { class: "form-control font-monospace", rows: "2", "data-bind": `actions.${phase}.${index}.when`, value: action.when || "" }),
+            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "when-visual", "data-phase": phase, "data-index": String(index), text: "Back to the condition builder" }),
+        ]);
+    }
+    const row = parseShow(action.when);
+    if (!row) {
+        return h("div", {}, [
+            h("label", { class: "form-label", text: "Condition" }),
+            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-when", "data-phase": phase, "data-index": String(index), text: "+ Run only if…" }),
+            h("span", { class: "text-secondary small", text: " Always runs" }),
+        ]);
+    }
+    const others = payload.inputs.filter((item) => ["boolean", "choice", "string"].includes(item.type) && item.key);
+    const source = inputByKey(row.input);
+    return h("div", {}, [
+        h("label", { class: "form-label", text: "Condition" }),
+        h("div", { class: "nwe-cond" }, [
+            h("span", { class: "nwe-where", text: "Run only if" }),
+            h("select", { class: "form-select form-select-sm", "data-when": "input", "data-phase": phase, "data-index": String(index) }, others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key }))),
+            h("select", { class: "form-select form-select-sm", "data-when": "op", "data-phase": phase, "data-index": String(index) }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
+            whenValue(source, row, phase, index),
+            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "when-jinja", "data-phase": phase, "data-index": String(index), text: "Switch to advanced (Jinja)" }),
+            h("button", { type: "button", class: "nwe-icon", "data-action": "clear-when", "data-phase": phase, "data-index": String(index), text: "×" }),
         ]),
     ]);
 }
@@ -826,7 +1237,10 @@ function scheduleView() {
                     ...textInputs.map((input) => h("option", { value: input.key, text: input.label || input.key, selected: schedule.change_input_key === input.key })),
                 ])),
                 field("Window timezone", h("input", { class: "form-control", "data-bind": "schedule.timezone", value: schedule.timezone || "" })),
-                field("Allowed change states", h("input", { class: "form-control", "data-bind": "schedule.allowed_states", value: (schedule.allowed_states || []).join(", ") }), "Comma-separated. The run is only allowed while the change is in one of these states."),
+                gridField("Allowed change states", h("div", { class: "nwe-chips" }, (config.snow_states || []).map((name) => h("label", { class: `nwe-check ${(schedule.allowed_states || []).includes(name) ? "on" : ""}` }, [
+                    h("input", { type: "checkbox", "data-action": "snow-state", "data-state": name, checked: (schedule.allowed_states || []).includes(name) }),
+                    h("span", { text: name }),
+                ]))), "The run is only allowed while the change is in one of these states."),
                 h("details", {}, [
                     h("summary", { text: "Advanced · ServiceNow field names, ticket pattern" }),
                     field("Window start fields", h("input", { class: "form-control", "data-bind": "schedule.start_fields", value: (schedule.start_fields || []).join(", ") })),
@@ -975,11 +1389,16 @@ function diffView(lines) {
 
 function yamlView() {
     const locked = !config.can_author_code;
-    return h("div", {}, [
+    const lines = String(state.yamlText || "").split("\n");
+    const bad = new Set(state.yamlLine ? [state.yamlLine] : []);
+    return h("div", { class: "nwe-section" }, [
         h("div", { class: "nwe-kicker", text: "Edit as YAML" }),
         h("h2", { text: `${payload.key || "workflow"}.yaml` }),
-        h("p", { class: "text-secondary", text: locked ? "You need the Author templates and scripts permission to edit YAML." : "The draft, as YAML. Edits apply to the draft. Git gets this file when you publish." }),
-        h("textarea", { class: "form-control nwe-yaml", "data-yaml": "1", disabled: locked, text: state.yamlText || "" }),
+        h("p", { class: "nwe-sub", text: locked ? "You need the Author templates and scripts permission to edit YAML." : "The draft, as YAML. Edits apply to the draft. Git gets this file when you publish." }),
+        h("div", { class: "nwe-code" }, [
+            h("div", { class: "nwe-gutter", id: "nwe-gutter" }, lines.map((line, index) => h("div", { class: bad.has(index + 1) ? "bad" : "", text: String(index + 1) }))),
+            h("textarea", { class: "nwe-yaml", id: "nwe-yaml", "data-yaml": "1", disabled: locked, text: state.yamlText || "" }),
+        ]),
         state.yamlError ? h("div", { class: "text-danger small mt-2", text: state.yamlError }) : h("div", { class: "text-success small mt-2", text: state.yamlText ? "Valid · edits apply to the draft as you type" : "" }),
     ]);
 }
@@ -989,38 +1408,73 @@ function renderPreview() {
     const tab = state.previewTab;
     host.replaceChildren(
         h("div", { class: "nwe-preview-card" }, [
-            h("div", { class: "d-flex align-items-center p-2 border-bottom" }, [
-                h("span", { class: "fw-semibold", text: "Preview" }),
-                h("div", { class: "btn-group btn-group-sm ms-auto" }, [
-                    h("button", { type: "button", class: `btn ${tab === "form" ? "btn-secondary" : "btn-light"}`, "data-action": "preview-tab", "data-tab": "form", text: "Launch form" }),
-                    h("button", { type: "button", class: `btn ${tab === "plan" ? "btn-secondary" : "btn-light"}`, "data-action": "preview-tab", "data-tab": "plan", text: "What runs" }),
+            h("div", { class: "nwe-preview-bar" }, [
+                h("span", { class: "nwe-kicker", text: "Preview" }),
+                h("div", { class: "nwe-seg" }, [
+                    h("button", { type: "button", class: tab === "form" ? "on" : "", "data-action": "preview-tab", "data-tab": "form", text: "Launch form" }),
+                    h("button", { type: "button", class: tab === "plan" ? "on" : "", "data-action": "preview-tab", "data-tab": "plan", text: "What runs" }),
                 ]),
             ]),
-            h("div", { class: "p-3" }, [tab === "form" ? previewForm() : previewPlan()]),
-            h("div", { class: "small text-secondary px-3 pb-3", text: tab === "form" ? "The draft's launch form. People running it see the published version until you publish." : "The order things happen when someone runs it." }),
+            h("div", { class: "nwe-preview-body" }, [
+                tab === "form" ? h("div", { class: "nwe-preview-head" }, [
+                    h("div", { class: "nwe-preview-title", text: payload.name || "Untitled workflow" }),
+                    payload.description ? h("div", { class: "nwe-sub", text: payload.description }) : null,
+                ]) : null,
+                tab === "form" ? previewForm() : previewPlan(),
+            ]),
+            h("div", { class: "nwe-preview-foot", text: tab === "form" ? "The draft’s launch form. People running it see the published version until you publish." : "The order things happen when someone runs it." }),
         ]),
     );
 }
 
 function previewForm() {
     if (!payload.inputs.length) return h("p", { class: "text-secondary", text: "Add an input to see it here." });
-    return h("div", {}, payload.inputs.map((input) => h("div", { class: `mb-3 ${state.openInput != null && payload.inputs[state.openInput] === input && state.section === "inputs" ? "border border-warning rounded p-2" : ""}` }, [
-        h("label", { class: "form-label", text: `${input.label || "Untitled"}${input.required ? " *" : ""}` }),
-        previewControl(input),
-        input.help_text ? h("div", { class: "form-text", text: input.help_text }) : null,
-    ])));
+    return h("div", {}, payload.inputs.map((input, index) => {
+        const editing = state.section === "inputs" && state.openInput === index;
+        return h("div", { class: `nwe-prev-field ${editing ? "editing" : ""}` }, [
+            editing ? h("span", { class: "nwe-editing", text: "Editing" }) : null,
+            input.type === "boolean"
+                ? h("label", { class: "nwe-switch" }, [
+                    h("input", { type: "checkbox", "data-preview": input.key, checked: state.preview[input.key] === true }),
+                    h("span", { class: "nwe-switch-ui" }),
+                    h("span", {}, [h("b", { text: input.label || "Untitled" }), input.help_text ? h("small", { text: input.help_text }) : null]),
+                ])
+                : h("div", {}, [
+                    h("label", { class: "form-label", text: `${input.label || "Untitled"}${input.required ? " *" : ""}` }),
+                    previewControl(input),
+                    input.help_text ? h("div", { class: "form-text", text: input.help_text }) : null,
+                ]),
+        ]);
+    }));
 }
 
 function previewControl(input) {
-    if (input.type === "boolean") return h("div", { class: "form-check form-switch" }, [h("input", { class: "form-check-input", type: "checkbox", disabled: true })]);
     if (input.type === "choice" && (input.choices || []).length && input.choices.length <= 4) {
-        return h("div", {}, input.choices.map((choice) => h("div", { class: "form-check" }, [
-            h("input", { class: "form-check-input", type: "radio", disabled: true }),
-            h("label", { class: "form-check-label", text: choice.label || choice.value || "Option" }),
+        return h("div", { class: "nwe-radios" }, input.choices.map((choice) => h("label", { class: `nwe-radio ${state.preview[input.key] === choice.value ? "on" : ""}` }, [
+            h("input", { type: "radio", name: `preview-${input.key}`, "data-preview": input.key, value: choice.value || "", checked: state.preview[input.key] === choice.value }),
+            h("span", { text: choice.label || choice.value || "Option" }),
         ])));
     }
-    if (input.type === "listdict") return h("div", { class: "form-text", text: "Editable table, with paste, Download template, and Import CSV on the launch form." });
-    return h("input", { class: "form-control", disabled: true, placeholder: input.placeholder || (input.type === "object" ? "Choose…" : "") });
+    if (input.type === "multichoice") {
+        const picked = new Set(Array.isArray(state.preview[input.key]) ? state.preview[input.key] : []);
+        return h("div", { class: "nwe-chips" }, (input.choices || []).map((choice) => h("label", { class: `nwe-check ${picked.has(choice.value) ? "on" : ""}` }, [
+            h("input", { type: "checkbox", "data-preview-multi": input.key, value: choice.value || "", checked: picked.has(choice.value) }),
+            h("span", { text: choice.label || choice.value || "Option" }),
+        ])));
+    }
+    if (input.type === "boolean") return null;
+    if (input.type === "listdict") return h("div", { class: "nwe-table-empty", text: "No rows yet. Add a row, paste from a spreadsheet, or import a CSV." });
+    if (input.type === "object" || input.type === "multiobject") {
+        const index = payload.inputs.indexOf(input);
+        const match = (state.match || {})[index];
+        const examples = (match && match.examples && match.examples.length ? match.examples : (state.modelExamples || {})[input.model]) || [];
+        const count = match && match.count != null ? match.count : examples.length;
+        return h("select", { class: "form-select", "data-preview": input.key }, [
+            h("option", { value: "", text: `Choose… (${count} available)` }),
+            ...examples.map((item) => h("option", { value: item.id, text: item.label, selected: state.preview[input.key] === item.id })),
+        ]);
+    }
+    return h("input", { class: "form-control", "data-preview": input.key, value: state.preview[input.key] || "", placeholder: input.placeholder || "" });
 }
 
 function previewPlan() {
@@ -1063,7 +1517,54 @@ function assign(path, value) {
         const [, phase, index] = path.split(".");
         payload.actions[phase][Number(index)]._nameTouched = true;
     }
+    if (path === "name") {
+        const title = document.getElementById("nwe-title");
+        if (title) title.textContent = value || "Untitled workflow";
+    }
+    if (path.endsWith(".field") && path.includes(".filter_rows.")) {
+        const parts = path.split(".");
+        const input = payload.inputs[Number(parts[1])];
+        const row = input && input.filter_rows && input.filter_rows[Number(parts[3])];
+        const meta = input && row ? fieldMeta(input.model, row.field) : null;
+        if (row && meta && !(meta.operators || []).includes(row.op)) row.op = meta.operators[0] || "is";
+    }
     if (path.includes(".filter_rows.")) scheduleCount(Number(path.split(".")[1]));
+}
+
+function countQuery(input) {
+    const query = {};
+    const samples = [];
+    (input.filter_rows || []).forEach((row) => {
+        if (!row.field) return;
+        const op = row.op || "is";
+        const meta = fieldMeta(input.model, row.field);
+        const named = Boolean(
+            meta && meta.lookup === "name" && row.source !== "input"
+            && !["contains", "starts with", "is empty", "greater than", "less than"].includes(op),
+        );
+        let key = named ? `${row.field}__name` : row.field;
+        let value = row.value;
+        if (row.source === "input" && row.input) {
+            const picked = state.preview[row.input];
+            const sample = meta && Array.isArray(meta.examples) ? meta.examples[0] : null;
+            if (picked) value = picked;
+            else if (sample) {
+                value = sample.id;
+                samples.push(`${meta.label || row.field} = ${sample.label}`);
+            } else value = `{{ inputs.${row.input}.id }}`;
+        } else if (op === "is one of" || op === "is not one of") {
+            value = String(row.value || "").split(",").map((part) => part.trim()).filter(Boolean);
+        } else if (op === "is empty") value = true;
+        if (row.source !== "input" && op !== "is empty" && (value === "" || value == null || (Array.isArray(value) && !value.length))) return;
+        if (op === "is not" || op === "is not one of") key = `${key}__n`;
+        else if (op === "contains") key = `${row.field}__ic`;
+        else if (op === "starts with") key = `${row.field}__isw`;
+        else if (op === "is empty") key = `${row.field}__isnull`;
+        else if (op === "greater than") key = `${row.field}__gt`;
+        else if (op === "less than") key = `${row.field}__lt`;
+        query[key] = value;
+    });
+    return { query, samples };
 }
 
 function scheduleCount(index) {
@@ -1071,26 +1572,12 @@ function scheduleCount(index) {
     if (!input || !input.model || !config.filter_count_url) return;
     clearTimeout(input._countTimer);
     input._countTimer = window.setTimeout(async () => {
-        const query = {};
-        (input.filter_rows || []).forEach((row) => {
-            if (!row.field) return;
-            const op = row.op || "is";
-            let value = row.source === "input" && row.input ? `{{ inputs.${row.input}.id }}` : row.value;
-            let key = row.field;
-            if (op === "is not") key = `${row.field}__n`;
-            else if (op === "contains") key = `${row.field}__ic`;
-            else if (op === "starts with") key = `${row.field}__isw`;
-            else if (op === "is empty") {
-                key = `${row.field}__isnull`;
-                value = true;
-            } else if (op === "is one of") value = String(row.value || "").split(",").map((part) => part.trim()).filter(Boolean);
-            query[key] = value;
-        });
+        const { query, samples } = countQuery(input);
         const result = await api(config.filter_count_url, { model: input.model, query, values: state.preview });
         const node = document.getElementById(`nwe-count-${index}`);
         if (!node) return;
-        if (!result.ok) {
-            node.textContent = result.data.detail || "The count could not be loaded.";
+        if (!result.ok || result.data.count == null) {
+            node.textContent = (result.data && (result.data.detail || result.data.error)) || "The count could not be loaded.";
             return;
         }
         const names = (result.data.names || []).slice(0, 3).join(", ");
@@ -1098,8 +1585,12 @@ function scheduleCount(index) {
         const modelName = String(input.model || "record").split(".").pop().toLowerCase();
         const noun = count === 1 ? modelName : `${modelName}s`;
         const verb = count === 1 ? "matches" : "match";
-        node.textContent = `${count} ${noun} ${verb}${names ? ` · ${names}` : ""}`;
+        const sampleNote = samples.length ? ` with ${samples.join(", ")}` : "";
+        node.textContent = `${count} ${noun} ${verb}${sampleNote}${names ? ` · ${names}` : ""}`;
         state.counts[index] = node.textContent;
+        state.match = state.match || {};
+        state.match[index] = { count, examples: result.data.examples || [] };
+        renderPreview();
     }, 400);
 }
 
@@ -1110,6 +1601,35 @@ function valueOf(target) {
 
 app.addEventListener("input", (event) => {
     const target = event.target;
+    if (target.dataset.modelSearch != null) {
+        state.modelQuery = target.value;
+        const index = target.dataset.modelSearch;
+        renderEditor();
+        const again = document.querySelector(`[data-model-search="${index}"]`);
+        if (again) {
+            again.focus();
+            again.setSelectionRange(again.value.length, again.value.length);
+        }
+        return;
+    }
+    if (target.dataset.show) {
+        applyShowPart(Number(target.dataset.index), target.dataset.show, target.value, target.tagName === "SELECT");
+        return;
+    }
+    if (target.dataset.when) {
+        applyWhenPart(target.dataset.phase, Number(target.dataset.index), target.dataset.when, target.value, target.tagName === "SELECT");
+        return;
+    }
+    if (target.dataset.varVal) {
+        const [phase, index] = target.dataset.varVal.split(":");
+        varBucket(payload.actions[phase][Number(index)])[target.dataset.old] = target.value;
+        touch();
+        return;
+    }
+    if (target.dataset.preview) {
+        state.preview[target.dataset.preview] = valueOf(target);
+        return;
+    }
     if (target.dataset.yaml != null) {
         state.yamlText = target.value;
         clearTimeout(state.yamlTimer);
@@ -1131,13 +1651,60 @@ app.addEventListener("change", (event) => {
         setEnabled(target.checked);
         return;
     }
+    if (target.dataset.action === "snow-state") {
+        const list = payload.schedule.allowed_states || [];
+        payload.schedule.allowed_states = target.checked ? [...list, target.dataset.state] : list.filter((name) => name !== target.dataset.state);
+        renderEditor();
+        touch();
+        return;
+    }
+    if (target.dataset.multi) {
+        assign(target.dataset.multi, Array.from(target.selectedOptions).map((option) => option.value).join(", "));
+        touch();
+        return;
+    }
+    if (target.dataset.show) {
+        applyShowPart(Number(target.dataset.index), target.dataset.show, target.value, true);
+        return;
+    }
+    if (target.dataset.when) {
+        applyWhenPart(target.dataset.phase, Number(target.dataset.index), target.dataset.when, target.value, true);
+        return;
+    }
+    if (target.dataset.previewMulti) {
+        const key = target.dataset.previewMulti;
+        const current = new Set(Array.isArray(state.preview[key]) ? state.preview[key] : []);
+        if (target.checked) current.add(target.value);
+        else current.delete(target.value);
+        state.preview[key] = [...current];
+        renderPreview();
+        return;
+    }
+    if (target.dataset.preview) {
+        state.preview[target.dataset.preview] = valueOf(target);
+        renderPreview();
+        payload.inputs.forEach((input, index) => {
+            if ((input.filter_rows || []).some((row) => row.source === "input" && row.input === target.dataset.preview)) scheduleCount(index);
+        });
+        return;
+    }
+    if (target.dataset.varKey) {
+        const [phase, index] = target.dataset.varKey.split(":");
+        const map = varBucket(payload.actions[phase][Number(index)]);
+        const value = map[target.dataset.old];
+        delete map[target.dataset.old];
+        if (target.value) map[target.value] = value ?? "";
+        renderEditor();
+        touch();
+        return;
+    }
     if (target.dataset.action === "enable-on-publish") {
         state.enableOnPublish = target.checked;
         return;
     }
     if (!target.dataset.bind) return;
     assign(target.dataset.bind, valueOf(target));
-    if (target.tagName === "SELECT") renderAll();
+    if (target.tagName === "SELECT" || target.type === "checkbox") renderAll();
     touch();
 });
 
@@ -1223,9 +1790,82 @@ app.addEventListener("click", (event) => {
         const actionRow = blankAction("nautobot", node.dataset.phase);
         actionRow.script = "";
         actionRow.label = "";
+        actionRow.template_name = "";
+        actionRow.extra_vars = {};
+        actionRow.with = {};
         actionRow._nameTouched = false;
-        payload.actions[node.dataset.phase].push(actionRow);
-        state.openStep = `${node.dataset.phase}:${payload.actions[node.dataset.phase].length - 1}`;
+        const list = payload.actions[node.dataset.phase];
+        const at = node.dataset.at != null ? Number(node.dataset.at) : list.length;
+        list.splice(at, 0, actionRow);
+        state.openStep = `${node.dataset.phase}:${at}`;
+        renderAll();
+        touch();
+    } else if (action === "model-open") {
+        const index = Number(node.dataset.index);
+        state.modelOpen = state.modelOpen === index ? -1 : index;
+        state.modelQuery = "";
+        renderEditor();
+    } else if (action === "pick-model") {
+        const index = Number(node.dataset.index);
+        payload.inputs[index].model = node.dataset.model;
+        state.modelOpen = -1;
+        state.modelQuery = "";
+        ensureFields(node.dataset.model);
+        renderAll();
+        touch();
+    } else if (action === "add-show") {
+        const index = Number(node.dataset.index);
+        const other = payload.inputs.find((item, itemIndex) => itemIndex !== index && item.key);
+        payload.inputs[index]._showMode = "visual";
+        payload.inputs[index].show_if = other ? { [other.key]: other.type === "boolean" ? true : "" } : {};
+        renderAll();
+        touch();
+    } else if (action === "clear-show") {
+        payload.inputs[Number(node.dataset.index)].show_if = {};
+        payload.inputs[Number(node.dataset.index)]._showMode = "visual";
+        renderAll();
+        touch();
+    } else if (action === "show-jinja") {
+        const input = payload.inputs[Number(node.dataset.index)];
+        input._showMode = "jinja";
+        if (typeof input.show_if !== "string") input.show_if = "";
+        renderAll();
+    } else if (action === "show-visual") {
+        const input = payload.inputs[Number(node.dataset.index)];
+        input._showMode = "visual";
+        if (!parseShow(input.show_if)) input.show_if = {};
+        renderAll();
+    } else if (action === "add-when") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        const other = payload.inputs.find((item) => item.key);
+        actionRow._whenMode = "visual";
+        actionRow.when = other ? writeWhen({ input: other.key, op: "is", value: other.type === "boolean" ? true : "" }) : "";
+        renderAll();
+        touch();
+    } else if (action === "clear-when") {
+        payload.actions[node.dataset.phase][Number(node.dataset.index)].when = "";
+        payload.actions[node.dataset.phase][Number(node.dataset.index)]._whenMode = "visual";
+        renderAll();
+        touch();
+    } else if (action === "when-jinja") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        actionRow._whenMode = "jinja";
+        renderAll();
+    } else if (action === "when-visual") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        actionRow._whenMode = "visual";
+        if (!parseShow(actionRow.when)) actionRow.when = "";
+        renderAll();
+    } else if (action === "add-var") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        const map = varBucket(actionRow);
+        const key = `param_${Object.keys(map).length + 1}`;
+        map[key] = "";
+        renderAll();
+        touch();
+    } else if (action === "rm-var") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        delete varBucket(actionRow)[node.dataset.key];
         renderAll();
         touch();
     } else if (action === "open-step") {
@@ -1349,11 +1989,13 @@ async function applyYaml() {
     const result = await api(config.yaml_apply_url, { yaml: state.yamlText });
     if (!result.ok || !result.data.payload) {
         const error = (result.data.errors || [])[0];
+        state.yamlLine = error && error.line ? Number(error.line) : 0;
         state.yamlError = error ? `Line ${error.line || "?"}: ${error.message}` : result.data.detail || "The YAML could not be read.";
         renderEditor();
         return;
     }
     state.yamlError = "";
+    state.yamlLine = 0;
     Object.assign(payload, result.data.payload);
     payload.inputs = result.data.payload.inputs || [];
     payload.actions = result.data.payload.actions || { pre: [], main: [], post: [] };

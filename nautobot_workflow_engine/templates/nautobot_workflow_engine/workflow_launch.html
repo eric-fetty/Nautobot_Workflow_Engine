@@ -1,16 +1,14 @@
 
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Launch: {{ workflow.name }}{% endblock title %}
 {% block content %}
-  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <h1 class="h3 mb-0">{{ workflow.name }}</h1>
-    {% if workflow.git_status == "not_synced" or workflow.git_status == "git_invalid" %}
-      <span class="badge bg-danger">Not synced · Retry</span>
-    {% elif workflow.git_status == "pending" %}
-      <span class="badge bg-primary">Syncing…</span>
-    {% elif workflow.git_status == "in_sync" %}
-      <span class="badge bg-success">Synced</span>
-    {% endif %}
+  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v11">
+  <div class="d-flex align-items-start gap-2 mb-3 flex-wrap">
+    <div>
+      <h1 class="h3 mb-0">{{ workflow.name }}</h1>
+      {% if workflow.description %}<div class="text-secondary">{{ workflow.description }}</div>{% endif %}
+    </div>
     {% if perms.nautobot_workflow_engine.change_workflow %}
       <a class="btn btn-sm btn-light ms-auto" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=workflow.key %}">Edit</a>
     {% endif %}
@@ -218,7 +216,7 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" type="submit">Run</button>
+    <button class="btn btn-primary nwe-run" type="submit">Run workflow</button>
   </form>
 
   <script>
@@ -451,7 +449,7 @@
       function ensurePlaceholder(selectEl) {
         if (!selectEl.options.length || selectEl.options[0].value !== '') {
           var ph = document.createElement('option');
-          ph.value = ''; ph.textContent = '— Select —';
+          ph.value = ''; ph.textContent = 'Choose…';
           selectEl.insertBefore(ph, selectEl.firstChild);
         }
         // never auto-select; force explicit choice
@@ -697,8 +695,87 @@
         menu.appendChild(loadingItem);
       }
     
+      function renderRadioCards(selectEl) {
+        selectEl.dataset.enhanced = '1';
+        selectEl.classList.add('nwe-native-hidden');
+        var wrap = document.createElement('div');
+        wrap.className = 'nwe-radios';
+        Array.prototype.forEach.call(selectEl.options, function(opt) {
+          if (!opt.value) return;
+          var label = document.createElement('label');
+          label.className = 'nwe-radio' + (selectEl.value === opt.value ? ' on' : '');
+          var input = document.createElement('input');
+          input.type = 'radio';
+          input.name = (selectEl.name || 'choice') + '-card';
+          input.value = opt.value;
+          input.checked = selectEl.value === opt.value;
+          input.addEventListener('change', function() {
+            selectEl.value = opt.value;
+            Array.prototype.forEach.call(wrap.children, function(node) { node.classList.remove('on'); });
+            label.classList.add('on');
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          var span = document.createElement('span');
+          span.textContent = opt.textContent;
+          label.appendChild(input);
+          label.appendChild(span);
+          wrap.appendChild(label);
+        });
+        selectEl.parentNode.insertBefore(wrap, selectEl.nextSibling);
+      }
+
+      function renderChoiceChips(selectEl) {
+        selectEl.dataset.enhanced = '1';
+        selectEl.style.display = 'none';
+        var name = selectEl.getAttribute('name');
+        selectEl.dataset.originalName = name;
+        selectEl.removeAttribute('name');
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = name;
+        hidden.value = '[]';
+        hidden.setAttribute('data-proxy-for', name);
+        hidden.setAttribute('data-multichoice', 'true');
+        var wrap = document.createElement('div');
+        wrap.className = 'nwe-chips';
+        var selected = [];
+        Array.prototype.forEach.call(selectEl.options, function(opt) {
+          if (!opt.value) return;
+          var label = document.createElement('label');
+          label.className = 'nwe-check';
+          var input = document.createElement('input');
+          input.type = 'checkbox';
+          input.value = opt.value;
+          input.addEventListener('change', function() {
+            if (input.checked) selected.push(opt.value);
+            else selected = selected.filter(function(value) { return value !== opt.value; });
+            hidden.value = JSON.stringify(selected);
+            label.classList.toggle('on', input.checked);
+            hidden.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          var span = document.createElement('span');
+          span.textContent = opt.textContent;
+          label.appendChild(input);
+          label.appendChild(span);
+          wrap.appendChild(label);
+        });
+        selectEl.parentNode.insertBefore(hidden, selectEl.nextSibling);
+        hidden.parentNode.insertBefore(wrap, hidden.nextSibling);
+      }
+
       function enhanceSelect(selectEl) {
         if (selectEl.dataset.enhanced === '1') return;
+        if (selectEl.getAttribute('data-object-field') !== 'true' && selectEl.getAttribute('data-multichoice') !== 'true') {
+          var realOpts = Array.prototype.filter.call(selectEl.options, function(opt) { return opt.value; });
+          if (realOpts.length > 0 && realOpts.length <= 4) {
+            renderRadioCards(selectEl);
+            return;
+          }
+        }
+        if (selectEl.getAttribute('data-multichoice') === 'true' && selectEl.getAttribute('data-object-field') !== 'true') {
+          renderChoiceChips(selectEl);
+          return;
+        }
 
         ensurePlaceholder(selectEl);
 
@@ -706,7 +783,7 @@
         var isMultichoice = selectEl.getAttribute('data-multichoice') === 'true';
         var isMultiobject = selectEl.getAttribute('data-multiobject') === 'true';
         var isMulti = isMultichoice || isMultiobject;
-        var curr = (selectEl.options[selectEl.selectedIndex] || {}).text || '— Select —';
+        var curr = (selectEl.options[selectEl.selectedIndex] || {}).text || 'Choose…';
 
         selectEl.style.display = 'none';
         selectEl.dataset.originalName = name;
@@ -756,11 +833,11 @@
           if (matchingOpt) initialLabel = matchingOpt.text;
           else {
             // If option not present yet (common for object fields loaded via API), use placeholder text
-            initialLabel = '— Select —';
+            initialLabel = 'Choose…';
           }
         }
         if (isMulti) {
-          initialLabel = '— Select —';
+          initialLabel = 'Choose…';
         }
         btn.innerHTML = '<span class="b3-label">' + initialLabel + '</span>';
 
@@ -1027,7 +1104,7 @@
           // For multichoice, update button label based on selected count
           var count = selectedValues.length;
           if (count === 0) {
-            btn.querySelector('.b3-label').textContent = '— Select —';
+            btn.querySelector('.b3-label').textContent = 'Choose…';
           } else if (count === 1) {
             var selectedOpt = Array.prototype.find.call(selectEl.options, function(o) { return o.value === selectedValues[0]; });
             btn.querySelector('.b3-label').textContent = selectedOpt ? selectedOpt.text : '1 item selected';
@@ -1043,7 +1120,7 @@
             selectEl.value = chosenVal;
           } else {
             hidden.value = '';
-            btn.querySelector('.b3-label').textContent = '— Select —';
+            btn.querySelector('.b3-label').textContent = 'Choose…';
             selectEl.selectedIndex = 0;
           }
         }
@@ -1136,6 +1213,56 @@
             
             // Attach event listeners to new search input
             attachSearchListeners(searchInput, menu, btn, hidden, selectEl);
+          }
+        }
+        if (selectEl.getAttribute('data-object-field') === 'true') {
+          var available = Array.prototype.filter.call(selectEl.options, function(opt) { return opt.value; }).length;
+          var note = group.parentNode.querySelector(':scope > .nwe-obj-count');
+          if (!note) {
+            note = document.createElement('div');
+            note.className = 'nwe-obj-count';
+            group.parentNode.insertBefore(note, group.nextSibling);
+          }
+          note.textContent = available + (available === 1 ? ' result' : ' results');
+          var labelNode = btn.querySelector('.b3-label');
+          if (labelNode && (!hidden.value || hidden.value === '' || hidden.value === '[]')) {
+            labelNode.textContent = 'Choose… (' + available + ' available)';
+          }
+          if (selectEl.getAttribute('data-multiobject') === 'true' && !menu.querySelector('.nwe-select-all')) {
+            var tools = document.createElement('li');
+            tools.className = 'nwe-select-all';
+            tools.style.display = 'flex';
+            tools.style.gap = '8px';
+            tools.style.padding = '8px';
+            var allBtn = document.createElement('button');
+            allBtn.type = 'button';
+            allBtn.className = 'btn btn-sm btn-light';
+            allBtn.textContent = 'Select all';
+            var clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'btn btn-sm btn-light';
+            clearBtn.textContent = 'Clear';
+            allBtn.addEventListener('click', function(event) {
+              event.preventDefault();
+              event.stopPropagation();
+              var values = [];
+              menu.querySelectorAll('li[data-value] input[type="checkbox"]').forEach(function(box) {
+                box.checked = true;
+                values.push(box.closest('li').getAttribute('data-value'));
+              });
+              hidden.value = JSON.stringify(values);
+              if (labelNode) labelNode.textContent = values.length + ' selected';
+            });
+            clearBtn.addEventListener('click', function(event) {
+              event.preventDefault();
+              event.stopPropagation();
+              menu.querySelectorAll('li[data-value] input[type="checkbox"]').forEach(function(box) { box.checked = false; });
+              hidden.value = '[]';
+              if (labelNode) labelNode.textContent = 'Choose… (' + available + ' available)';
+            });
+            tools.appendChild(allBtn);
+            tools.appendChild(clearBtn);
+            menu.insertBefore(tools, menu.firstChild);
           }
         }
       }
@@ -1296,7 +1423,7 @@
             emptyMsg.style.color = 'var(--bs-secondary-color, #6c757d)';
             emptyMsg.style.fontStyle = 'italic';
             emptyMsg.style.padding = '8px';
-            emptyMsg.textContent = 'No items added yet';
+            emptyMsg.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
             listDisplay.appendChild(emptyMsg);
             return;
           }
@@ -1726,21 +1853,16 @@
 
         // Header / actions
         var actionsRow = document.createElement('div');
-        actionsRow.style.display = 'flex';
-        actionsRow.style.justifyContent = 'flex-start';
-        actionsRow.style.alignItems = 'center';
-        actionsRow.style.flexWrap = 'wrap';
-        actionsRow.style.gap = '8px';
-        actionsRow.style.marginBottom = '8px';
+        actionsRow.className = 'nwe-table-foot';
 
         var addRowBtn = document.createElement('button');
         addRowBtn.type = 'button';
-        addRowBtn.className = 'btn btn-success btn-sm';
-        addRowBtn.textContent = 'Add Row';
+        addRowBtn.className = 'btn btn-link btn-sm nwe-add-row';
+        addRowBtn.textContent = '+ Add row';
 
         var uploadCsvBtn = document.createElement('button');
         uploadCsvBtn.type = 'button';
-        uploadCsvBtn.className = 'btn btn-secondary btn-sm';
+        uploadCsvBtn.className = 'btn btn-outline-secondary btn-sm';
         uploadCsvBtn.textContent = 'Import CSV';
 
         var downloadTemplateBtn = document.createElement('button');
@@ -1764,10 +1886,16 @@
         showFixBtn.textContent = 'Show only rows to fix';
         showFixBtn.hidden = true;
         var onlyFix = false;
+        var tableMeta = document.createElement('span');
+        tableMeta.className = 'nwe-table-meta';
+        var tableSpacer = document.createElement('span');
+        tableSpacer.className = 'nwe-table-spacer';
         actionsRow.appendChild(addRowBtn);
-        actionsRow.appendChild(uploadCsvBtn);
-        actionsRow.appendChild(pasteBtn);
+        actionsRow.appendChild(tableMeta);
+        actionsRow.appendChild(tableSpacer);
         actionsRow.appendChild(downloadTemplateBtn);
+        actionsRow.appendChild(pasteBtn);
+        actionsRow.appendChild(uploadCsvBtn);
         actionsRow.appendChild(showFixBtn);
         actionsRow.appendChild(csvFileInput);
         if (inputEl.getAttribute('data-csv-import') === 'false') {
@@ -1809,15 +1937,38 @@
           return '220px';
         }
 
+        function columnHint(col) {
+          var type = (col && col.type ? String(col.type) : 'string').toLowerCase();
+          var bits = [];
+          if (type === 'integer' || type === 'number') bits.push('Whole number');
+          else if (type === 'boolean') bits.push('Yes / No');
+          else if (type === 'choice') bits.push('Pick one');
+          else bits.push('Text');
+          if ((type === 'integer' || type === 'number') && col.min_value != null && col.min_value !== '' && col.max_value != null && col.max_value !== '') {
+            bits.push(col.min_value + '–' + col.max_value);
+          }
+          if (col.unique) bits.push('unique');
+          return bits.join(' · ');
+        }
+
+        var thNum = document.createElement('th');
+        thNum.className = 'nwe-rownum';
+        thNum.textContent = '#';
+        headRow.appendChild(thNum);
         columns.forEach(function(col){
           var th = document.createElement('th');
-          th.textContent = col.label || col.key || 'Column';
-          th.style.minWidth = getColumnMinWidth(col);
+          var title = document.createElement('div');
+          title.className = 'nwe-col-title';
+          title.textContent = (col.label || col.key || 'Column') + (col.required ? ' *' : '');
+          var hint = document.createElement('div');
+          hint.className = 'nwe-col-hint';
+          hint.textContent = columnHint(col);
+          th.appendChild(title);
+          th.appendChild(hint);
           headRow.appendChild(th);
         });
 
         var thActions = document.createElement('th');
-        thActions.textContent = 'Actions';
         thActions.className = 'list-dict-actions-col';
         headRow.appendChild(thActions);
 
@@ -1827,11 +1978,11 @@
         var tbody = document.createElement('tbody');
         table.appendChild(tbody);
 
-        container.appendChild(actionsRow);
-  container.appendChild(csvStatusBanner);
+        container.appendChild(csvStatusBanner);
         container.appendChild(warningBanner);
         tableWrap.appendChild(table);
         container.appendChild(tableWrap);
+        container.appendChild(actionsRow);
 
         // Insert the container into the field's group div.
         // The group div is <div class="mb-3" id="group_<name>">.
@@ -1961,7 +2112,7 @@
             input.className = 'form-select form-select-sm';
             var placeholder = document.createElement('option');
             placeholder.value = '';
-            placeholder.textContent = '— Select —';
+            placeholder.textContent = '—';
             input.appendChild(placeholder);
             col.choices.forEach(function(opt){
               var o = document.createElement('option');
@@ -2105,16 +2256,22 @@
         }
 
         function renderRows() {
-          tbody.innerHTML = '';
+          tbody.replaceChildren();
+          var maxRows = inputEl.getAttribute('data-max-rows');
+          var minRows = inputEl.getAttribute('data-min-rows');
+          var meta = [currentList.length + (currentList.length === 1 ? ' row' : ' rows')];
+          if (maxRows) meta.push('up to ' + maxRows);
+          if (minRows && minRows !== '0') meta.push('at least ' + minRows);
+          tableMeta.textContent = meta.join(' · ');
 
           if (currentList.length === 0) {
             var emptyRow = document.createElement('tr');
             var emptyCell = document.createElement('td');
-            emptyCell.colSpan = Math.max(columns.length + 1, 1);
+            emptyCell.colSpan = Math.max(columns.length + 2, 1);
             emptyCell.style.color = 'var(--bs-secondary-color, #6c757d)';
             emptyCell.style.fontStyle = 'italic';
             emptyCell.style.padding = '8px';
-            emptyCell.textContent = 'No items added yet. Upload a CSV or add rows manually.';
+            emptyCell.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
             emptyRow.appendChild(emptyCell);
             tbody.appendChild(emptyRow);
             return;
@@ -2126,8 +2283,12 @@
             }
             var tr = document.createElement('tr');
             if (row && row._nweIssues && row._nweIssues.length) {
-              tr.className = 'table-danger';
+              tr.className = 'nwe-row-bad';
             }
+            var tdNum = document.createElement('td');
+            tdNum.className = 'nwe-rownum';
+            tdNum.textContent = String(rowIndex + 1);
+            tr.appendChild(tdNum);
 
             columns.forEach(function(col){
               var td = document.createElement('td');
@@ -2145,8 +2306,9 @@
             tdActions.className = 'list-dict-actions-col';
             var removeBtn = document.createElement('button');
             removeBtn.type = 'button';
-            removeBtn.className = 'btn btn-danger btn-sm';
-            removeBtn.textContent = 'Remove';
+            removeBtn.className = 'nwe-row-x';
+            removeBtn.textContent = '×';
+            removeBtn.setAttribute('aria-label', 'Remove row');
             removeBtn.addEventListener('click', function(){
               currentList.splice(rowIndex, 1);
               updateHiddenValue();
@@ -2158,7 +2320,7 @@
             if (row && row._nweIssues && row._nweIssues.length) {
               var note = document.createElement('tr');
               var noteCell = document.createElement('td');
-              noteCell.colSpan = columns.length + 1;
+              noteCell.colSpan = columns.length + 2;
               noteCell.className = 'text-danger small';
               noteCell.textContent = row._nweIssues[0];
               note.appendChild(noteCell);
@@ -2346,7 +2508,7 @@
           hidden.value = '';
           if (group) {
             var lbl = group.querySelector('.dropdown-toggle .b3-label');
-            if (lbl) lbl.textContent = '— Select —';
+            if (lbl) lbl.textContent = 'Choose…';
             var menu = group.querySelector('.dropdown-menu'); if (menu) {/* rebuilt later */}
           }
         }
@@ -2400,7 +2562,7 @@
         return fetch(full).then(function(r){ return r.json(); }).then(function(data){
           selectEl.innerHTML = '';
           var ph = document.createElement('option');
-          ph.value = ''; ph.textContent = '— Select —'; selectEl.appendChild(ph);
+          ph.value = ''; ph.textContent = 'Choose…'; selectEl.appendChild(ph);
           
           // Track added values to prevent duplicates
           var addedValues = new Set();
@@ -2469,7 +2631,13 @@
             if (container) {
               var listDisplay = container.querySelector('.list-items');
               if (listDisplay) {
-                listDisplay.innerHTML = '<div style="color: #666; font-style: italic; padding: 8px;">No items added yet</div>';
+                listDisplay.replaceChildren();
+                var resetEmpty = document.createElement('div');
+                resetEmpty.style.color = '#666';
+                resetEmpty.style.fontStyle = 'italic';
+                resetEmpty.style.padding = '8px';
+                resetEmpty.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
+                listDisplay.appendChild(resetEmpty);
               }
               var textInput = container.querySelector('input[type="text"]');
               if (textInput) {
@@ -2483,7 +2651,16 @@
             if (dictContainer) {
               var tbody = dictContainer.querySelector('tbody');
               if (tbody) {
-                tbody.innerHTML = '<tr><td style="color: #666; font-style: italic; padding: 8px;" colspan="99">No items added yet</td></tr>';
+                tbody.replaceChildren();
+                var resetRow = document.createElement('tr');
+                var resetCell = document.createElement('td');
+                resetCell.colSpan = 99;
+                resetCell.style.color = '#666';
+                resetCell.style.fontStyle = 'italic';
+                resetCell.style.padding = '8px';
+                resetCell.textContent = 'No rows yet. Add a row, paste from a spreadsheet, or import a CSV.';
+                resetRow.appendChild(resetCell);
+                tbody.appendChild(resetRow);
               }
             }
           } else {

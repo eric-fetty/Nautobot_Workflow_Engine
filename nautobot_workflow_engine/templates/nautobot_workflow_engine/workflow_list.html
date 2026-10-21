@@ -196,7 +196,8 @@
 </div>
 {% endblock content %}
 
+{% block drawer %}{% endblock drawer %}
+
 {% block javascript %}
-    {{ block.super }}
     <script src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}"></script>
 {% endblock javascript %}

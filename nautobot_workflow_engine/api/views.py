@@ -764,9 +764,48 @@ class BuilderFilterCountView(APIView):
         if exclude:
             queryset = queryset.exclude(**exclude)
         names = []
+        examples = []
         for obj in queryset.distinct()[:8]:
-            names.append(str(getattr(obj, "name", None) or getattr(obj, "display", None) or obj))
-        return Response({"count": queryset.distinct().count(), "names": names})
+            label = str(getattr(obj, "name", None) or getattr(obj, "display", None) or obj)
+            names.append(label)
+            examples.append({"id": str(obj.pk), "label": label})
+        return Response({"count": queryset.distinct().count(), "names": names, "examples": examples})
+
+
+class BuilderFilterFieldsView(APIView):
+    """List a model's filterable fields for the visual filter builder."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(responses={200: OpenApiResponse(description="Filterable fields")})
+    def post(self, request):
+        """Return fields, operators, and typed values for one model."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.view_workflow")
+            or user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        model_label = str((data or {}).get("model") or "")
+        if not content_type_allowed(model_label) or "." not in model_label:
+            return Response({"detail": "That model is not available."}, status=400)
+        from django.apps import apps
+
+        from nautobot_workflow_engine.schema.filter_fields import example_objects, filter_fields_for_model
+
+        app_label, model_name = model_label.split(".", 1)
+        try:
+            model = apps.get_model(app_label, model_name)
+        except Exception as exc:
+            if exc.__class__.__name__ != "LookupError":
+                raise
+            return Response({"detail": "That model is not available."}, status=400)
+        return Response({"fields": filter_fields_for_model(model, user), "examples": example_objects(model, user)})
 
 
 class WorkflowViewSet(ViewSet):

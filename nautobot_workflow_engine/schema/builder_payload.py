@@ -64,6 +64,7 @@ _ACTION_MANAGED = {
     "script",
     "with",
     "template_id",
+    "template_name",
     "extra_vars",
     "monitor",
     "order",
@@ -253,13 +254,37 @@ _FILTER_SUFFIX = {
     "ic": "contains",
     "isw": "starts with",
     "isnull": "is empty",
+    "gt": "greater than",
+    "lt": "less than",
 }
 
 
-def _query_from_rows(rows):
+def _name_lookup_fields(model_label):
+    """Return filter keys whose fixed values are stored by name, not by id."""
+    if not isinstance(model_label, str) or "." not in model_label:
+        return []
+    from django.apps import apps
+
+    from nautobot_workflow_engine.schema.filter_fields import filter_fields_for_model
+    from nautobot_workflow_engine.schema.policy import content_type_allowed
+
+    if not content_type_allowed(model_label):
+        return []
+    app_label, model_name = model_label.split(".", 1)
+    try:
+        model = apps.get_model(app_label, model_name)
+    except LookupError:
+        return []
+    if model is None:
+        return []
+    return [row["key"] for row in filter_fields_for_model(model) if row.get("lookup") == "name"]
+
+
+def _query_from_rows(rows, name_fields=None):
     """Serialize visual filter rows to the short filter.query form."""
     query = {}
     depends = []
+    named = set(name_fields or [])
     for row in rows or []:
         if not isinstance(row, dict):
             continue
@@ -272,7 +297,7 @@ def _query_from_rows(rows):
             value = "{{ inputs.%s.id }}" % input_key
             if input_key not in depends:
                 depends.append(input_key)
-        elif operator == "is one of":
+        elif operator in ("is one of", "is not one of"):
             raw_value = row.get("value")
             if isinstance(raw_value, list):
                 value = raw_value
@@ -282,16 +307,31 @@ def _query_from_rows(rows):
             value = True
         else:
             value = row.get("value")
+        store = field
+        named_value = (
+            field in named
+            and row.get("source") != "input"
+            and operator not in ("contains", "starts with", "is empty", "greater than", "less than")
+            and not (isinstance(value, str) and "{{" in value)
+        )
+        if named_value:
+            store = f"{field}__name"
         if operator == "is not":
-            query[f"{field}__n"] = value
+            query[f"{store}__n"] = value
         elif operator == "contains":
             query[f"{field}__ic"] = value
         elif operator == "starts with":
             query[f"{field}__isw"] = value
         elif operator == "is empty":
             query[f"{field}__isnull"] = True
+        elif operator == "greater than":
+            query[f"{field}__gt"] = value
+        elif operator == "less than":
+            query[f"{field}__lt"] = value
+        elif operator == "is not one of":
+            query[f"{store}__n"] = value
         else:
-            query[field] = value
+            query[store] = value
     return query, depends
 
 
@@ -309,14 +349,16 @@ def _rows_from_query(query):
             return None
         parts = key.split("__")
         operator = "is"
-        field = key
-        if len(parts) > 1 and parts[-1] not in _FILTER_SUFFIX:
-            return None
         if len(parts) > 1 and parts[-1] in _FILTER_SUFFIX:
             operator = _FILTER_SUFFIX[parts[-1]]
-            field = "__".join(parts[:-1])
-        elif isinstance(value, list):
-            operator = "is one of"
+            parts = parts[:-1]
+        if len(parts) > 1 and parts[-1] == "name":
+            parts = parts[:-1]
+        if len(parts) > 1:
+            return None
+        field = "__".join(parts)
+        if isinstance(value, list):
+            operator = "is not one of" if operator == "is not" else "is one of"
         source = "value"
         input_key = ""
         shown = value
@@ -330,7 +372,7 @@ def _rows_from_query(query):
                     shown = ""
                 else:
                     return None
-        if operator == "is one of" and isinstance(value, list):
+        if operator in ("is one of", "is not one of") and isinstance(value, list):
             shown = ", ".join(str(item) for item in value)
         if operator == "is empty":
             shown = ""
@@ -369,7 +411,7 @@ def _input_to_raw(item, pointer, errors):
     if item.get("filter_mode") == "jinja":
         query = item.get("filter_query")
     elif isinstance(item.get("filter_rows"), list) and item.get("filter_rows"):
-        query, extra = _query_from_rows(item.get("filter_rows"))
+        query, extra = _query_from_rows(item.get("filter_rows"), _name_lookup_fields(item.get("model")))
         for key in extra:
             if key not in depends:
                 depends.append(key)
@@ -447,6 +489,8 @@ def _action_to_raw(item):
         built["with"] = item.get("with")
     if item.get("template_id") not in (None, ""):
         built["template_id"] = item.get("template_id")
+    if item.get("template_name"):
+        built["template_name"] = item.get("template_name")
     if item.get("extra_vars") not in (None, "", {}):
         built["extra_vars"] = item.get("extra_vars")
     if item.get("monitor") is not None:
@@ -619,6 +663,7 @@ def _action_for_builder(item):
         "script": item.get("script") or "",
         "with": item.get("with") if isinstance(item.get("with"), dict) else item.get("with") or "",
         "template_id": item.get("template_id"),
+        "template_name": item.get("template_name") or "",
         "extra_vars": item.get("extra_vars")
         if isinstance(item.get("extra_vars"), dict)
         else item.get("extra_vars") or "",

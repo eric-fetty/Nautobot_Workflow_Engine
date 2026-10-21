@@ -807,7 +807,7 @@ class DynamicWorkflowForm(forms.Form):
                     # For static multichoice without dependencies, populate choices now
                     if not has_jinja and not has_dependencies and wi.choices:
                         choices = [(c["value"], c.get("label", c["value"])) for c in wi.choices]
-                        field.choices = [("", "— Select —")] + choices
+                        field.choices = [("", "Choose…")] + choices
                 return field
             else:
                 # Standard static choice field (single selection only)
