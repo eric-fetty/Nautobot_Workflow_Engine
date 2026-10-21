@@ -161,9 +161,8 @@ def _apply(repository, workflow, parsed, raw_bytes, touch, relative_path, job_re
     from nautobot_workflow_engine.datasources import apply_definition
 
     canonical = normalize(parsed)
+    # enabled is Nautobot-only after the first import. A later file does not flip the switch.
     enabled = workflow.enabled
-    if isinstance(parsed, dict) and "enabled" in parsed:
-        enabled = bool(parsed.get("enabled"))
     saved = apply_definition(
         canonical,
         source_repo=repository,

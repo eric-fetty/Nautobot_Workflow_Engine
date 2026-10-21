@@ -34,10 +34,31 @@ _INPUT_MANAGED = {
     "help_text",
     "placeholder",
     "choices_template",
+    "min_value",
+    "max_value",
+    "min_items",
+    "max_items",
+    "min_rows",
+    "max_rows",
+    "csv_import",
+    "filter_rows",
+    "filter_mode",
 }
-_COLUMN_MANAGED = {"key", "label", "type", "required", "unique", "choices", "validators", "preserved"}
+_COLUMN_MANAGED = {
+    "key",
+    "label",
+    "type",
+    "required",
+    "unique",
+    "choices",
+    "validators",
+    "preserved",
+    "min_value",
+    "max_value",
+}
 _ACTION_MANAGED = {
     "type",
+    "label",
     "name",
     "when",
     "script",
@@ -227,6 +248,104 @@ def _schedule_has_values(schedule):
     return False
 
 
+_FILTER_SUFFIX = {
+    "n": "is not",
+    "ic": "contains",
+    "isw": "starts with",
+    "isnull": "is empty",
+}
+
+
+def _query_from_rows(rows):
+    """Serialize visual filter rows to the short filter.query form."""
+    query = {}
+    depends = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        field = str(row.get("field") or "").strip()
+        if not field or not all(part.isidentifier() for part in field.split("__")):
+            continue
+        operator = row.get("op") or "is"
+        if row.get("source") == "input" and str(row.get("input") or "").strip():
+            input_key = str(row.get("input")).strip()
+            value = "{{ inputs.%s.id }}" % input_key
+            if input_key not in depends:
+                depends.append(input_key)
+        elif operator == "is one of":
+            raw_value = row.get("value")
+            if isinstance(raw_value, list):
+                value = raw_value
+            else:
+                value = [part.strip() for part in str(raw_value or "").split(",") if part.strip()]
+        elif operator == "is empty":
+            value = True
+        else:
+            value = row.get("value")
+        if operator == "is not":
+            query[f"{field}__n"] = value
+        elif operator == "contains":
+            query[f"{field}__ic"] = value
+        elif operator == "starts with":
+            query[f"{field}__isw"] = value
+        elif operator == "is empty":
+            query[f"{field}__isnull"] = True
+        else:
+            query[field] = value
+    return query, depends
+
+
+def _rows_from_query(query):
+    """Return visual rows, an empty list, or None when the query stays in Jinja mode."""
+    if query in (None, "", {}):
+        return []
+    if isinstance(query, str):
+        return None
+    if not isinstance(query, dict):
+        return None
+    rows = []
+    for key, value in query.items():
+        if not isinstance(key, str) or "{{" in key or "{%" in key:
+            return None
+        parts = key.split("__")
+        operator = "is"
+        field = key
+        if len(parts) > 1 and parts[-1] not in _FILTER_SUFFIX:
+            return None
+        if len(parts) > 1 and parts[-1] in _FILTER_SUFFIX:
+            operator = _FILTER_SUFFIX[parts[-1]]
+            field = "__".join(parts[:-1])
+        elif isinstance(value, list):
+            operator = "is one of"
+        source = "value"
+        input_key = ""
+        shown = value
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("{{") and text.endswith("}}"):
+                inner = text[2:-2].strip()
+                if inner.startswith("inputs.") and inner.endswith(".id"):
+                    source = "input"
+                    input_key = inner[len("inputs.") : -len(".id")]
+                    shown = ""
+                else:
+                    return None
+        if operator == "is one of" and isinstance(value, list):
+            shown = ", ".join(str(item) for item in value)
+        if operator == "is empty":
+            shown = ""
+        rows.append(
+            {
+                "field": field,
+                "op": operator,
+                "source": source,
+                "input": input_key,
+                "value": "" if shown is None else shown,
+            }
+        )
+    return rows
+
+
 def _input_to_raw(item, pointer, errors):
     built = {
         "key": item.get("key"),
@@ -241,8 +360,27 @@ def _input_to_raw(item, pointer, errors):
         built["help_text"] = item.get("help_text")
     if item.get("placeholder"):
         built["placeholder"] = item.get("placeholder")
-    if item.get("depends_on"):
-        built["depends_on"] = item.get("depends_on")
+    for limit_key in ("min_value", "max_value", "min_items", "max_items", "min_rows", "max_rows"):
+        if item.get(limit_key) not in (None, ""):
+            built[limit_key] = item.get(limit_key)
+    if item.get("csv_import") is False:
+        built["csv_import"] = False
+    depends = [key for key in (item.get("depends_on") or []) if key]
+    if item.get("filter_mode") == "jinja":
+        query = item.get("filter_query")
+    elif isinstance(item.get("filter_rows"), list) and item.get("filter_rows"):
+        query, extra = _query_from_rows(item.get("filter_rows"))
+        for key in extra:
+            if key not in depends:
+                depends.append(key)
+    else:
+        query = item.get("filter_query")
+        if query in (None, "", {}):
+            raw_filter = item.get("filter")
+            if isinstance(raw_filter, dict):
+                query = raw_filter.get("query")
+    if depends:
+        built["depends_on"] = depends
     show_if = item.get("show_if")
     if isinstance(show_if, dict) and show_if:
         built["show_if"] = show_if
@@ -261,11 +399,6 @@ def _input_to_raw(item, pointer, errors):
         built["choices"] = choices
     if item.get("model"):
         built["model"] = item.get("model")
-    query = item.get("filter_query")
-    if query in (None, "", {}):
-        raw_filter = item.get("filter")
-        if isinstance(raw_filter, dict):
-            query = raw_filter.get("query")
     if query not in (None, "", {}):
         built["filter"] = {"query": _parse_query(query, f"{pointer}/filter/query", errors)}
     if item.get("columns"):
@@ -289,6 +422,9 @@ def _column_to_raw(column):
         built["choices"] = column.get("choices")
     if column.get("validators"):
         built["validators"] = column.get("validators")
+    for limit_key in ("min_value", "max_value"):
+        if column.get(limit_key) not in (None, ""):
+            built[limit_key] = column.get(limit_key)
     preserved = column.get("preserved") if isinstance(column.get("preserved"), dict) else {}
     for key, value in preserved.items():
         if key not in built:
@@ -298,6 +434,11 @@ def _column_to_raw(column):
 
 def _action_to_raw(item):
     built = {"type": item.get("type"), "name": item.get("name")}
+    label = item.get("label")
+    if isinstance(label, str):
+        label = label.strip()
+    if label and label != (item.get("name") or ""):
+        built["label"] = label
     if item.get("when"):
         built["when"] = item.get("when")
     if item.get("script"):
@@ -410,8 +551,12 @@ def _input_for_builder(item):
     filter_query = ""
     raw_filter = item.get("filter")
     preserved = {key: value for key, value in item.items() if key not in _INPUT_MANAGED}
+    query_value = raw_filter.get("query") if isinstance(raw_filter, dict) else None
+    parsed_rows = _rows_from_query(query_value)
+    filter_mode = "jinja" if parsed_rows is None else "visual"
+    rows = [] if parsed_rows is None else parsed_rows
     if isinstance(raw_filter, dict):
-        query = raw_filter.get("query")
+        query = query_value
         if isinstance(query, str):
             filter_query = query
         elif query is not None:
@@ -432,7 +577,16 @@ def _input_for_builder(item):
         "choices_template": choices_template,
         "model": item.get("model") or "",
         "filter_query": filter_query,
+        "filter_rows": rows,
+        "filter_mode": filter_mode,
         "columns": [_column_for_builder(column) for column in item.get("columns") or [] if isinstance(column, dict)],
+        "min_value": item.get("min_value"),
+        "max_value": item.get("max_value"),
+        "min_items": item.get("min_items"),
+        "max_items": item.get("max_items"),
+        "min_rows": item.get("min_rows"),
+        "max_rows": item.get("max_rows"),
+        "csv_import": item.get("csv_import", True) is not False,
         "preserved": preserved,
         "help_text": item.get("help_text") or "",
         "placeholder": item.get("placeholder") or "",
@@ -449,6 +603,8 @@ def _column_for_builder(column):
         "unique": bool(column.get("unique", False)),
         "choices": column.get("choices") or [],
         "validators": column.get("validators") if isinstance(column.get("validators"), list) else [],
+        "min_value": column.get("min_value"),
+        "max_value": column.get("max_value"),
         "preserved": preserved,
     }
 
@@ -457,6 +613,7 @@ def _action_for_builder(item):
     preserved = {key: value for key, value in item.items() if key not in _ACTION_MANAGED}
     return {
         "type": item.get("type") or "nautobot",
+        "label": item.get("label") or item.get("name") or "",
         "name": item.get("name") or "",
         "when": item.get("when") or "",
         "script": item.get("script") or "",

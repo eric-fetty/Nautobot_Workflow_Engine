@@ -10,8 +10,9 @@ This document describes all new features and changes in the release. The format 
 - Package compatibility remains Nautobot `>=3.0.0,<4.0.0` and Python `>=3.10,<3.14`. The approval feature is a no-op on Nautobot versions below 3.2.
 - Workflow Jinja (`when`, `with`, `extra_vars`, choices, and filter queries) now renders in a sandbox. Templates that reach private attributes or call methods that change data are rejected. The patterns the sandbox refuses include `cycler.__init__.__globals__`, `lipsum.__globals__`, `joiner.__init__.__globals__`, `namespace.__init__.__globals__`, and `{{ user.password }}`.
 - Workflow definitions now have one JSON Schema. Drafts and published revisions are stored separately, and the builder API rejects a save that started from an older revision. Git sync keeps going when one file is invalid. The `when` column stores the full template, up to the 10 kB cap.
-- Nautobot-managed workflows can publish to their own Git repository and import later commits. The later change wins. A failed push leaves the database save in place and shows **Not synced to Git**. A `number` column keeps decimal values; `integer` rejects them.
-- The workflow builder is organized into Details, Inputs, Steps, and Review & Publish. Labels use plain language and name the YAML key. ServiceNow scheduling is labeled as a change window.
+- Nautobot-managed workflows can publish to their own Git repository and import later commits. The later change wins. A failed push leaves the database save in place and shows **Not synced · Retry**. A `number` column keeps decimal values; `integer` rejects them.
+- The workflow builder is one editor for every workflow. Changes autosave into a shared draft. **Publish changes** writes the next version, pushes that YAML to Git, and makes it live. **Enabled** is a Nautobot switch and does not commit. The list is a single Workflows page with Run, Edit, and that switch.
+- **Test run** renders conditions and parameters without starting work. **Edit YAML** parses into the draft. Launch forms cover every input type, including table CSV import that stays in the browser.
 
 <!-- towncrier release notes start -->
 

@@ -122,7 +122,14 @@ def check_stale(
         return _stale_payload(head, base_revision)
     if not saving_draft and workflow.draft_revision is not None and head.state != WorkflowRevision.STATE_DRAFT:
         return _stale_payload(workflow.draft_revision, base_revision)
-    return check_stale_git(workflow, base_git_commit, base_content_hash)
+    git_state = check_stale_git(workflow, base_git_commit, base_content_hash)
+    # A draft stays in the database when Git is ahead. Publish is what pauses.
+    if saving_draft and isinstance(git_state, dict) and git_state.get("code") == "stale_git":
+        warning = dict(git_state)
+        warning.pop("code", None)
+        warning["warning"] = "stale_git"
+        return warning
+    return git_state
 
 
 def _head(workflow):
@@ -255,8 +262,6 @@ def update_draft(
     strict=True,
 ):
     """Replace the shared draft. The published definition and the rows stay as they are."""
-    if workflow.managed_by != MANAGED_BY_NAUTOBOT:
-        raise ServiceError(409, code="managed_in_git", detail="Managed in Git")
     if not user.has_perm("nautobot_workflow_engine.change_workflow", workflow):
         raise ServiceError(404, detail="Not found.")
     conflict = check_stale(
@@ -308,8 +313,10 @@ def publish(
     source=WorkflowRevision.SOURCE_BUILDER,
 ):
     """Make ``definition`` the live revision and write runtime rows."""
-    if workflow is not None and workflow.managed_by != MANAGED_BY_NAUTOBOT:
-        raise ServiceError(409, code="managed_in_git", detail="Managed in Git")
+    if workflow is not None:
+        outdated = _outdated_git(workflow)
+        if outdated is not None:
+            raise ServiceError(409, **outdated)
     conflict = check_stale(
         workflow,
         base_revision=base_revision,
@@ -455,7 +462,9 @@ def discard_draft(*, user, workflow):
 
 
 def set_enabled(*, user, workflow, enabled):
-    """Turn a published workflow on or off. This does not change the definition."""
+    """Turn a published workflow on or off. This does not change the definition or Git."""
+    if workflow.published_revision_id is None:
+        raise ServiceError(400, detail="Publish it first.")
     if not user.has_perm("nautobot_workflow_engine.publish_workflow", workflow):
         raise ServiceError(403, detail=PUBLISH_MESSAGE)
     with transaction.atomic():
@@ -502,6 +511,77 @@ def duplicate_workflow(*, user, source, key, name):
         )
         _assert_scope(user, workflow, "add")
     return workflow, revision
+
+
+def load_published_into_draft(*, user, workflow):
+    """Copy the live definition into the shared draft. The previous draft stays in history."""
+    published = workflow.published_revision if workflow.published_revision_id else None
+    if published is None or not isinstance(published.definition, dict):
+        raise ServiceError(400, detail="Nothing has been published.")
+    return update_draft(
+        user=user,
+        workflow=workflow,
+        definition=published.definition,
+        base_revision=None,
+        comment="Loaded the Git version.",
+        require_base=False,
+        strict=False,
+    )
+
+
+def status_label(workflow, draft=None):
+    """Return the status sentence shared by the list and the builder header."""
+    published = workflow.published_revision if getattr(workflow, "published_revision_id", None) else None
+    if published is None:
+        return "Draft (not published yet)", "new"
+    if draft is None:
+        draft = workflow.draft_revision
+    if draft is not None and not _same_revision(draft, published):
+        return f"Published v{published.number} · draft changes", "draft"
+    return f"Published v{published.number} · up to date", "live"
+
+
+def git_stale_banner(workflow, draft=None):
+    """Return the banner when a Git publish landed under the open draft."""
+    if draft is None:
+        draft = workflow.draft_revision
+    if draft is None or not draft.is_outdated:
+        return None
+    published = workflow.published_revision
+    if published is None or getattr(published, "source", "") != WorkflowRevision.SOURCE_GIT:
+        return None
+    author = published.git_author or getattr(getattr(published, "published_by", None), "username", None) or "someone"
+    when_text = _format_time(published.published_at or published.created)
+    return {
+        "author": author,
+        "time": when_text,
+        "detail": f"Updated in Git by {author} at {when_text}",
+        "note": published.comment or "",
+        "version": published.number,
+    }
+
+
+def _same_revision(draft, published):
+    if draft.content_hash and published.content_hash:
+        return draft.content_hash == published.content_hash
+    return (draft.yaml or "") == (published.yaml or "")
+
+
+def _outdated_git(workflow):
+    draft = workflow.draft_revision
+    if draft is None or not draft.is_outdated or not workflow.published_revision_id:
+        return None
+    published = workflow.published_revision
+    if published is None or published.source != WorkflowRevision.SOURCE_GIT:
+        return None
+    author = published.git_author or "someone"
+    when_text = _format_time(published.published_at or published.created)
+    return {
+        "code": "stale_git",
+        "detail": stale_git_detail(author, when_text),
+        "author": author,
+        "time": when_text,
+    }
 
 
 def restore_revision(*, user, workflow, revision):

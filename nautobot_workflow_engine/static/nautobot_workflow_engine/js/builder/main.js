@@ -39,6 +39,9 @@ let touched = new Set();
 let clientErrors = [];
 let serverErrors = [];
 let yamlText = "";
+let yamlDraft = "";
+let yamlDirty = false;
+let focusYaml = false;
 let undo = null;
 let pendingLeave = null;
 let validateTimer = null;
@@ -100,6 +103,9 @@ function bind() {
         }
     });
     document.getElementById("builder-undo").addEventListener("click", restoreUndo);
+    document.getElementById("builder-test-run").addEventListener("click", openTestRun);
+    document.getElementById("builder-edit-yaml").addEventListener("click", showYamlEditor);
+    document.getElementById("test-run-go").addEventListener("click", runTest);
     const addInputModal = document.getElementById("builder-add-input");
     if (addInputModal) {
         addInputModal.addEventListener("click", onClick);
@@ -141,6 +147,16 @@ function bind() {
 
 function onEdit(event) {
     const target = event.target;
+    if (target.id === "yaml-editor") {
+        yamlDirty = true;
+        yamlDraft = target.value;
+        return;
+    }
+    if (target.dataset && target.dataset.action === "set-tags") {
+        state.payload.tags = Array.from(target.selectedOptions).map((option) => option.value);
+        markDirty();
+        return;
+    }
     if (target.dataset && target.dataset.action === "change-type") {
         changeType(Number(target.dataset.index), target.value);
         return;
@@ -150,6 +166,20 @@ function onEdit(event) {
     }
     touched.add(target.dataset.bind);
     let value = target.type === "checkbox" ? target.checked : target.value;
+    if (target.dataset.json) {
+        const raw = String(target.value || "").trim();
+        if (!raw) {
+            value = null;
+        } else {
+            try {
+                value = JSON.parse(raw);
+            } catch (exc) {
+                target.classList.add("is-invalid");
+                return;
+            }
+        }
+        target.classList.remove("is-invalid");
+    }
     if (target.dataset.bind === "schedule.allowed_states" || target.dataset.bind === "schedule.start_fields" || target.dataset.bind === "schedule.end_fields") {
         setPath(state.payload, target.dataset.bind, value);
     } else {
@@ -223,6 +253,23 @@ function onClick(event) {
     if (action === "toggle-step") {
         state.expandedStep = { phase: button.dataset.phase, index: Number(button.dataset.index) };
         render();
+        return;
+    }
+    if (action === "structure-default" || action === "flatten-default") {
+        const input = state.payload.inputs[Number(button.dataset.index)];
+        if (input) {
+            input.default = action === "structure-default" ? {} : "";
+            markDirty();
+            render();
+        }
+        return;
+    }
+    if (action === "preview-choices") {
+        previewChoices(Number(button.dataset.index));
+        return;
+    }
+    if (action === "apply-yaml") {
+        applyYaml();
         return;
     }
     if (action === "ask-input-type") {
@@ -375,6 +422,8 @@ function changeType(index, type) {
         fresh.required = input.required;
         fresh.help_text = input.help_text;
         fresh.placeholder = input.placeholder;
+        fresh.default = input.default;
+        fresh.preserved = input.preserved;
         fresh._keyTouched = input._keyTouched;
         state.payload.inputs[index] = fresh;
         markDirty();
@@ -519,10 +568,18 @@ function render() {
     paintBadges();
     paintSaveState();
     paintGit();
-    if (active) {
+    if (active && active !== "yaml-editor") {
         const again = document.getElementById(active);
         if (again) {
             again.focus();
+        }
+    }
+    paintYaml();
+    if (focusYaml) {
+        focusYaml = false;
+        const editor = document.getElementById("yaml-editor");
+        if (editor) {
+            editor.focus();
         }
     }
     if (section === "inputs") {
@@ -597,7 +654,6 @@ function paintBadges() {
         host.append(badge("text-bg-light", "Not published"));
     }
     host.append(badge(state.payload.enabled ? "text-bg-success" : "text-bg-warning", state.payload.enabled ? "Available" : "Not available"));
-    host.append(badge("text-bg-info", config.managed_by === "git" ? "Managed in Git" : "Managed by Nautobot"));
     host.append(badge(config.git_status === "not_synced" ? "text-bg-danger" : "text-bg-secondary", gitLabel(config.git_status)));
 }
 
@@ -731,11 +787,220 @@ async function runValidate() {
     }
 }
 
+function showYamlEditor() {
+    focusYaml = true;
+    if (section !== "review") {
+        location.hash = "review";
+        return;
+    }
+    render();
+}
+
+function openTestRun() {
+    const host = document.getElementById("test-run-form");
+    if (!host) {
+        return;
+    }
+    host.replaceChildren();
+    state.payload.inputs.forEach((input) => {
+        const key = input.key || "";
+        const id = `test-run-${key || "field"}`;
+        const wrap = document.createElement("div");
+        wrap.className = "mb-3";
+        const label = document.createElement("label");
+        label.className = "form-label";
+        label.htmlFor = id;
+        label.textContent = input.label || key || "Field";
+        const control = document.createElement("input");
+        control.id = id;
+        control.dataset.testKey = key;
+        if (input.type === "boolean") {
+            control.type = "checkbox";
+            control.className = "form-check-input";
+        } else {
+            control.className = "form-control";
+            control.type = input.type === "integer" ? "number" : "text";
+            if (input.placeholder) {
+                control.placeholder = input.placeholder;
+            }
+        }
+        wrap.append(label, control);
+        if (input.help_text) {
+            const help = document.createElement("div");
+            help.className = "form-text";
+            help.textContent = input.help_text;
+            wrap.append(help);
+        }
+        host.append(wrap);
+    });
+    const panel = document.getElementById("builder-test-run-panel");
+    if (panel && window.bootstrap && window.bootstrap.Offcanvas) {
+        window.bootstrap.Offcanvas.getOrCreateInstance(panel).show();
+    }
+}
+
+async function runTest() {
+    const inputs = {};
+    document.querySelectorAll("#test-run-form [data-test-key]").forEach((node) => {
+        if (!node.dataset.testKey) {
+            return;
+        }
+        inputs[node.dataset.testKey] = node.type === "checkbox" ? node.checked : node.type === "number" ? Number(node.value) : node.value;
+    });
+    const results = document.getElementById("test-run-results");
+    let mocks = {};
+    try {
+        mocks = JSON.parse((document.getElementById("test-run-mocks") || {}).value || "{}");
+    } catch (exc) {
+        if (results) {
+            results.textContent = "Mock results must be JSON.";
+        }
+        return;
+    }
+    if (!config.dry_run_url) {
+        return;
+    }
+    const response = await api.send(config.dry_run_url, {
+        method: "POST",
+        body: { payload: outgoingPayload(), inputs, mock_results: mocks, repository: state.payload.source_repo || null },
+    });
+    paintTestResults(results, response.data || {});
+}
+
+function paintTestResults(host, data) {
+    if (!host) {
+        return;
+    }
+    host.replaceChildren();
+    if (data.detail) {
+        host.textContent = data.detail;
+        return;
+    }
+    if (data.error) {
+        const banner = document.createElement("div");
+        banner.className = "alert alert-warning";
+        banner.textContent = data.error;
+        host.append(banner);
+    }
+    (data.form_errors || []).forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "text-danger";
+        row.textContent = `${item.key || "Form"}: ${item.message || ""}`;
+        host.append(row);
+    });
+    (data.phases || []).forEach((phase) => {
+        const heading = document.createElement("h3");
+        heading.className = "h6 mt-3";
+        heading.textContent = phase.phase === "pre" ? "Before" : phase.phase === "post" ? "Always after" : "Main";
+        host.append(heading);
+        (phase.steps || []).forEach((step) => {
+            const row = document.createElement("div");
+            row.className = "mb-2";
+            const title = document.createElement("div");
+            title.textContent = `${step.will_run ? "✔ will run" : "⏭ skipped"} · ${step.name || "step"}`;
+            row.append(title);
+            if (step.skip_reason) {
+                const reason = document.createElement("div");
+                reason.className = "form-text";
+                reason.textContent = step.skip_reason;
+                row.append(reason);
+            }
+            if (step.error) {
+                const error = document.createElement("div");
+                error.className = "text-danger";
+                error.textContent = step.error;
+                row.append(error);
+            }
+            if (step.params && Object.keys(step.params).length) {
+                const params = document.createElement("pre");
+                params.className = "nwe-yaml mb-0";
+                params.textContent = JSON.stringify(step.params, null, 2);
+                row.append(params);
+            }
+            host.append(row);
+        });
+    });
+}
+
+async function previewChoices(index) {
+    const input = state.payload.inputs[index];
+    const node = document.getElementById(`choices-preview-${index}`);
+    if (!input || !node || !config.render_url) {
+        return;
+    }
+    const sample = {};
+    state.payload.inputs.forEach((item) => {
+        if (item.key) {
+            sample[item.key] = item.default == null ? "" : item.default;
+        }
+    });
+    const response = await api.send(config.render_url, {
+        method: "POST",
+        body: { template: input.choices_template || "", inputs: sample },
+    });
+    const data = response.data || {};
+    node.textContent = data.error || data.rendered || "No options rendered.";
+}
+
+async function applyYaml() {
+    const editor = document.getElementById("yaml-editor");
+    const text = editor ? editor.value : yamlDraft;
+    const box = document.getElementById("yaml-apply-errors");
+    if (!config.yaml_apply_url) {
+        return;
+    }
+    const response = await api.send(config.yaml_apply_url, {
+        method: "POST",
+        body: { yaml: text, repository: state.payload.source_repo || null },
+    });
+    if (!response.ok) {
+        if (box) {
+            box.textContent = (response.data && response.data.detail) || "Couldn't apply that YAML.";
+        }
+        return;
+    }
+    const errors = (response.data && response.data.errors) || [];
+    if (box) {
+        box.replaceChildren();
+        errors.forEach((item) => {
+            const row = document.createElement("div");
+            const line = item.line ? `Line ${item.line}: ` : "";
+            row.textContent = `${line}${item.message || ""}`;
+            box.append(row);
+        });
+    }
+    if (!response.data || !response.data.payload) {
+        return;
+    }
+    const repo = state.payload.source_repo;
+    const enabled = state.payload.enabled;
+    const tags = state.payload.tags;
+    state.payload = response.data.payload;
+    state.payload.source_repo = state.payload.source_repo || repo || "";
+    state.payload.enabled = enabled;
+    if (!state.payload.tags) {
+        state.payload.tags = tags || [];
+    }
+    (state.payload.inputs || []).forEach((input) => {
+        input._keyTouched = true;
+    });
+    yamlDirty = false;
+    yamlText = response.data.yaml || text;
+    yamlDraft = yamlText;
+    markDirty();
+    render();
+    toast("YAML applied to the form.");
+}
+
 function paintYaml() {
     const preview = document.getElementById("yaml-preview");
     const errors = document.getElementById("yaml-errors");
+    const editor = document.getElementById("yaml-editor");
     if (preview) {
         preview.textContent = yamlText || "";
+    }
+    if (editor && document.activeElement !== editor) {
+        editor.value = yamlDirty ? yamlDraft : yamlText || "";
     }
     if (errors) {
         errors.replaceChildren();

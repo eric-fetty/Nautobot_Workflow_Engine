@@ -26,6 +26,40 @@ def _depends_on_attr(value):
     return ",".join(parts)
 
 
+def _plain_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return str(int(number))
+    return str(number)
+
+
+def _range_sentence(low, high):
+    if low is not None and high is not None:
+        return f"Between {_plain_number(low)} and {_plain_number(high)}"
+    if low is not None:
+        return f"At least {_plain_number(low)}"
+    if high is not None:
+        return f"At most {_plain_number(high)}"
+    return ""
+
+
+def _spreadsheet_formula(value, column_type):
+    """Return the leading formula character, or '' when the cell is safe to keep."""
+    if isinstance(value, bool) or value in (None, ""):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if str(column_type) in ("integer", "number") and re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+        return ""
+    if text[0] in "=+-@":
+        return text[0]
+    return ""
+
+
 class DependentChoiceField(forms.ChoiceField):
     """A ChoiceField that doesn't validate choices for dependent fields."""
 
@@ -111,11 +145,16 @@ class DependentChoiceField(forms.ChoiceField):
 class DynamicWorkflowForm(forms.Form):
     """Server-side definition; fields are progressively revealed client-side."""
 
-    def __init__(self, workflow: Workflow, *args, **kwargs):
-        """Initialize dynamic form with fields based on workflow inputs."""
+    def __init__(self, workflow: Workflow, *args, inputs=None, **kwargs):
+        """Initialize dynamic form with fields based on workflow inputs.
+
+        ``inputs`` supplies unsaved rows for a test run so nothing is written.
+        """
+        self._input_rows = inputs
         super().__init__(*args, **kwargs)
         self.workflow = workflow
-        for wi in workflow.inputs.all():
+        rows = self._input_rows if self._input_rows is not None else workflow.inputs.all()
+        for wi in rows:
             field = self._build_field(wi)
             if field:
                 # Apply any initial value provided to the form for this input key
@@ -159,6 +198,7 @@ class DynamicWorkflowForm(forms.Form):
                         logging.exception("Error while attempting to inject object initial for %s: %s", wi.key, exc)
 
                 field.widget.attrs["data-required"] = "true" if wi.required else "false"
+                self._present_input(field, wi)
                 field.required = False
                 if isinstance(wi.visible_when, str) and wi.visible_when.strip():
                     field.widget.attrs["data-show-if-template"] = wi.visible_when
@@ -307,6 +347,10 @@ class DynamicWorkflowForm(forms.Form):
                     parsed = self._parse_json_list(cleaned_data.get(wi.key, "[]"))
                     cleaned_data[wi.key] = parsed
                     self._validate_tabular_input(wi, parsed)
+                if wi.input_type == "integer" and cleaned_data.get(wi.key) not in (None, ""):
+                    self._check_number_range(wi, cleaned_data.get(wi.key))
+                if wi.input_type == "list" and isinstance(cleaned_data.get(wi.key), list):
+                    self._check_item_count(wi, cleaned_data.get(wi.key))
                 # Handle multichoice fields - convert JSON string back to list
                 if wi.input_type == "multichoice" and wi.key in cleaned_data:
                     multichoice_value = cleaned_data.get(wi.key, "[]")
@@ -525,6 +569,26 @@ class DynamicWorkflowForm(forms.Form):
             return "", None
         return str(value), None
 
+    def _check_number_range(self, wi, value):
+        low = getattr(wi, "min_value", None)
+        high = getattr(wi, "max_value", None)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return
+        if low is not None and number < float(low):
+            self.add_error(wi.key, _range_sentence(low, high))
+        elif high is not None and number > float(high):
+            self.add_error(wi.key, _range_sentence(low, high))
+
+    def _check_item_count(self, wi, values):
+        minimum = getattr(wi, "min_items", None)
+        maximum = getattr(wi, "max_items", None)
+        if minimum is not None and len(values) < int(minimum):
+            self.add_error(wi.key, f"Enter at least {int(minimum)} lines.")
+        if maximum is not None and len(values) > int(maximum):
+            self.add_error(wi.key, f"Enter at most {int(maximum)} lines.")
+
     def _validate_tabular_input(self, wi, rows):
         """Re-run listdict validation server-side for defense in depth."""
         if not isinstance(rows, list):
@@ -570,6 +634,37 @@ class DynamicWorkflowForm(forms.Form):
                     self.add_error(wi.key, f"Row {row_index}, {label}: {error}")
                     continue
 
+                formula = _spreadsheet_formula(value, column_type)
+                if formula:
+                    self.add_error(
+                        wi.key,
+                        f'Row {row_index}: {label} starts with "{formula}", which looks like a spreadsheet formula',
+                    )
+
+                low = column.get("min_value")
+                high = column.get("max_value")
+                bounded = low not in (None, "") or high not in (None, "")
+                if column_type in ("integer", "number") and value not in (None, "") and bounded:
+                    try:
+                        number = float(value)
+                    except (TypeError, ValueError):
+                        number = None
+                    too_low = low not in (None, "") and number is not None and number < float(low)
+                    too_high = high not in (None, "") and number is not None and number > float(high)
+                    if too_low or too_high:
+                        if low not in (None, "") and high not in (None, ""):
+                            message = (
+                                f"Row {row_index}: {label} must be between "
+                                f"{_plain_number(low)} and {_plain_number(high)}"
+                            )
+                        else:
+                            sentence = _range_sentence(
+                                None if low in (None, "") else low,
+                                None if high in (None, "") else high,
+                            ).lower()
+                            message = f"Row {row_index}: {label} {sentence}"
+                        self.add_error(wi.key, message)
+
                 if column_type == "choice" and value not in (None, ""):
                     allowed_values = [
                         str(choice.get("value")) for choice in column.get("choices") or [] if "value" in choice
@@ -612,6 +707,13 @@ class DynamicWorkflowForm(forms.Form):
                         else:
                             unique_values[column_key][normalized] = row_index
 
+        minimum = getattr(wi, "min_rows", None)
+        maximum = getattr(wi, "max_rows", None)
+        if minimum not in (None, "") and len(rows) < int(minimum):
+            self.add_error(wi.key, f"Add at least {int(minimum)} rows.")
+        if maximum not in (None, "") and len(rows) > int(maximum):
+            self.add_error(wi.key, f"Use at most {int(maximum)} rows.")
+
     def _has_jinja_choices(self, wi):
         """Check if workflow input choices contain Jinja template syntax."""
         if not wi.choices:
@@ -619,6 +721,19 @@ class DynamicWorkflowForm(forms.Form):
 
         choices_str = str(wi.choices)
         return "{{" in choices_str and "}}" in choices_str
+
+    def _present_input(self, field, wi):
+        """Copy help text and placeholder onto the launch-form widget."""
+        help_text = getattr(wi, "help_text", "") or ""
+        if help_text:
+            field.help_text = help_text
+        placeholder = getattr(wi, "placeholder", "") or ""
+        if placeholder:
+            field.widget.attrs["placeholder"] = placeholder
+        if getattr(wi, "input_type", "") == "integer":
+            sentence = _range_sentence(getattr(wi, "min_value", None), getattr(wi, "max_value", None))
+            if sentence:
+                field.help_text = f"{field.help_text} {sentence}".strip()
 
     def _build_field(self, wi: WorkflowInput):
         # Disable server-side required validation - handle in JavaScript
@@ -651,7 +766,12 @@ class DynamicWorkflowForm(forms.Form):
             # Add validators as data attribute for JavaScript
             if wi.validators:
                 field.widget.attrs["data-validators"] = json.dumps(wi.validators)
-
+            if getattr(wi, "min_value", None) is not None:
+                field.widget.attrs["min"] = wi.min_value
+                field.widget.attrs["data-min-value"] = wi.min_value
+            if getattr(wi, "max_value", None) is not None:
+                field.widget.attrs["max"] = wi.max_value
+                field.widget.attrs["data-max-value"] = wi.max_value
             return field
 
         if wi.input_type == "boolean":
@@ -780,6 +900,9 @@ class DynamicWorkflowForm(forms.Form):
                     "data-enhance": "list-dict",
                     "data-label": wi.label,
                     "data-required": "true" if wi.required else "false",
+                    "data-csv-import": "false" if getattr(wi, "csv_import", True) is False else "true",
+                    "data-min-rows": "" if getattr(wi, "min_rows", None) is None else wi.min_rows,
+                    "data-max-rows": "" if getattr(wi, "max_rows", None) is None else wi.max_rows,
                     "style": "display: none;",
                 }
             )

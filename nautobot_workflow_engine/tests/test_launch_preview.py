@@ -51,17 +51,18 @@ class LaunchPreviewTestCase(TestCase):
         self.assertIn("Why this device is rebooting", body)
         self.assertNotIn("<script", body.lower())
 
-    def test_builder_page_has_the_four_sections(self):
+    def test_builder_page_has_the_studio_shell(self):
         grant(self.user, ["add"], Workflow)
         self.client.force_login(self.user)
         response = self.client.get(reverse("plugins:nautobot_workflow_engine:workflow_builder_create"))
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
-        self.assertIn("Save draft", body)
-        self.assertIn("Publish", body)
+        self.assertNotIn("Save draft", body)
+        self.assertIn("studio-stepper", body)
         self.assertIn("workflow_builder.css", body)
-        self.assertIn("builder/main.js", body)
+        self.assertIn("builder/studio.js", body)
         self.assertNotIn("<style>", body)
+        self.assertNotIn("Managed in Git", body)
         self.assertEqual(
             load_schema()["properties"]["schedule"]["x-ui"]["label"],
             "ServiceNow change window",

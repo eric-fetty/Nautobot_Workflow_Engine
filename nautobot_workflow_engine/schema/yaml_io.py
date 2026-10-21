@@ -59,6 +59,45 @@ def from_yaml(text):
     return loaded
 
 
+def pointer_lines(text):
+    """Map each JSON Pointer to the 1-based line of its YAML node.
+
+    A parse failure returns ``({}, error)``. ``error`` includes ``line`` and ``column``.
+    """
+    try:
+        root = yaml.compose(text or "")
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line = mark.line + 1 if mark is not None else 1
+        column = mark.column + 1 if mark is not None else 1
+        problem = getattr(exc, "problem", None) or "invalid YAML"
+        return {}, {
+            "line": line,
+            "column": column,
+            "pointer": "",
+            "code": "yaml",
+            "message": f"YAML could not be read: {problem}",
+        }
+    found = {}
+
+    def walk(node, path):
+        if node is None:
+            return
+        if path:
+            found[path] = node.start_mark.line + 1
+        if isinstance(node, yaml.MappingNode):
+            for key_node, value_node in node.value:
+                if not isinstance(key_node, yaml.ScalarNode):
+                    continue
+                walk(value_node, f"{path}/{key_node.value}")
+        elif isinstance(node, yaml.SequenceNode):
+            for index, child in enumerate(node.value):
+                walk(child, f"{path}/{index}")
+
+    walk(root, "")
+    return found, None
+
+
 def order_mapping(data):
     """Return ``data`` with schema keys first and unknown keys after, in their original order."""
     if not isinstance(data, dict):

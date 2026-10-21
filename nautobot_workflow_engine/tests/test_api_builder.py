@@ -205,7 +205,7 @@ class BuilderApiTestCase(TestCase):
         self.assertEqual(hidden.status_code, 404)
         self.assertIn("detail", hidden.data)
 
-    def test_git_managed_draft_is_conflict(self):
+    def test_git_managed_draft_saves(self):
         grant(self.user, ["view", "change"])
         repo = GitRepository.objects.create(name="Git", remote_url="https://example.com/git.git")
         Workflow.objects.create(
@@ -218,11 +218,12 @@ class BuilderApiTestCase(TestCase):
         response = self._send(
             "put",
             "workflow-draft",
-            {"definition": _definition("git-flow"), "base_revision": None},
+            {"definition": _definition("git-flow"), "base_revision": None, "strict": False},
             key="git-flow",
         )
-        self.assertEqual(response.status_code, 409)
-        self.assertIn("Managed in Git", response.data["detail"])
+        self.assertEqual(response.status_code, 200, getattr(response, "content", b""))
+        self.assertNotIn("Managed in Git", str(response.data.get("detail", "")))
+        self.assertEqual(Workflow.objects.get(key="git-flow").draft_revision.state, "draft")
 
     def test_revisions_diff_restore_duplicate_and_enable(self):
         grant(self.user, ["view", "add", "change", "publish", "author_code"])

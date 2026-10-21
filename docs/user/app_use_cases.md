@@ -36,13 +36,41 @@ actions:
 
 ## Building a Workflow in the UI
 
-Users with the `nautobot_workflow_engine.change_workflow` permission can open **Workflows → Builder** and author the same definition the git sync accepts. The page is split into Metadata, Inputs, Actions, and Schedule. A read-only YAML pane updates from the server as you edit.
+Open **Workflows** and choose **New workflow** or **Edit**. The page has five steps: **Details**, **Inputs**, **Steps**, **Schedule & approval**, and **Review & publish**. A numbered stepper on the left shows a check, the step number, or an issue count. **Back** and **Next** move between steps. The Nautobot sidebar collapses to icons while the builder is open.
 
-**Save workflow** writes `Workflow.raw_definition` and replaces the `WorkflowInput` and `WorkflowAction` rows in one transaction, so the workflow can be launched without a repository sync. **Copy YAML** and **Download YAML** export that same definition. Nautobot script actions still execute from a Git repository: choose the repository that contains the script, and pick the script from the files synced into that repository. AWX-only workflows can omit the repository. If you attach a repository, export the YAML into that repository as well. The next sync disables workflows from that repository whose YAML is no longer present.
+Every change saves itself, within about a second, into one shared draft. There is no Save button. The header reads **Saving…**, then **Draft saved · just now**, or names the person who last edited the draft. People running the workflow keep the published version. A new workflow stays off Run until it is published. The status line is one of:
 
-Enabling **ServiceNow scheduling integration** stores the settings under `schedule.servicenow`. Choose the External Integration when it is not the default `ServiceNow` integration, and choose which workflow input collects the change ticket (`change_input_key`). The launch form then offers **Use ServiceNow Change Window**. Allowed states, timezone, start and end fields, ticket pattern, and whether the change must be approved are the same keys the sync job already reads. The ticket number and the change window itself are recorded on the run at launch time.
+- **Draft (not published yet)**
+- **Published vN · up to date**
+- **Published vN · draft changes**
 
-Editing a workflow loads its stored definition, including keys the form does not display, and writes those keys back on save. The workflow key cannot be changed after the workflow is created.
+**Publish changes** is enabled only when the draft differs from the published version and has no issues. Publishing saves version N with who, when, and an optional note, pushes that YAML to the workflow's Git repository, and makes it live immediately. Runs already in progress finish on the version they started with. **Discard draft** asks first. **Versions** lists published copies; **Restore into draft** copies one into the draft and does not make it live. **Test run** is a dry run of the draft. Without the publish permission the button is **Request publish**.
+
+**Enabled** is a switch in the header and on the list. It applies immediately after the first publish and does not create a Git commit.
+
+**Manual effort per run (minutes)** is how long the task takes by hand. The dashboard subtracts the automated run time from that number.
+
+### Inputs
+
+**Add input** offers text, a whole number, a decimal, yes/no, pick one, pick many, a Nautobot object, several Nautobot objects, a list of text, or a table. Each row has a drag grip, a type icon, summary tags, a trash icon, and a chevron. The variable name is under **Advanced**. It is derived from the label and locks after the first publish.
+
+An object field uses a visual filter: WHERE and AND rows with a field, a plain-word operator, and a fixed value or a value from another input. The builder shows how many objects match. **Switch to advanced (Jinja)** keeps a query that already uses Django lookups.
+
+A table has a column editor. On the launch form the grid is editable. **Download template**, **Import CSV**, and **Paste from spreadsheet** read the file in the browser. Nothing is uploaded. The row cap, a 2 MB cap, and per-cell checks apply. A cell that starts with `=`, `+`, `-`, or `@` is flagged and is not run; a negative number in a number column is allowed. If the table already has rows, import asks **Replace** or **Add**.
+
+### Steps and ServiceNow
+
+Steps are a pipeline. **Before** stops the run when a step fails. **Main** records a failure and continues. **Always run at the end** runs even after failures. The card shows a label. The step key, used as `{{ results.<key> }}`, is under **Advanced** and locks after the first publish. **Run only if** runs the step only when the rendered value is `true`, `1`, `yes`, `on`, or `y`.
+
+**Schedule & approval** stores the ServiceNow change window. The connection is a Nautobot External Integration. The change-number field is one of the text inputs.
+
+### Review, Edit YAML, and Test run
+
+Review lists what changes for people running the workflow, in plain language, with the YAML diff under it. **Edit YAML** is for people with the *Author templates and scripts* permission. It parses into the draft and shows errors on the line they belong to.
+
+**Test run** uses the draft. It does not start a script, call AWX, create a workflow run, or schedule a job.
+
+See [Git and the builder](gitops_migration.md) and [Permissions](permissions.md).
 
 ## Requiring Nautobot Approval (3.2+)
 

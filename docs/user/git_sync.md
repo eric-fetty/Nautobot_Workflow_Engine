@@ -2,7 +2,7 @@
 
 Nautobot-managed workflows live in the database. Git is kept equal to that database: a publish pushes a file, and a commit in Git is imported on the next sync. The later change wins. There is no screen that asks someone to pick a version.
 
-Git-managed workflows stay read-only in the builder until someone adopts them.
+Every workflow opens in the same editor. Git receives the published YAML. Drafts stay in the database.
 
 ## Secrets group
 
@@ -16,7 +16,7 @@ The repository needs a secrets group before it can be published to.
 4. For the webhook below, associate a third secret: access type **Generic**, secret type **Key**. That value is the HMAC secret (GitHub) or the token (GitLab). It is not the Git HTTP token.
 5. Assign the secrets group to the Git repository.
 
-The token is injected into the clone URL the way Nautobot core does it. It is not written to the job log or to `git_error`. A misconfigured secret raises `SecretError` to the caller; the database save is kept and the workflow shows **Not synced to Git**.
+The token is injected into the clone URL the way Nautobot core does it. It is not written to the job log or to `git_error`. A misconfigured secret raises `SecretError` to the caller; the database save is kept and the workflow shows **Not synced · Retry**.
 
 ## Opt in
 
@@ -31,7 +31,7 @@ A repository missing either one, or missing the HTTP token, is shown as read-onl
 
 Publishing writes `<workflow_dir>/<key>.yaml` (adopted workflows keep their existing path) with a managed-by header and canonical YAML. The author is the user who saved. The committer is the configured `git_committer_name`. The push goes directly to the repository branch. An empty commit is skipped. If the remote moved, the job fetches, resets to the new tip, writes the files again, and pushes. It does not rebase.
 
-A failed push does not undo the save. The badge stays **Not synced to Git**, with the next retry time and **Retry now**.
+A failed push does not undo the save. The indicator stays **Not synced · Retry**, and the push is retried automatically.
 
 ## Refresh, webhook, and the schedule
 
@@ -59,8 +59,6 @@ Without the app endpoint, a CI job can call core `POST /api/extras/git-repositor
 
 Clocks: `T_git` is the Git committer date and `T_db` is the database clock. Skew only matters for edits that land at nearly the same moment. The stale-edit check blocks a save that started from an older copy, including "Updated in Git by <author> at <time>; reload to continue."
 
-## Adopt and duplicate
+## Duplicate
 
-**Adopt** keeps the key, runs, approval definition, and path, then the next push rewrites the file in canonical form. If the file contains `{% include %}`, the dialog lists those paths and warns that future saves inline them.
-
-**Duplicate** copies the workflow into a disabled Nautobot-managed draft. It does not publish.
+**Duplicate** on the Workflows list copies a workflow into a disabled draft. It does not publish. The first **Publish changes** writes the canonical YAML to that workflow's repository.

@@ -75,6 +75,19 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
             self.show_file(saved.git_path)
         self.assertTrue(WorkflowRun.objects.filter(pk=run.pk).exists())
 
+    def test_yaml_enabled_does_not_flip_the_switch_after_import(self):
+        saved, _revision = self.save_and_push(self.definition(), enable=True)
+        saved.enabled = False
+        saved.save(update_fields=["enabled"])
+        text = self.show_file(saved.git_path).replace("name: Lab flow", "name: Still off")
+        if "enabled:" not in text:
+            text = text.replace("key: lab-flow\n", "key: lab-flow\nenabled: true\n", 1)
+        self.remote_commit({saved.git_path: text}, "toggle in yaml", author="Git Editor")
+        self.pull_into_database()
+        saved.refresh_from_db()
+        self.assertFalse(saved.enabled)
+        self.assertEqual(saved.name, "Still off")
+
     def test_git_change_becomes_a_published_revision(self):
         saved, revision = self.save_and_push(self.definition())
         before = saved.revisions.count()

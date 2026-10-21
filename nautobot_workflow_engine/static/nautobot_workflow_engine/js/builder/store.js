@@ -230,6 +230,16 @@ export function fromDefinition(definition, previous) {
     payload.schedule.end_fields = Array.isArray(snow.end_fields) ? snow.end_fields.join(", ") : "";
     payload.schedule.ticket_regex = snow.ticket_regex || "";
     payload.schedule.require_approved = Boolean(snow.require_approved);
+    const known = new Set([
+        "key", "name", "description", "category", "approval_required", "requires_approval",
+        "manual_duration_minutes", "enabled", "inputs", "actions", "pre_actions", "post_actions", "schedule",
+    ]);
+    payload.preserved = {};
+    Object.keys(data).forEach((key) => {
+        if (!known.has(key)) {
+            payload.preserved[key] = data[key];
+        }
+    });
     return payload;
 }
 
@@ -257,8 +267,23 @@ function inputFromDefinition(item) {
     input.filter_query = query == null ? "" : query;
     input.columns = Array.isArray(item.columns) ? item.columns.map((column) => ({ ...column })) : [];
     input.placeholder = item.placeholder || "";
+    input.preserved = preservedInput(item);
     input._keyTouched = true;
     return input;
+}
+
+function preservedInput(item) {
+    const known = new Set([
+        "key", "label", "type", "required", "default", "help_text", "placeholder", "depends_on",
+        "show_if", "validators", "choices", "model", "filter", "columns", "regex", "message", "flags",
+    ]);
+    const preserved = {};
+    Object.keys(item || {}).forEach((key) => {
+        if (!known.has(key)) {
+            preserved[key] = item[key];
+        }
+    });
+    return preserved;
 }
 
 function actionsFrom(items) {
@@ -271,7 +296,19 @@ function actionsFrom(items) {
         template_id: item.template_id == null ? "" : item.template_id,
         extra_vars: item.extra_vars && typeof item.extra_vars === "object" ? { ...item.extra_vars } : {},
         monitor: Boolean(item.monitor),
+        preserved: preservedAction(item),
     }));
+}
+
+function preservedAction(item) {
+    const known = new Set(["type", "name", "when", "script", "with", "template_id", "extra_vars", "monitor"]);
+    const preserved = {};
+    Object.keys(item || {}).forEach((key) => {
+        if (!known.has(key)) {
+            preserved[key] = item[key];
+        }
+    });
+    return preserved;
 }
 
 export function fingerprint(payload) {

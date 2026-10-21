@@ -300,6 +300,14 @@ class WorkflowInput(BaseModel):
     columns = models.JSONField(null=True, blank=True)
     visible_when = models.JSONField(null=True, blank=True)
     help_text = models.CharField(max_length=500, blank=True)
+    placeholder = models.CharField(max_length=200, blank=True, default="")
+    min_value = models.FloatField(null=True, blank=True)
+    max_value = models.FloatField(null=True, blank=True)
+    min_items = models.PositiveIntegerField(null=True, blank=True)
+    max_items = models.PositiveIntegerField(null=True, blank=True)
+    min_rows = models.PositiveIntegerField(null=True, blank=True)
+    max_rows = models.PositiveIntegerField(null=True, blank=True)
+    csv_import = models.BooleanField(default=True)
     validators = models.JSONField(
         null=True, blank=True
     )  # e.g. [{"regex": "...", "flags": ["IGNORECASE"], "message": "..."}]

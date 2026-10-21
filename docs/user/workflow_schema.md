@@ -15,7 +15,7 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | `description` | string | Description |  | What this workflow does. Trailing newlines are kept. |
 | `category` | string | Category |  | Groups the workflow on the launch page. |
 | `approval_required` | boolean | Require approval before running |  | When true on Nautobot 3.2+, launches can enter the approval pipeline. |
-| `manual_duration_minutes` | integer | Time saved per run (minutes) |  | Minutes this work would take without automation. |
+| `manual_duration_minutes` | integer | Manual effort per run (minutes) |  | Minutes this work takes by hand. The dashboard subtracts the automated run time. |
 | `schedule` | ref `schedule` | ServiceNow change window |  | Lets people run this workflow inside an approved ServiceNow change window. YAML key: schedule.servicenow. |
 | `inputs` | array | Inputs |  | Fields the person launching the workflow fills in. YAML key: inputs. |
 | `pre_actions` | array | Before |  | Runs first, and also when a scheduled run is created. If one fails, nothing else runs. YAML key: pre_actions. Aliases: `pre-actions`, `before_actions`, `before-actions` |
@@ -40,6 +40,13 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | `filter` | object | Filter |  | Limit which objects are offered. YAML key: filter. |
 | `columns` | array | Columns |  | Columns of a table input. YAML key: columns. |
 | `validators` | array | Validation rules |  | A pattern the value must match, plus the error text people see. YAML key: validators. |
+| `min_value` | number | Minimum |  | Smallest allowed number, inclusive. YAML key: min_value. |
+| `max_value` | number | Maximum |  | Largest allowed number, inclusive. YAML key: max_value. |
+| `min_items` | integer | At least |  | Minimum number of lines in a list. YAML key: min_items. |
+| `max_items` | integer | At most |  | Maximum number of lines in a list. YAML key: max_items. |
+| `min_rows` | integer | At least |  | Minimum number of table rows. YAML key: min_rows. |
+| `max_rows` | integer | At most |  | Maximum number of table rows. Extra CSV rows are skipped. YAML key: max_rows. |
+| `csv_import` | boolean | Allow CSV import |  | On by default. Set false to hide Import CSV and Download template. The file is read in the browser and is not stored. YAML key: csv_import. |
 
 ## choice
 
@@ -59,6 +66,8 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | `unique` | boolean | Unique |  | Values in this column cannot repeat. YAML key: unique. |
 | `choices` | one of | Options | yes | Options for a choice column, or a Jinja template. Jinja2 is allowed. YAML key: choices. |
 | `validators` | array | Validators |  | Patterns a column value must match. YAML key: validators. |
+| `min_value` | number | Minimum |  | Smallest allowed value in this column, inclusive. YAML key: min_value. |
+| `max_value` | number | Maximum |  | Largest allowed value in this column, inclusive. YAML key: max_value. |
 
 ## validator
 
@@ -73,7 +82,8 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | Field | Type | Label | Code | Description |
 | --- | --- | --- | --- | --- |
 | `type` | `nautobot`, `awx` | Type |  | Run a Nautobot script or launch an AWX job template. YAML key: type. |
-| `name` | string | Step name |  | Results are available as {{ results.<name> }}. The name must be unique. YAML key: name. |
+| `label` | string | Step name |  | The name on the card. Defaults to name, and is written only when it differs. YAML key: label. |
+| `name` | string | Step name |  | Results are available as {{ results.<name> }}. The name is the key and locks after the first publish. YAML key: name. |
 | `when` | string | Run only if | yes | Run this step only when the condition is true. Jinja2 is allowed, for example {{ inputs.confirm }}. YAML key: when. |
 | `script` | string | Script | yes | Script path under the scripts directory. YAML key: script. |
 | `with` | object | Script parameters | yes | Values passed to the script. Each value can be a Jinja template. Jinja2 is allowed. YAML key: with. |

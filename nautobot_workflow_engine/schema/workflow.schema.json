@@ -85,10 +85,10 @@
       "type": "integer",
       "minimum": 0,
       "title": "Manual duration",
-      "description": "Minutes this work would take without automation.",
+            "description": "Minutes this work takes by hand. The dashboard subtracts the automated run time.",
       "x-ui": {
-        "label": "Time saved per run (minutes)",
-        "help": "How long this takes by hand. Used by the Dashboard. YAML key: manual_duration_minutes.",
+        "label": "Manual effort per run (minutes)",
+        "help": "The time to do this task by hand. The dashboard subtracts the run time from this. YAML key: manual_duration_minutes.",
         "widget": "number",
         "group": "details",
         "advanced": true,
@@ -429,6 +429,94 @@
             "advanced": true,
             "code": false
           }
+        },
+        "min_value": {
+          "type": "number",
+          "title": "Minimum",
+          "x-ui": {
+            "label": "Minimum",
+            "help": "Smallest allowed number, inclusive. YAML key: min_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_value": {
+          "type": "number",
+          "title": "Maximum",
+          "x-ui": {
+            "label": "Maximum",
+            "help": "Largest allowed number, inclusive. YAML key: max_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "min_items": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Minimum items",
+          "x-ui": {
+            "label": "At least",
+            "help": "Minimum number of lines in a list. YAML key: min_items.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Maximum items",
+          "x-ui": {
+            "label": "At most",
+            "help": "Maximum number of lines in a list. YAML key: max_items.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "min_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Minimum rows",
+          "x-ui": {
+            "label": "At least",
+            "help": "Minimum number of table rows. YAML key: min_rows.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Maximum rows",
+          "x-ui": {
+            "label": "At most",
+            "help": "Maximum number of table rows. Extra CSV rows are skipped. YAML key: max_rows.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "csv_import": {
+          "type": "boolean",
+          "title": "CSV import",
+          "x-ui": {
+            "label": "Allow CSV import",
+            "help": "On by default. Set false to hide Import CSV and Download template. The file is read in the browser and is not stored. YAML key: csv_import.",
+            "widget": "checkbox",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
         }
       }
     },
@@ -586,6 +674,30 @@
             "advanced": true,
             "code": false
           }
+        },
+        "min_value": {
+          "type": "number",
+          "title": "Minimum",
+          "x-ui": {
+            "label": "Minimum",
+            "help": "Smallest allowed value in this column, inclusive. YAML key: min_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_value": {
+          "type": "number",
+          "title": "Maximum",
+          "x-ui": {
+            "label": "Maximum",
+            "help": "Largest allowed value in this column, inclusive. YAML key: max_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
         }
       }
     },
@@ -673,6 +785,19 @@
             }
           }
         },
+        "label": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Label",
+          "x-ui": {
+            "label": "Step name",
+            "help": "The name on the card. Defaults to name, and is written only when it differs. YAML key: label.",
+            "widget": "text",
+            "group": "steps",
+            "advanced": false,
+            "code": false
+          }
+        },
         "name": {
           "type": "string",
           "minLength": 1,
@@ -680,7 +805,7 @@
           "title": "Name",
           "x-ui": {
             "label": "Step name",
-            "help": "Results are available as {{ results.<name> }}. The name must be unique. YAML key: name.",
+            "help": "Results are available as {{ results.<name> }}. The name is the key and locks after the first publish. YAML key: name.",
             "widget": "text",
             "group": "steps",
             "advanced": false,

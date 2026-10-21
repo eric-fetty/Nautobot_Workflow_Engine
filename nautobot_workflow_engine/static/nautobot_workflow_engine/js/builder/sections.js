@@ -174,6 +174,8 @@ function renderDetails({ labels, payload, config, errorFor, readOnly }) {
             h("label", { class: "form-check-label", for: "field-approval", text: labels.workflow.approval_required.label, title: labels.workflow.approval_required.help })
         ),
         h("div", { class: "form-text mb-3", text: visibleHelp(labels.workflow.approval_required.help) }),
+        renderTags(payload, config, readOnly),
+        otherSettings(payload.preserved),
         renderSchedule(labels, payload, readOnly)
     );
 }
@@ -213,6 +215,35 @@ function renderSchedule(labels, payload, readOnly) {
                   )
                 : null
         )
+    );
+}
+
+function renderTags(payload, config, readOnly) {
+    const choices = config.tag_choices || [];
+    const selected = new Set(payload.tags || []);
+    const select = h(
+        "select",
+        {
+            class: "form-select",
+            id: "field-tags",
+            multiple: true,
+            size: String(Math.min(8, Math.max(3, choices.length || 3))),
+            "data-action": "set-tags",
+            "aria-label": "Tags",
+            disabled: readOnly || undefined,
+        },
+        choices.map((name) => h("option", { value: name, text: name, selected: selected.has(name) || undefined }))
+    );
+    return h(
+        "div",
+        { class: "mb-3" },
+        field(
+            "Tags",
+            "Stored in Nautobot only. They are not written to the workflow file.",
+            select,
+            { id: "field-tags" }
+        ),
+        choices.length ? null : h("p", { class: "form-text", text: "No tags exist yet. Create them under Organization, then they appear here." })
     );
 }
 
@@ -397,12 +428,69 @@ function renderInputEditor(input, index, { labels, payload, config, errorFor, re
                 h("input", { class: "form-check-input", type: "checkbox", id: `field-input-${index}-required`, "data-bind": `${prefix}.required`, checked: input.required, disabled: readOnly || undefined }),
                 h("label", { class: "form-check-label", for: `field-input-${index}-required` }, labels.input.required.label, labels.input.required.help ? h("span", { class: "text-muted fw-normal", text: " ⓘ", title: labels.input.required.help }) : null)
             ),
-            field(labels.input.default.label, labels.input.default.help, h("input", { class: "form-control", id: `field-input-${index}-default`, "data-bind": `${prefix}.default`, value: input.default == null || typeof input.default === "object" ? (input.default == null ? "" : JSON.stringify(input.default)) : input.default, disabled: readOnly || undefined }), { id: `field-input-${index}-default` }),
-            field(labels.input.help_text.label, labels.input.help_text.help, h("input", { class: "form-control", id: `field-input-${index}-help`, "data-bind": `${prefix}.help_text`, value: input.help_text, disabled: readOnly || undefined }), { id: `field-input-${index}-help` })
+            renderDefault(input, index, labels, readOnly),
+            field(labels.input.help_text.label, labels.input.help_text.help, h("input", { class: "form-control", id: `field-input-${index}-help`, "data-bind": `${prefix}.help_text`, value: input.help_text, disabled: readOnly || undefined }), { id: `field-input-${index}-help` }),
+            field(
+                (labels.input.placeholder && labels.input.placeholder.label) || "Placeholder",
+                (labels.input.placeholder && labels.input.placeholder.help) || "",
+                h("input", { class: "form-control", id: `field-input-${index}-placeholder`, "data-bind": `${prefix}.placeholder`, value: input.placeholder || "", disabled: readOnly || undefined }),
+                { id: `field-input-${index}-placeholder` }
+            )
         ),
         fieldGroup("Options", ...options),
         fieldGroup("Behavior", renderDepends(input, index, payload, labels, readOnly), renderShowIf(input, index, labels, payload, readOnly)),
-        fieldGroup("Validation", renderValidators(input, index, labels, readOnly))
+        fieldGroup("Validation", renderValidators(input, index, labels, readOnly)),
+        otherSettings(input.preserved)
+    );
+}
+
+function renderDefault(input, index, labels, readOnly) {
+    const structured = input.default != null && typeof input.default === "object";
+    const control = structured
+        ? h("textarea", {
+              class: "form-control",
+              rows: "4",
+              id: `field-input-${index}-default`,
+              "data-bind": `inputs.${index}.default`,
+              "data-json": "1",
+              value: JSON.stringify(input.default, null, 2),
+              disabled: readOnly || undefined,
+          })
+        : h("input", {
+              class: "form-control",
+              id: `field-input-${index}-default`,
+              "data-bind": `inputs.${index}.default`,
+              value: input.default == null ? "" : input.default,
+              disabled: readOnly || undefined,
+          });
+    const structuredTypes = ["object", "multiobject", "list", "listdict", "multichoice"];
+    return h(
+        "div",
+        {},
+        field(labels.input.default.label, labels.input.default.help, control, { id: `field-input-${index}-default` }),
+        readOnly || !structuredTypes.includes(input.type)
+            ? null
+            : h("button", {
+                  type: "button",
+                  class: "btn btn-sm btn-outline-secondary mb-3",
+                  "data-action": structured ? "flatten-default" : "structure-default",
+                  "data-index": String(index),
+                  text: structured ? "Use a single value" : "Use a structured default",
+              })
+    );
+}
+
+function otherSettings(preserved) {
+    const keys = Object.keys(preserved || {});
+    if (!keys.length) {
+        return null;
+    }
+    return h(
+        "details",
+        { class: "nwe-group" },
+        h("summary", { text: "Other settings from YAML" }),
+        h("pre", { class: "nwe-yaml mb-2", text: JSON.stringify(preserved, null, 2) }),
+        h("p", { class: "form-text", text: "These settings stay as they are. Change them in Edit YAML." })
     );
 }
 
@@ -467,7 +555,17 @@ function renderChoices(input, index, labels, readOnly, payload) {
             pointer: `/inputs/${index}/choices`,
             getReferences: () => referenceList(payload, "pre", 0),
             readOnly,
-        })
+        }),
+        readOnly
+            ? null
+            : h("button", {
+                  type: "button",
+                  class: "btn btn-sm btn-outline-secondary mt-2",
+                  "data-action": "preview-choices",
+                  "data-index": String(index),
+                  text: "Preview options",
+              }),
+        h("pre", { id: `choices-preview-${index}`, class: "form-text mb-0" })
     );
 }
 
@@ -710,6 +808,7 @@ function renderStepEditor(action, phase, index, { labels, payload, config, error
             getReferences: () => referenceList(payload, phase, index),
             readOnly,
         }),
+        otherSettings(action.preserved),
         readOnly ? null : h("button", { type: "button", class: "btn btn-outline-danger mt-3", "data-action": "remove-step", "data-phase": phase, "data-index": String(index), text: "Remove" })
     );
 }
@@ -728,14 +827,25 @@ function renderMapping(mapping, phase, index, fieldName, meta, payload, readOnly
                 h(
                     "div",
                     { class: "col-md-7" },
-                    jinjaEditor({
-                        id: `kv-${phase}-${index}-${fieldName}-${key}`,
-                        value: value == null ? "" : String(value),
-                        bind: `actions.${phase}.${index}.${fieldName}.${key}`,
-                        pointer: `/${phase === "pre" ? "pre_actions" : phase === "post" ? "post_actions" : "actions"}/${index}/${fieldName}`,
-                        getReferences: () => referenceList(payload, phase, index),
-                        readOnly,
-                    })
+                    value != null && typeof value === "object"
+                        ? h("textarea", {
+                              class: "form-control",
+                              rows: "3",
+                              id: `kv-${phase}-${index}-${fieldName}-${key}`,
+                              "data-bind": `actions.${phase}.${index}.${fieldName}.${key}`,
+                              "data-json": "1",
+                              value: JSON.stringify(value, null, 2),
+                              "aria-label": "Nested value",
+                              disabled: readOnly || undefined,
+                          })
+                        : jinjaEditor({
+                              id: `kv-${phase}-${index}-${fieldName}-${key}`,
+                              value: value == null ? "" : String(value),
+                              bind: `actions.${phase}.${index}.${fieldName}.${key}`,
+                              pointer: `/${phase === "pre" ? "pre_actions" : phase === "post" ? "post_actions" : "actions"}/${index}/${fieldName}`,
+                              getReferences: () => referenceList(payload, phase, index),
+                              readOnly,
+                          })
                 ),
                 h("div", { class: "col-md-2" }, h("button", { type: "button", class: "btn btn-outline-danger w-100", "data-action": "remove-kv", "data-phase": phase, "data-index": String(index), "data-field": fieldName, "data-key": key, text: "Remove", disabled: readOnly || undefined }))
             )
@@ -779,6 +889,28 @@ function renderReview({ payload, config, errorFor, readOnly }) {
                 { class: "card-body" },
                 h("pre", { id: "yaml-preview", class: "nwe-yaml mb-2" }),
                 h("div", { id: "yaml-errors", class: "text-danger small" })
+            )
+        ),
+        h(
+            "div",
+            { class: "card mb-3" },
+            h("div", { class: "card-header", text: "Edit YAML" }),
+            h(
+                "div",
+                { class: "card-body" },
+                h("p", { class: "form-text", text: config.can_author_code ? "Apply replaces the form with this YAML. Invalid YAML leaves the form unchanged." : "Editing YAML needs the Author templates and scripts permission." }),
+                h("textarea", {
+                    class: "form-control nwe-yaml-editor",
+                    id: "yaml-editor",
+                    rows: "16",
+                    spellcheck: "false",
+                    "aria-label": "Workflow YAML",
+                    disabled: readOnly || !config.can_author_code || undefined,
+                }),
+                h("div", { id: "yaml-apply-errors", class: "text-danger small mt-2" }),
+                readOnly || !config.can_author_code
+                    ? null
+                    : h("button", { type: "button", class: "btn btn-outline-primary mt-2", "data-action": "apply-yaml", text: "Apply to form" })
             )
         ),
         h(

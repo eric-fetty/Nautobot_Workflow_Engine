@@ -4,86 +4,22 @@
 {% block title %}{% if workflow %}Edit {{ workflow.name }}{% else %}New workflow{% endif %}{% endblock title %}
 
 {% block content %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}">
-    <nav aria-label="Breadcrumb">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}">Workflows</a></li>
-            <li class="breadcrumb-item active" aria-current="page">{% if workflow %}{{ workflow.name }}{% else %}New workflow{% endif %}</li>
-        </ol>
-    </nav>
-    <div id="builder-app" class="nwe-builder">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-            <div>
-                <h1 class="h3 mb-2" id="builder-title">{% if workflow %}{{ workflow.name }}{% else %}New workflow{% endif %}</h1>
-                <div class="d-flex flex-wrap gap-1" id="builder-badges" aria-label="Workflow status"></div>
-            </div>
-            <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary" id="builder-back">Back to launch</a>
-        </div>
-        <div id="builder-git-check" class="alert alert-secondary" role="status" hidden>Checking Git for updates…</div>
-        <div id="builder-git-unverified" class="alert alert-warning" role="status" hidden></div>
-        <div id="builder-not-synced" class="alert alert-danger" role="status" hidden>
-            <span id="builder-not-synced-text">Not synced to Git.</span>
-            <button type="button" class="btn btn-sm btn-outline-danger ms-2" id="builder-retry-now">Retry now</button>
-        </div>
-        {% if builder_config.banner %}
-            <div class="alert alert-info" role="status" id="builder-managed-banner">
-                {{ builder_config.banner }}
-                <span class="d-block mt-2">Edit it in Git, or adopt it into Nautobot, or duplicate it as a Nautobot-managed workflow.</span>
-                {% if builder_config.adopt_url %}
-                    <button type="button" class="btn btn-sm btn-primary" id="builder-adopt">Adopt into Nautobot</button>
-                {% endif %}
-                {% if builder_config.duplicate_url %}
-                    <form method="post" action="{{ builder_config.duplicate_url }}" class="d-inline">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-sm btn-outline-primary">Duplicate as Nautobot-managed</button>
-                    </form>
-                {% endif %}
-            </div>
-        {% endif %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v6">
+    <div id="builder-app" class="nwe-studio">
         {% if errors %}
             <div class="alert alert-danger" role="alert">
-                <strong>Fix these fields before saving.</strong>
-                <ul class="mb-0 mt-2">
-                    {% for error in errors %}
-                        <li>{{ error.message }}</li>
-                    {% endfor %}
-                </ul>
+                {% for error in errors %}
+                    <div>{{ error.message }}</div>
+                {% endfor %}
             </div>
         {% endif %}
-        <div class="row">
-            <div class="col-lg-3 mb-3">
-                <nav class="nwe-rail" aria-label="Workflow sections" id="builder-rail"></nav>
-            </div>
-            <div class="col-lg-9">
-                <div id="builder-section"></div>
-            </div>
-        </div>
-        <div class="nwe-savebar bg-body border-top shadow-sm py-2 mt-3">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <div id="builder-save-state" role="status">All changes saved</div>
-                <div class="d-flex flex-wrap gap-2">
-                    <button type="button" class="btn btn-outline-secondary" id="builder-discard"{% if builder_config.read_only %} disabled{% endif %}>Discard changes</button>
-                    <button type="button" class="btn btn-outline-primary" id="builder-save-draft"{% if builder_config.read_only %} disabled{% endif %}>Save draft</button>
-                    <button type="button" class="btn btn-primary" id="builder-publish"{% if builder_config.read_only %} disabled{% endif %}>Publish</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="builder-stale-dialog" tabindex="-1" aria-labelledby="builder-stale-title" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title h5" id="builder-stale-title">Can't save</h2>
-                </div>
-                <div class="modal-body">
-                    <p id="builder-stale-detail" class="mb-0"></p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" id="builder-stale-download">Download my changes (YAML)</button>
-                    <button type="button" class="btn btn-primary" id="builder-stale-reload">Reload</button>
-                </div>
-            </div>
+        <header id="studio-header" class="nwe-head"></header>
+        <div id="studio-hint"></div>
+        <div id="studio-banner"></div>
+        <div class="nwe-panes">
+            <nav id="studio-stepper" aria-label="Build your workflow"></nav>
+            <main id="studio-editor"></main>
+            <aside id="studio-preview"></aside>
         </div>
     </div>
 
@@ -96,51 +32,38 @@
                 <div class="modal-body" id="builder-confirm-body"></div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" id="builder-confirm-cancel">Cancel</button>
-                    <button type="button" class="btn btn-danger" id="builder-confirm-ok">Continue</button>
+                    <button type="button" class="btn btn-danger" id="builder-confirm-ok">Discard draft</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="modal fade" id="builder-unsaved-dialog" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h2 class="modal-title h5">Unsaved changes</h2></div>
-                <div class="modal-body">You have edits that are not saved as a draft.</div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" id="builder-unsaved-stay">Stay</button>
-                    <button type="button" class="btn btn-outline-danger" id="builder-unsaved-discard">Discard</button>
-                    <button type="button" class="btn btn-primary" id="builder-unsaved-save">Save draft</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="builder-add-input" tabindex="-1" aria-labelledby="builder-add-input-title" aria-hidden="true">
-        <div class="modal-dialog">
+    <div class="modal fade" id="builder-versions-dialog" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2 class="modal-title h5" id="builder-add-input-title">Add input</h2>
+                    <h2 class="modal-title h5">Versions</h2>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <label class="form-label" for="add-input-type">What kind of answer?</label>
-                    <select class="form-select" id="add-input-type"></select>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" data-action="add-input">Add input</button>
-                </div>
+                <div class="modal-body" id="builder-versions-body"></div>
             </div>
+        </div>
+    </div>
+
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="builder-test-run-panel" aria-labelledby="builder-test-run-title" style="width: min(36rem, 100vw);">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title h5" id="builder-test-run-title">Test run</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div class="alert alert-info" role="status">Test run only. No scripts or AWX jobs were started.</div>
+            <div id="test-run-results"></div>
         </div>
     </div>
 
     <div class="toast-container position-fixed end-0 p-3 nwe-toast">
         <div class="toast" id="builder-toast" role="status" aria-live="polite">
-            <div class="toast-body d-flex justify-content-between align-items-center gap-2">
-                <span id="builder-toast-text"></span>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="builder-undo" hidden>Undo</button>
-            </div>
+            <div class="toast-body" id="builder-toast-text"></div>
         </div>
     </div>
     {{ builder_config|json_script:"workflow-builder-config" }}
@@ -148,5 +71,5 @@
 
 {% block javascript %}
     {{ block.super }}
-    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/main.js' %}?m41"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v7"></script>
 {% endblock javascript %}

@@ -20,11 +20,11 @@
                     <option value="">Select {{ field.model|default:"an object" }}…</option>
                 </select>
             {% elif field.type == "integer" %}
-                <input class="form-control" id="preview-{{ field.key }}" type="number" inputmode="numeric" disabled>
+                <input class="form-control" id="preview-{{ field.key }}" type="number" inputmode="numeric" disabled placeholder="{{ field.placeholder }}">
             {% elif field.type == "list" or field.type == "listdict" %}
                 <textarea class="form-control" id="preview-{{ field.key }}" rows="2" disabled placeholder="Filled in at launch"></textarea>
             {% else %}
-                <input class="form-control" id="preview-{{ field.key }}" type="text" disabled>
+                <input class="form-control" id="preview-{{ field.key }}" type="text" disabled placeholder="{{ field.placeholder }}">
             {% endif %}
             {% if field.help %}
                 <div class="form-text">{{ field.help }}</div>

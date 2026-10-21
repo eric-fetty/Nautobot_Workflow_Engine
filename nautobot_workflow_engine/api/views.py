@@ -1,4 +1,4 @@
-"""Builder REST API. Dry-run remains a later milestone."""
+"""Builder REST API."""
 
 import ast
 import hashlib
@@ -15,15 +15,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
+from nautobot_workflow_engine.dry_run import dry_run, render_sample
 from nautobot_workflow_engine.models import Workflow, WorkflowFilterModule, WorkflowHelper, WorkflowRevision
 from nautobot_workflow_engine.schema import load_schema
-from nautobot_workflow_engine.schema.builder_payload import definition_from_builder, payload_to_raw
+from nautobot_workflow_engine.schema.builder_payload import (
+    builder_from_definition,
+    definition_from_builder,
+    payload_to_raw,
+)
 from nautobot_workflow_engine.schema.errors import BuilderValidationError, FieldError
 from nautobot_workflow_engine.schema.normalize import normalize
 from nautobot_workflow_engine.schema.policy import content_type_allowed, script_path_allowed
 from nautobot_workflow_engine.schema.references import find_references, rename_reference
 from nautobot_workflow_engine.schema.validate import validate
-from nautobot_workflow_engine.schema.yaml_io import from_yaml, to_yaml
+from nautobot_workflow_engine.schema.yaml_io import from_yaml, pointer_lines, to_yaml
 from nautobot_workflow_engine.services import (
     ServiceError,
     adopt_workflow,
@@ -31,6 +36,7 @@ from nautobot_workflow_engine.services import (
     create_draft,
     discard_draft,
     duplicate_workflow,
+    load_published_into_draft,
     publish,
     restore_revision,
     set_enabled,
@@ -541,11 +547,150 @@ def _preview_field(item):
         "type": kind,
         "required": bool(item.get("required")),
         "help": item.get("help_text") or "",
+        "placeholder": item.get("placeholder") or "",
         "choices": choices,
         "model": item.get("model") or "",
         "depends_on": item.get("depends_on") if isinstance(item.get("depends_on"), list) else [],
         "show_if": show_if if isinstance(show_if, (dict, str)) else "",
     }
+
+
+class BuilderDryRunView(APIView):
+    """Test run for a definition that may not be saved yet."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    def post(self, request):
+        """Render conditions and parameters. This does not execute the workflow."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            definition = _definition_from_body(data, strict=False)
+            repo = _repository(user, data.get("repository") or (data.get("payload") or {}).get("source_repo"))
+        except ServiceError as exc:
+            return _service_response(exc)
+        result = dry_run(
+            definition,
+            data.get("inputs") or {},
+            data.get("mock_results") or {},
+            user,
+            repo=repo,
+        )
+        return Response(result)
+
+
+class BuilderRenderView(APIView):
+    """Preview one Jinja template, such as computed options."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    def post(self, request):
+        """Return the rendered text or a sandbox error."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        return Response(render_sample(data.get("template") or "", data.get("inputs") or {}, user))
+
+
+class BuilderYamlApplyView(APIView):
+    """Parse Edit YAML text, validate it, and return the builder payload."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    def post(self, request):
+        """Apply YAML to the form. A parse error leaves the payload empty."""
+        user = request.user
+        if not user.has_perm("nautobot_workflow_engine.author_code_workflow"):
+            raise PermissionDenied(detail="You need the Author templates and scripts permission to edit YAML.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        text = data.get("yaml") if isinstance(data.get("yaml"), str) else ""
+        lines, parse_error = pointer_lines(text)
+        if parse_error is not None:
+            return Response({"payload": None, "definition": None, "yaml": text, "errors": [parse_error]})
+        try:
+            loaded = from_yaml(text)
+            if not isinstance(loaded, dict):
+                return Response(
+                    {
+                        "payload": None,
+                        "definition": None,
+                        "yaml": text,
+                        "errors": [
+                            {
+                                "line": 1,
+                                "column": 1,
+                                "pointer": "",
+                                "code": "yaml",
+                                "message": "YAML must be a mapping.",
+                            }
+                        ],
+                    }
+                )
+            definition = normalize(loaded)
+            repo = _repository(user, data.get("repository"))
+            errors = [
+                dict(item)
+                for item in validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
+            ]
+        except ServiceError as exc:
+            return _service_response(exc)
+        except Exception as exc:
+            return Response(
+                {
+                    "payload": None,
+                    "definition": None,
+                    "yaml": text,
+                    "errors": [{"line": 1, "column": 1, "pointer": "", "code": "yaml", "message": str(exc)}],
+                }
+            )
+        for item in errors:
+            item["line"] = lines.get(item.get("pointer") or "")
+        return Response(
+            {
+                "payload": builder_from_definition(definition),
+                "definition": definition,
+                "yaml": to_yaml(definition),
+                "errors": errors,
+            }
+        )
+
+
+def _apply_tags(workflow, user, data):
+    """Store tag names on the workflow. Tags are not part of the YAML."""
+    if not isinstance(data, dict):
+        return
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    if "tags" in data:
+        names = data.get("tags")
+    elif "tags" in payload:
+        names = payload.get("tags")
+    else:
+        return
+    if not isinstance(names, list):
+        return
+    from nautobot.extras.models import Tag
+
+    wanted = [str(name).strip() for name in names if str(name).strip()]
+    tags = list(Tag.objects.restrict(user, "view").filter(name__in=wanted))
+    workflow.tags.set(tags)
 
 
 _WRITE = {
@@ -558,6 +703,70 @@ _WRITE = {
     404: DetailSerializer,
     409: StaleSerializer,
 }
+
+
+class BuilderFilterCountView(APIView):
+    """Count objects for the visual filter builder. The query is not stored."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(responses={200: OpenApiResponse(description="Matching object count")})
+    def post(self, request):
+        """Return how many objects match a filter, plus a few names."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.view_workflow")
+            or user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        model_label = str((data or {}).get("model") or "")
+        if not content_type_allowed(model_label) or "." not in model_label:
+            return Response({"detail": "That model is not available."}, status=400)
+        from django.apps import apps
+
+        from nautobot_workflow_engine.executors import SafeUser, _render
+        from nautobot_workflow_engine.schema.filters import expanded_lookups, split_filter
+        from nautobot_workflow_engine.schema.policy import lookup_allowed
+
+        app_label, model_name = model_label.split(".", 1)
+        try:
+            model = apps.get_model(app_label, model_name)
+        except Exception as exc:
+            if exc.__class__.__name__ != "LookupError":
+                raise
+            return Response({"detail": "That model is not available."}, status=400)
+        query = data.get("query") or {}
+        rendered = query if isinstance(query, dict) else {}
+        if rendered:
+            inputs = {
+                str(key): {"id": value, "name": value}
+                for key, value in (data.get("values") or {}).items()
+                if isinstance(key, str)
+            }
+            try:
+                rendered = _render(query, {"inputs": inputs, "user": SafeUser.from_user(user)}, max_output=100_000)
+            except Exception as exc:
+                return Response({"count": None, "names": [], "error": str(exc)})
+        if not isinstance(rendered, dict):
+            rendered = {}
+        for lookup in expanded_lookups(rendered):
+            if not lookup_allowed(model, lookup):
+                return Response({"detail": f"Filter lookup '{lookup}' is not allowed."}, status=400)
+        include, exclude = split_filter(rendered)
+        queryset = model.objects.restrict(user, "view")
+        if include:
+            queryset = queryset.filter(**include)
+        if exclude:
+            queryset = queryset.exclude(**exclude)
+        names = []
+        for obj in queryset.distinct()[:8]:
+            names.append(str(getattr(obj, "name", None) or getattr(obj, "display", None) or obj))
+        return Response({"count": queryset.distinct().count(), "names": names})
 
 
 class WorkflowViewSet(ViewSet):
@@ -593,6 +802,7 @@ class WorkflowViewSet(ViewSet):
                 source=WorkflowRevision.SOURCE_API,
                 strict=strict,
             )
+            _apply_tags(workflow, request.user, data)
         except ServiceError as exc:
             return _service_response(exc)
         return Response(
@@ -647,6 +857,7 @@ class WorkflowViewSet(ViewSet):
                 source=WorkflowRevision.SOURCE_API,
                 strict=strict,
             )
+            _apply_tags(workflow, request.user, data)
         except ServiceError as exc:
             return _service_response(exc)
         return Response(
@@ -700,6 +911,7 @@ class WorkflowViewSet(ViewSet):
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
             )
+            _apply_tags(saved, request.user, data)
         except ServiceError as exc:
             return _service_response(exc)
         saved.refresh_from_db()
@@ -711,6 +923,38 @@ class WorkflowViewSet(ViewSet):
         }
         body["warnings"] = list(getattr(saved, "_git_warnings", []) or [])
         return Response(body, status=202)
+
+    def dry_run(self, request, key=None):
+        """Test run against a saved workflow. A body definition overrides the stored one."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            if any(data.get(item) not in (None, "") for item in ("definition", "payload", "yaml")):
+                definition = _definition_from_body(data, strict=False)
+            elif data.get("revision"):
+                revision = workflow.revisions.filter(number=data.get("revision")).first()
+                if revision is None:
+                    return Response(
+                        _errors_payload([FieldError("/revision", "not_found", "That revision does not exist.")]),
+                        status=404,
+                    )
+                definition = revision.definition
+            else:
+                draft = workflow.draft_revision
+                definition = draft.definition if draft is not None else (workflow.raw_definition or {})
+        except ServiceError as exc:
+            return _service_response(exc)
+        result = dry_run(
+            definition,
+            data.get("inputs") or {},
+            data.get("mock_results") or {},
+            request.user,
+            repo=workflow.source_repo,
+        )
+        return Response(result)
 
     @extend_schema(responses={200: WorkflowSummarySerializer, 403: DetailSerializer, 404: DetailSerializer})
     def enable(self, request, key=None):
@@ -805,6 +1049,17 @@ class WorkflowViewSet(ViewSet):
         from nautobot_workflow_engine.utilities.git_publish import refresh_on_open
 
         return Response(refresh_on_open(workflow, request.user))
+
+    @extend_schema(responses={200: RevisionSerializer, 400: DetailSerializer, 404: DetailSerializer})
+    def load_git(self, request, key=None):
+        """Copy the live Git version into the draft. The previous draft stays in history."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        try:
+            revision = load_published_into_draft(user=request.user, workflow=workflow)
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response({"revision": _revision_payload(revision)})
 
     @extend_schema(request=AdoptRequestSerializer, responses={200: WorkflowSummarySerializer, 400: DetailSerializer})
     def adopt(self, request, key=None):

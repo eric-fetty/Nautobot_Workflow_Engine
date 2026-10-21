@@ -2,7 +2,19 @@
 {% extends "base.html" %}
 {% block title %}Launch: {{ workflow.name }}{% endblock title %}
 {% block content %}
-  {% include "nautobot_workflow_engine/partials/git_badge.html" with workflow=workflow %}
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <h1 class="h3 mb-0">{{ workflow.name }}</h1>
+    {% if workflow.git_status == "not_synced" or workflow.git_status == "git_invalid" %}
+      <span class="badge bg-danger">Not synced · Retry</span>
+    {% elif workflow.git_status == "pending" %}
+      <span class="badge bg-primary">Syncing…</span>
+    {% elif workflow.git_status == "in_sync" %}
+      <span class="badge bg-success">Synced</span>
+    {% endif %}
+    {% if perms.nautobot_workflow_engine.change_workflow %}
+      <a class="btn btn-sm btn-light ms-auto" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=workflow.key %}">Edit</a>
+    {% endif %}
+  </div>
   <style>
     .workflow-launch-card {
       width: min(100%, 1100px);
@@ -1387,6 +1399,20 @@
         return String(value || '').trim().toLowerCase();
       }
 
+      function spreadsheetToCsv(text) {
+        var source = String(text || '').replace(/^\uFEFF/, '');
+        var first = source.split(/\r?\n/)[0] || '';
+        var tabs = (first.match(/\t/g) || []).length;
+        var commas = (first.match(/,/g) || []).length;
+        if (tabs <= commas) return source;
+        return source.split(/\r?\n/).map(function(line) {
+          return line.split('\t').map(function(cell) {
+            if (/[",\n]/.test(cell)) return '"' + cell.replace(/"/g, '""') + '"';
+            return cell;
+          }).join(',');
+        }).join('\n');
+      }
+
       function parseCSV(text) {
         var source = String(text || '');
         if (source.charCodeAt(0) === 0xFEFF) {
@@ -1525,6 +1551,27 @@
           };
         }
 
+        var text = String(rawValue == null ? '' : rawValue).trim();
+        var columnType = String((column && column.type) || 'string').toLowerCase();
+        var numeric = columnType === 'integer' || columnType === 'number';
+        if (text && !(numeric && /^-?\d+(?:\.\d+)?$/.test(text)) && '=+-@'.indexOf(text.charAt(0)) !== -1) {
+          return {
+            value: rawValue == null ? '' : rawValue,
+            issue: 'starts with "' + text.charAt(0) + '", which looks like a spreadsheet formula',
+            blocking: false,
+          };
+        }
+        if (numeric && text && (column.min_value != null || column.max_value != null)) {
+          var number = Number(text);
+          var low = column.min_value == null || column.min_value === '' ? null : Number(column.min_value);
+          var high = column.max_value == null || column.max_value === '' ? null : Number(column.max_value);
+          if (!Number.isNaN(number) && ((low != null && number < low) || (high != null && number > high))) {
+            var sentence = low != null && high != null
+              ? 'must be between ' + low + ' and ' + high
+              : (low != null ? 'must be at least ' + low : 'must be at most ' + high);
+            return { value: rawValue, issue: sentence, blocking: false };
+          }
+        }
         return {
           value: rawValue == null ? getDefaultTabularValue(column) : rawValue,
           issue: null,
@@ -1571,15 +1618,19 @@
           return !matchedIndexes[index];
         });
 
-        var mappedRows = parsed.rows.map(function(rowEntry) {
-          var row = {};
+        var mappedRows = parsed.rows.map(function(rowEntry, rowOffset) {
+          var row = { _nweIssues: [] };
           mappedColumns.forEach(function(entry) {
             var rawValue = entry.index === undefined ? getDefaultTabularValue(entry.column) : rowEntry.values[entry.index];
             var coercion = coerceCSVColumnValue(entry.column, rawValue);
             row[entry.column.key] = coercion.value;
 
             if (coercion.issue) {
-              var issueText = 'Row ' + rowEntry.lineNumber + ', ' + (entry.column.label || entry.column.key) + ': ' + coercion.issue;
+              var label = entry.column.label || entry.column.key;
+              var issueText = coercion.issue.indexOf('starts with') === 0 || coercion.issue.indexOf('must be') === 0
+                ? 'Row ' + (rowOffset + 1) + ': ' + label + ' ' + coercion.issue
+                : 'Row ' + (rowOffset + 1) + ', ' + label + ': ' + coercion.issue;
+              row._nweIssues.push(issueText);
               if (coercion.blocking) {
                 blockingIssues.push(issueText);
               } else {
@@ -1690,22 +1741,41 @@
         var uploadCsvBtn = document.createElement('button');
         uploadCsvBtn.type = 'button';
         uploadCsvBtn.className = 'btn btn-secondary btn-sm';
-        uploadCsvBtn.textContent = 'Upload CSV';
+        uploadCsvBtn.textContent = 'Import CSV';
 
         var downloadTemplateBtn = document.createElement('button');
         downloadTemplateBtn.type = 'button';
         downloadTemplateBtn.className = 'btn btn-outline-secondary btn-sm';
-        downloadTemplateBtn.textContent = 'Download Template';
+        downloadTemplateBtn.textContent = 'Download template';
+
+        var pasteBtn = document.createElement('button');
+        pasteBtn.type = 'button';
+        pasteBtn.className = 'btn btn-outline-secondary btn-sm';
+        pasteBtn.textContent = 'Paste from spreadsheet';
 
         var csvFileInput = document.createElement('input');
         csvFileInput.type = 'file';
         csvFileInput.accept = '.csv,text/csv';
         csvFileInput.style.display = 'none';
 
+        var showFixBtn = document.createElement('button');
+        showFixBtn.type = 'button';
+        showFixBtn.className = 'btn btn-outline-secondary btn-sm';
+        showFixBtn.textContent = 'Show only rows to fix';
+        showFixBtn.hidden = true;
+        var onlyFix = false;
         actionsRow.appendChild(addRowBtn);
         actionsRow.appendChild(uploadCsvBtn);
+        actionsRow.appendChild(pasteBtn);
         actionsRow.appendChild(downloadTemplateBtn);
+        actionsRow.appendChild(showFixBtn);
         actionsRow.appendChild(csvFileInput);
+        if (inputEl.getAttribute('data-csv-import') === 'false') {
+          uploadCsvBtn.hidden = true;
+          pasteBtn.hidden = true;
+          downloadTemplateBtn.hidden = true;
+          csvFileInput.disabled = true;
+        }
 
         var csvStatusBanner = document.createElement('div');
         csvStatusBanner.className = 'alert alert-info';
@@ -1785,7 +1855,15 @@
         }
 
         function updateHiddenValue() {
-          inputEl.value = JSON.stringify(currentList);
+          inputEl.value = JSON.stringify(currentList.map(function(row) {
+            var copy = {};
+            Object.keys(row || {}).forEach(function(key) {
+              if (String(key).charAt(0) !== '_') {
+                copy[key] = row[key];
+              }
+            });
+            return copy;
+          }));
           var event = new Event('input', { bubbles: true });
           inputEl.dispatchEvent(event);
         }
@@ -2043,7 +2121,13 @@
           }
 
           currentList.forEach(function(row, rowIndex){
+            if (onlyFix && !(row && row._nweIssues && row._nweIssues.length)) {
+              return;
+            }
             var tr = document.createElement('tr');
+            if (row && row._nweIssues && row._nweIssues.length) {
+              tr.className = 'table-danger';
+            }
 
             columns.forEach(function(col){
               var td = document.createElement('td');
@@ -2071,6 +2155,15 @@
             tdActions.appendChild(removeBtn);
             tr.appendChild(tdActions);
             tbody.appendChild(tr);
+            if (row && row._nweIssues && row._nweIssues.length) {
+              var note = document.createElement('tr');
+              var noteCell = document.createElement('td');
+              noteCell.colSpan = columns.length + 1;
+              noteCell.className = 'text-danger small';
+              noteCell.textContent = row._nweIssues[0];
+              note.appendChild(noteCell);
+              tbody.appendChild(note);
+            }
           });
 
           applyUniquenessHighlights();
@@ -2108,9 +2201,97 @@
           URL.revokeObjectURL(downloadLink.href);
         });
 
+        pasteBtn.addEventListener('click', function() {
+          var box = document.createElement('textarea');
+          box.className = 'form-control';
+          box.rows = 6;
+          box.placeholder = 'Paste rows from a spreadsheet, including the header row.';
+          var go = document.createElement('button');
+          go.type = 'button';
+          go.className = 'btn btn-sm btn-primary mt-2';
+          go.textContent = 'Import pasted rows';
+          showCSVStatus('info', ['Paste rows below. They are read in your browser, not uploaded.']);
+          csvStatusBanner.appendChild(box);
+          csvStatusBanner.appendChild(go);
+          go.addEventListener('click', function() {
+            var text = box.value || '';
+            if (text.length > 2 * 1024 * 1024) {
+              showCSVStatus('danger', 'That paste is over the 2 MB limit. It was not read.');
+              return;
+            }
+            applyImported(mapCSVToColumns(parseCSV(spreadsheetToCsv(text)), columns), { name: 'pasted rows' });
+          });
+        });
+
+        showFixBtn.addEventListener('click', function() {
+          onlyFix = !onlyFix;
+          showFixBtn.textContent = onlyFix ? 'Show all rows' : 'Show only rows to fix';
+          renderRows();
+        });
+
+        function tableHasValues() {
+          return currentList.some(function(row) {
+            return Object.keys(row || {}).some(function(key) {
+              if (String(key).charAt(0) === '_') return false;
+              var value = row[key];
+              return value !== '' && value !== false && value != null;
+            });
+          });
+        }
+
+        function applyImported(mapped, selectedFile) {
+          var maxRows = Number(inputEl.getAttribute('data-max-rows') || '');
+          var skipped = 0;
+          var rows = mapped.mappedRows.slice();
+          if (maxRows && rows.length > maxRows) {
+            skipped = rows.length - maxRows;
+            rows = rows.slice(0, maxRows);
+          }
+          var fixing = rows.filter(function(row) { return row._nweIssues && row._nweIssues.length; }).length;
+          var summary = rows.length + ' rows imported' + (fixing ? ', ' + fixing + ' need fixing' : '');
+          var detail = ['Read in your browser from ' + selectedFile.name + ', not uploaded.'];
+          if (skipped) detail.push(skipped + ' rows over the ' + maxRows + '-row limit were skipped.');
+          if (mapped.unmappedHeaders.length) detail.push('Ignored column: ' + mapped.unmappedHeaders.join(', ') + '.');
+          if (mapped.missingColumns.length) detail.push('Not in the file: ' + mapped.missingColumns.join(', ') + '.');
+          function commit(mode) {
+            currentList = mode === 'add' ? currentList.concat(rows) : rows;
+            updateHiddenValue();
+            showFixBtn.hidden = fixing === 0;
+            onlyFix = false;
+            showFixBtn.textContent = 'Show only rows to fix (' + fixing + ')';
+            renderRows();
+            showCSVStatus(fixing || skipped || mapped.unmappedHeaders.length ? 'warning' : 'success', [summary].concat(detail));
+          }
+          if (tableHasValues()) {
+            showCSVStatus('warning', [summary + '. This table already has rows.']);
+            var choice = document.createElement('div');
+            choice.className = 'mt-2';
+            var replaceBtn = document.createElement('button');
+            replaceBtn.type = 'button';
+            replaceBtn.className = 'btn btn-sm btn-primary me-2';
+            replaceBtn.textContent = 'Replace';
+            var addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'btn btn-sm btn-outline-secondary';
+            addBtn.textContent = 'Add';
+            replaceBtn.addEventListener('click', function() { commit('replace'); });
+            addBtn.addEventListener('click', function() { commit('add'); });
+            choice.appendChild(replaceBtn);
+            choice.appendChild(addBtn);
+            csvStatusBanner.appendChild(choice);
+            return;
+          }
+          commit('replace');
+        }
+
         csvFileInput.addEventListener('change', function(event) {
           var selectedFile = event.target.files && event.target.files[0];
           if (!selectedFile) {
+            return;
+          }
+          if (selectedFile.size > 2 * 1024 * 1024) {
+            showCSVStatus('danger', 'That file is over the 2 MB limit. It was not read.');
+            csvFileInput.value = '';
             return;
           }
 
@@ -2119,48 +2300,22 @@
             try {
               var parsed = parseCSV(loadEvent.target && loadEvent.target.result ? loadEvent.target.result : '');
               if (!parsed.headers.length) {
-                showCSVStatus('danger', 'The uploaded CSV is empty or missing a header row.');
+                showCSVStatus('danger', 'The CSV is empty or missing a header row.');
                 return;
               }
 
               var mapped = mapCSVToColumns(parsed, columns);
-              var matchedColumns = columns.length - mapped.missingColumns.length;
               if (!mapped.mappedRows.length && parsed.rows.length) {
                 showCSVStatus('danger', 'The CSV could not be mapped to any configured columns.');
                 return;
               }
-
               if (mapped.blockingIssues.length) {
-                showCSVStatus('danger', summarizeCSVMessages(
-                  ['The CSV was not imported because some values cannot be represented in the form.']
-                    .concat(mapped.blockingIssues),
-                  6
-                ));
+                showCSVStatus('danger', summarizeCSVMessages(mapped.blockingIssues, 6));
                 return;
               }
-
-              currentList = mapped.mappedRows;
-              updateHiddenValue();
-              renderRows();
-
-              var messages = [];
-              messages.push('Loaded ' + mapped.mappedRows.length + ' row' + (mapped.mappedRows.length === 1 ? '' : 's') + ' from ' + selectedFile.name + '.');
-              if (matchedColumns <= 0) {
-                messages.push('No matching headers were found.');
-              }
-              if (mapped.missingColumns.length) {
-                messages.push('Missing required columns: ' + mapped.missingColumns.join(', ') + '.');
-              }
-              if (mapped.unmappedHeaders.length) {
-                messages.push('Ignored CSV columns: ' + mapped.unmappedHeaders.join(', ') + '.');
-              }
-              if (mapped.issues.length) {
-                messages = messages.concat(summarizeCSVMessages(mapped.issues, 5));
-              }
-
-              showCSVStatus((mapped.missingColumns.length || mapped.issues.length) ? 'warning' : 'success', messages);
+              applyImported(mapped, selectedFile);
             } catch (error) {
-              console.error('CSV upload failed for field', name, error);
+              console.error('CSV import failed for field', name, error);
               showCSVStatus('danger', String(error && error.message ? error.message : 'Unable to parse the CSV file. Check quoting and delimiters, then try again.'));
             } finally {
               csvFileInput.value = '';

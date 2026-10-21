@@ -150,6 +150,13 @@ def _normalize_action(item):
     action_type = built.get("type")
     if not built.get("name") and action_type in ACTION_TYPES:
         built["name"] = action_type
+    label = built.get("label")
+    if isinstance(label, str):
+        label = label.strip()
+        if not label or label == built.get("name"):
+            built.pop("label", None)
+        else:
+            built["label"] = label
     if isinstance(built.get("script"), str):
         built["script"] = built["script"].strip().lstrip("/")
     if isinstance(built.get("template_id"), str) and built["template_id"].isdigit():

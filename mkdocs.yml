@@ -88,6 +88,8 @@ nav:
   - Workflow Authoring:
       - Schema: "user/workflow_schema.md"
       - Two-way Git sync: "user/git_sync.md"
+      - Permissions: "user/permissions.md"
+      - Moving GitOps workflows: "user/gitops_migration.md"
       - Reference: "user/app_use_cases.md"
       - Reporting Dashboard: "user/app_reporting.md"
       - Custom Filters: "dev/extending.md"

@@ -267,6 +267,14 @@ def _apply_definition(
             visible_when=ip.get("show_if"),
             validators=validators,
             help_text=ip.get("help_text") or "",
+            placeholder=ip.get("placeholder") or "",
+            min_value=_optional_number(ip.get("min_value")),
+            max_value=_optional_number(ip.get("max_value")),
+            min_items=_optional_int(ip.get("min_items")),
+            max_items=_optional_int(ip.get("max_items")),
+            min_rows=_optional_int(ip.get("min_rows")),
+            max_rows=_optional_int(ip.get("max_rows")),
+            csv_import=ip.get("csv_import", True) is not False,
             order=order,
         )
 
@@ -307,6 +315,24 @@ def _apply_definition(
                 raise ValueError(f"[Workflow {wf.key}] Unsupported action type in phase '{phase}': {act.get('type')}")
 
     return wf
+
+
+def _optional_number(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _import_nautobot_by_path(repository_record, raw_bytes, parsed, job_result, relative_path, synced_workflow_keys):
@@ -523,7 +549,16 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
             if _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
                 continue
 
-            enabled = data.get("enabled", True)
+            # YAML enabled only sets the switch the first time the file is imported.
+            # Mock sync tests replace Workflow.objects with a namespace that has no filter.
+            lookup = getattr(Workflow.objects, "filter", None)
+            prior = None
+            if callable(lookup):
+                try:
+                    prior = lookup(key=workflow_key).first()
+                except Exception:
+                    prior = None
+            enabled = prior.enabled if prior is not None else data.get("enabled", True)
             canonical = normalize(data)
             errors = validate(canonical, repo=repository_record, enforce_policy=False, check_scripts=True)
             if errors:
