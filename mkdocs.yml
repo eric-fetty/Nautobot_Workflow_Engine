@@ -87,6 +87,7 @@ nav:
       - Getting Started: "user/app_getting_started.md"
   - Workflow Authoring:
       - Schema: "user/workflow_schema.md"
+      - Two-way Git sync: "user/git_sync.md"
       - Reference: "user/app_use_cases.md"
       - Reporting Dashboard: "user/app_reporting.md"
       - Custom Filters: "dev/extending.md"

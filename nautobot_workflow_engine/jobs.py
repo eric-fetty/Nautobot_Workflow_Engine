@@ -214,4 +214,53 @@ class SyncServiceNowScheduledWorkflowsJob(Job):
         )
 
 
-register_jobs(ScheduledWorkflowExecutorJob, OrphanedWorkflowRunCleaner, SyncServiceNowScheduledWorkflowsJob)
+class PublishWorkflowsToGit(Job):
+    """Push Nautobot-managed workflows to their Git repository."""
+
+    class Meta:
+        """Job metadata."""
+
+        name = "Publish Workflows to Git"
+        description = "Commit and push workflow files. A failed push does not roll back the database."
+        has_sensitive_variables = False
+        hidden = True
+
+    repository_id = StringVar(description="Git repository primary key")
+
+    def run(self, repository_id):
+        """Publish every pending workflow in the repository."""
+        from nautobot_workflow_engine.utilities.git_publish import publish_repository
+
+        publish_repository(
+            repository_id,
+            user=getattr(self, "user", None),
+            job_logger=self.logger,
+            job_result=getattr(self, "job_result", None),
+        )
+
+
+class WorkflowGitMaintenance(Job):
+    """Scheduled fallback for webhooks: sync repos that moved and retry failed pushes."""
+
+    class Meta:
+        """Job metadata."""
+
+        name = "Workflow Git Maintenance"
+        description = "Enqueue repository syncs and retry workflow pushes that are due."
+        has_sensitive_variables = False
+        hidden = True
+
+    def run(self):
+        """Check publish repositories and retry due pushes."""
+        from nautobot_workflow_engine.utilities.git_publish import run_git_maintenance
+
+        run_git_maintenance(self.logger)
+
+
+register_jobs(
+    ScheduledWorkflowExecutorJob,
+    OrphanedWorkflowRunCleaner,
+    SyncServiceNowScheduledWorkflowsJob,
+    PublishWorkflowsToGit,
+    WorkflowGitMaintenance,
+)

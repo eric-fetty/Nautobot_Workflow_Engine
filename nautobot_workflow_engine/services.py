@@ -5,6 +5,8 @@ calls it. M3 adds the Git probe inside ``check_stale_git``; until then that
 function returns None and a save is not blocked on Git.
 """
 
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -15,6 +17,8 @@ from .schema.builder_payload import actions_require_repository
 from .schema.policy import AUTHOR_CODE_MESSAGE, code_changes
 from .schema.validate import validate
 from .schema.yaml_io import content_hash, to_yaml
+
+logger = logging.getLogger(__name__)
 
 PUBLISH_MESSAGE = "You need the *Publish workflows* permission to change this field."
 SCOPE_MESSAGE = "This change would move the workflow outside what you're allowed to edit (for example the category)"
@@ -41,12 +45,57 @@ def stale_git_detail(author, when_text):
 
 
 def check_stale_git(workflow, base_git_commit, base_content_hash):
-    """Return a ``stale_git`` payload, or None.
+    """Return a ``stale_git`` 409 payload, a ``git_unverified`` warning, or None.
 
-    M2 does not probe the remote. M3 replaces this with the file-state check and
-    uses :func:`stale_git_detail`. A missing probe must not block the save.
+    A warning has no ``code``. Callers must only reject the save when ``code`` is set.
+    An unreachable remote does not block the save.
     """
-    return None
+    if workflow is None or not getattr(workflow, "source_repo_id", None):
+        return None
+    status = getattr(workflow, "git_status", "") or ""
+    tracked = bool(getattr(workflow, "git_commit", "")) or status not in ("", "not_configured", "disabled_repo")
+    if not tracked:
+        return None
+    base_commit = getattr(workflow, "git_commit", "") or ""
+    if base_git_commit not in (None, ""):
+        base_commit = base_git_commit
+    base_hash = getattr(workflow, "git_content_hash", "") or ""
+    if base_content_hash not in (None, ""):
+        base_hash = base_content_hash
+    from nautobot_workflow_engine.utilities.git_probe import GitRemoteProbe
+    from nautobot_workflow_engine.utilities.git_publish import (
+        default_git_path,
+        enqueue_repository_sync,
+        known_secrets,
+        sanitize_git_error,
+    )
+
+    repository = workflow.source_repo
+    try:
+        probe = GitRemoteProbe(repository)
+        head = probe.remote_head()
+        if head and head == base_commit:
+            return None
+        state = probe.read_path(default_git_path(workflow))
+    except Exception as exc:
+        return {"warning": "git_unverified", "reason": sanitize_git_error(exc, known_secrets(repository))}
+    if (state.blob_hash or "") == (base_hash or ""):
+        return None
+    try:
+        enqueue_repository_sync(repository, None)
+    except Exception:
+        logger.info("Could not enqueue a refresh after a stale Git check.", exc_info=True)
+    author = state.author or "someone"
+    when_text = _format_time(state.committed_at)
+    return {
+        "code": "stale_git",
+        "detail": stale_git_detail(author, when_text),
+        "author": author,
+        "time": when_text,
+        "commit": state.commit or state.head,
+        "current_revision": _head(workflow).number if _head(workflow) else None,
+        "base_revision": None,
+    }
 
 
 def check_stale(
@@ -195,7 +244,7 @@ def update_draft(
         base_content_hash=base_content_hash,
         require_base=require_base,
     )
-    if conflict:
+    if conflict and conflict.get("code"):
         raise ServiceError(409, **conflict)
     _raise_validation(definition, workflow.source_repo)
     _require_author(user, workflow, _author_base(workflow), definition)
@@ -245,8 +294,11 @@ def publish(
         base_content_hash=base_content_hash,
         require_base=require_base,
     )
-    if conflict:
+    warnings = []
+    if conflict and conflict.get("code"):
         raise ServiceError(409, **conflict)
+    if conflict and conflict.get("warning"):
+        warnings.append(conflict["warning"])
     author_base = _author_base(workflow)
     repo = repository if repository is not None else getattr(workflow, "source_repo", None)
     if actions_require_repository(definition) and repo is None:
@@ -344,6 +396,20 @@ def publish(
             _assert_scope(user, saved, "publish")
         if code_changes(author_base, definition):
             _assert_scope(user, saved, "author_code")
+        saved_id = saved.pk
+        user_id = getattr(user, "pk", None)
+
+        def _push_after_commit():
+            from django.contrib.auth import get_user_model
+
+            from nautobot_workflow_engine.utilities.git_publish import schedule_publish
+
+            row = Workflow.objects.get(pk=saved_id)
+            person = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+            schedule_publish(row, person)
+
+        transaction.on_commit(_push_after_commit)
+    saved._git_warnings = warnings
     return saved, revision
 
 
@@ -549,3 +615,164 @@ def _insert_revision(workflow, definition, *, state, source, user, comment, base
         comment=(comment or "")[:200],
         created_by=user if getattr(user, "pk", None) else None,
     )
+
+
+INCLUDE_WARNING = (
+    "Future saves rewrite this file in canonical form; comments, key order and "
+    "`{% include %}` fragments will be inlined."
+)
+
+
+def adopt_workflow(*, user, workflow, confirm=False):
+    """Switch a Git-managed workflow to Nautobot. The first push rewrites the file."""
+    from nautobot_workflow_engine.utilities.git_publish import default_git_path, repo_can_publish, schedule_publish
+    from nautobot_workflow_engine.utilities.sync_rules import file_digest
+
+    if workflow.managed_by != "git":
+        raise ServiceError(400, detail="This workflow is already managed in Nautobot.")
+    if not user.has_perm("nautobot_workflow_engine.change_workflow", workflow):
+        raise ServiceError(404, detail="Not found.")
+    if not user.has_perm("nautobot_workflow_engine.publish_workflow", workflow):
+        raise ServiceError(403, detail=PUBLISH_MESSAGE)
+    repository = workflow.source_repo
+    if repository is None or not user.has_perm("extras.view_gitrepository", repository):
+        raise ServiceError(404, detail="Not found.")
+    if not repo_can_publish(repository):
+        raise ServiceError(400, detail="The repository is not opted in to publishing.")
+    includes = _include_paths(workflow)
+    if includes and not confirm:
+        return {
+            "adopted": False,
+            "includes": includes,
+            "warning": INCLUDE_WARNING,
+            "workflow": workflow,
+        }
+    definition = dict(workflow.raw_definition or {})
+    from nautobot_workflow_engine.schema.normalize import normalize
+
+    canonical = normalize(definition) if definition else {"key": workflow.key, "name": workflow.name}
+    with transaction.atomic():
+        workflow.managed_by = MANAGED_BY_NAUTOBOT
+        if not workflow.git_path:
+            workflow.git_path = default_git_path(workflow)
+        workflow.git_content_hash = file_digest(_current_file_bytes(workflow))
+        previous = workflow.published_revision
+        revision = _insert_revision(
+            workflow,
+            canonical,
+            state=WorkflowRevision.STATE_PUBLISHED,
+            source=WorkflowRevision.SOURCE_GIT_IMPORT,
+            user=user,
+            comment="Adopted into Nautobot.",
+            base=previous,
+        )
+        if previous is not None and previous.pk != revision.pk:
+            previous.state = WorkflowRevision.STATE_SUPERSEDED
+            previous.superseded_reason = "Adopted into Nautobot."
+            previous.save(update_fields=["state", "superseded_reason"])
+        revision.state = WorkflowRevision.STATE_PUBLISHED
+        revision.published_by = user
+        revision.published_at = timezone.now()
+        revision.save()
+        workflow.published_revision = revision
+        workflow.raw_definition = canonical
+        workflow.save()
+        saved_id = workflow.pk
+        user_id = user.pk
+
+        def _push():
+            from django.contrib.auth import get_user_model
+
+            row = Workflow.objects.get(pk=saved_id)
+            schedule_publish(row, get_user_model().objects.filter(pk=user_id).first())
+
+        transaction.on_commit(_push)
+    workflow._adopt_warning = INCLUDE_WARNING if includes else ""
+    workflow._adopt_includes = includes
+    return {"adopted": True, "includes": includes, "warning": workflow._adopt_warning, "workflow": workflow}
+
+
+def archive_workflow(*, user, workflow, confirm_key):
+    """Hide a workflow and delete its file on the next push. Runs are kept."""
+    if not user.has_perm("nautobot_workflow_engine.delete_workflow", workflow):
+        raise ServiceError(404, detail="Not found.")
+    if confirm_key != workflow.key:
+        raise ServiceError(400, detail="confirm_key must equal the workflow key.")
+    with transaction.atomic():
+        workflow.enabled = False
+        workflow.archived = True
+        workflow.save(update_fields=["enabled", "archived", "last_updated"])
+        saved_id = workflow.pk
+        user_id = user.pk
+
+        def _push():
+            from django.contrib.auth import get_user_model
+
+            from nautobot_workflow_engine.utilities.git_publish import schedule_publish
+
+            row = Workflow.objects.get(pk=saved_id)
+            if row.source_repo_id:
+                row.git_status = "pending"
+                row.save(update_fields=["git_status", "last_updated"])
+                schedule_publish(row, get_user_model().objects.filter(pk=user_id).first())
+
+        transaction.on_commit(_push)
+    return workflow
+
+
+def unarchive_workflow(*, user, workflow):
+    """Restore an archived workflow and publish its file again.
+
+    ``published_at`` is the database time the push compares with the commit that
+    deleted the file. The restore is a new database save, so it has to be newer
+    than that commit or the next push would archive the workflow again.
+    """
+    if not user.has_perm("nautobot_workflow_engine.change_workflow", workflow):
+        raise ServiceError(404, detail="Not found.")
+    now = timezone.now()
+    with transaction.atomic():
+        workflow.archived = False
+        workflow.enabled = True
+        workflow.save(update_fields=["archived", "enabled", "last_updated"])
+        revision = workflow.published_revision if workflow.published_revision_id else None
+        if revision is not None:
+            revision.published_at = now
+            revision.save(update_fields=["published_at"])
+        saved_id = workflow.pk
+        user_id = user.pk
+
+        def _push():
+            from django.contrib.auth import get_user_model
+
+            from nautobot_workflow_engine.utilities.git_publish import schedule_publish
+
+            row = Workflow.objects.get(pk=saved_id)
+            if row.source_repo_id and row.managed_by == MANAGED_BY_NAUTOBOT:
+                schedule_publish(row, get_user_model().objects.filter(pk=user_id).first())
+
+        transaction.on_commit(_push)
+    return workflow
+
+
+def _include_paths(workflow):
+    import re
+
+    text = ""
+    payload = _current_file_bytes(workflow)
+    if payload:
+        text = payload.decode("utf-8", errors="replace")
+    elif workflow.published_revision_id and workflow.published_revision.yaml:
+        text = workflow.published_revision.yaml
+    pattern = re.compile(r"""\{%\s*include\s+['"]([^'"]+)['"]""")
+    return pattern.findall(text)
+
+
+def _current_file_bytes(workflow):
+    from pathlib import Path
+
+    if not workflow.source_repo_id or not workflow.git_path:
+        return b""
+    path = Path(workflow.source_repo.filesystem_path) / workflow.git_path
+    if path.is_file():
+        return path.read_bytes()
+    return b""

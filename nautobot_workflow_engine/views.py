@@ -35,7 +35,7 @@ from .approvals import (
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
-from .models import MANAGED_BY_GIT, Workflow, WorkflowHelper, WorkflowInput, WorkflowRun
+from .models import GIT_STATUS_CHOICES, MANAGED_BY_GIT, Workflow, WorkflowHelper, WorkflowInput, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
     actions_require_repository,
@@ -264,6 +264,9 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         category = self.request.GET.get("category")
         if category:
             qs = qs.filter(category=category)
+        git_status = self.request.GET.get("git_status")
+        if git_status:
+            qs = qs.filter(git_status=git_status)
 
         latest_workflow_run = WorkflowRun.objects.filter(workflow_id=OuterRef("pk")).order_by("-started", "-id")
         qs = qs.annotate(
@@ -322,6 +325,14 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         )
         context["categories"] = list(all_categories)
         context["selected_category"] = selected_category
+        context["manage"] = self.request.GET.get("manage") == "1"
+        context["selected_git_status"] = self.request.GET.get("git_status", "")
+        context["git_status_choices"] = GIT_STATUS_CHOICES
+        cutoff = timezone.now() - timedelta(minutes=60)
+        context["git_attention_count"] = workflows.filter(
+            git_status__in=["not_synced", "git_invalid"],
+            last_updated__lt=cutoff,
+        ).count()
 
         list_display_params = {}
         tiles_display_params = {"display": "tiles"}
@@ -1635,6 +1646,20 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
             "plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": "__KEY__"}
         ),
         "base_revision": _editor_base_number(workflow),
+        "base_git_commit": workflow.git_commit if workflow is not None else "",
+        "base_content_hash": workflow.git_content_hash if workflow is not None else "",
+        "refresh_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-refresh", kwargs={"key": workflow.key})
+            if workflow is not None and workflow.source_repo_id
+            else ""
+        ),
+        "git_status_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-status", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "key": workflow.key if workflow is not None else "",
+        "git_status": workflow.git_status if workflow is not None else "",
         "is_edit": is_edit,
         "read_only": read_only,
         "banner": banner,

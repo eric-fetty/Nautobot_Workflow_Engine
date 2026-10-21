@@ -54,7 +54,7 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | --- | --- | --- | --- | --- |
 | `key` | string | Key |  | Column name stored on each row. YAML key: key. |
 | `label` | string | Label |  | Column heading. YAML key: label. |
-| `type` | `string`, `integer`, `boolean`, `choice` | Type |  | Text, whole number, yes/no, or choice. number is stored as integer. YAML key: type. Aliases: `number` |
+| `type` | `string`, `integer`, `number`, `boolean`, `choice` | Type |  | Text, whole number, decimal number, yes/no, or choice. integer rejects decimals. number keeps them. YAML key: type. |
 | `required` | boolean | Required |  | The row must include this column. YAML key: required. |
 | `unique` | boolean | Unique |  | Values in this column cannot repeat. YAML key: unique. |
 | `choices` | one of | Options | yes | Options for a choice column, or a Jinja template. Jinja2 is allowed. YAML key: choices. |

@@ -15,6 +15,23 @@ MANAGED_BY_CHOICES = (
     (MANAGED_BY_GIT, "Git"),
 )
 
+GIT_STATUS_NOT_CONFIGURED = "not_configured"
+GIT_STATUS_PENDING = "pending"
+GIT_STATUS_IN_SYNC = "in_sync"
+GIT_STATUS_NOT_SYNCED = "not_synced"
+GIT_STATUS_GIT_INVALID = "git_invalid"
+GIT_STATUS_DISABLED_REPO = "disabled_repo"
+GIT_STATUS_CHOICES = (
+    (GIT_STATUS_NOT_CONFIGURED, "Not in Git"),
+    (GIT_STATUS_PENDING, "Syncing to Git"),
+    (GIT_STATUS_IN_SYNC, "In Git"),
+    (GIT_STATUS_NOT_SYNCED, "Not synced to Git"),
+    (GIT_STATUS_GIT_INVALID, "Git version invalid"),
+    (GIT_STATUS_DISABLED_REPO, "Publishing off"),
+)
+WORKFLOW_PUBLISH_CONTENT = "nautobot_workflow_engine.workflow_publish"
+WORKFLOWS_CONTENT = "nautobot_workflow_engine.workflows"
+
 
 class Workflow(ChangeLoggedModel, BaseModel):
     """A workflow definition with inputs and actions.
@@ -46,8 +63,42 @@ class Workflow(ChangeLoggedModel, BaseModel):
         max_length=16,
         choices=MANAGED_BY_CHOICES,
         default=MANAGED_BY_NAUTOBOT,
-        help_text="nautobot: edited in the UI and left alone by Git sync. git: the repository file is the source of truth.",
+        help_text="nautobot: edited in the UI and kept in sync with Git. git: the repository file is the source of truth until adopted.",
     )
+    git_path = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Path of this workflow's YAML file relative to the repository root.",
+    )
+    git_status = models.CharField(
+        max_length=20,
+        choices=GIT_STATUS_CHOICES,
+        default=GIT_STATUS_NOT_CONFIGURED,
+        help_text="Whether the database copy matches the file in Git.",
+    )
+    git_commit = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text="Commit at the last moment the database and Git were equal.",
+    )
+    git_content_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 of the file bytes at that same moment.",
+    )
+    git_error = models.TextField(blank=True, default="", help_text="Sanitized reason the last Git operation failed.")
+    git_job_result = models.ForeignKey(
+        "extras.JobResult",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    git_retry_count = models.PositiveSmallIntegerField(default=0)
+    git_next_retry_at = models.DateTimeField(null=True, blank=True)
     approval_stage_snapshot = models.JSONField(
         null=True,
         blank=True,

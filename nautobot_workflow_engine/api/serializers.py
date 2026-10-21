@@ -145,3 +145,35 @@ class DuplicateSerializer(serializers.Serializer):
 
     key = serializers.CharField(required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
+
+
+class GitStatusSerializer(serializers.Serializer):
+    """Polled Git push state."""
+
+    git_status = serializers.CharField()
+    git_commit = serializers.CharField(allow_blank=True)
+    git_error = serializers.CharField(allow_blank=True)
+    git_retry_count = serializers.IntegerField()
+    git_next_retry_at = serializers.DateTimeField(allow_null=True)
+    job_result_url = serializers.CharField(allow_blank=True)
+
+
+class RefreshSerializer(serializers.Serializer):
+    """Result of checking Git when the editor opens."""
+
+    state = serializers.CharField()
+    job_result = serializers.CharField(allow_null=True, required=False)
+    reason = serializers.CharField(allow_blank=True, required=False)
+    updated = serializers.BooleanField(required=False)
+
+
+class AdoptRequestSerializer(serializers.Serializer):
+    """Confirm an adopt after the include warning."""
+
+    confirm = serializers.BooleanField(required=False)
+
+
+class ArchiveRequestSerializer(serializers.Serializer):
+    """The caller repeats the workflow key to archive it."""
+
+    confirm_key = serializers.CharField(required=False, allow_blank=True)

@@ -505,16 +505,14 @@
           "enum": [
             "string",
             "integer",
+            "number",
             "boolean",
             "choice"
-          ],
-          "x-aliases": [
-            "number"
           ],
           "title": "Type",
           "x-ui": {
             "label": "Type",
-            "help": "Text, whole number, yes/no, or choice. number is stored as integer. YAML key: type.",
+            "help": "Text, whole number, decimal number, yes/no, or choice. integer rejects decimals. number keeps them. YAML key: type.",
             "widget": "select",
             "group": "inputs",
             "advanced": false,
@@ -522,6 +520,7 @@
             "labels": {
               "string": "String",
               "integer": "Integer",
+              "number": "Number",
               "boolean": "Boolean",
               "choice": "Choice"
             }

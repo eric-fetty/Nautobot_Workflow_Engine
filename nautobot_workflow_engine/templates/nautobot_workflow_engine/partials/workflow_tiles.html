@@ -4,7 +4,7 @@
             <div class="col-md-6 col-lg-4" style="margin-bottom: 15px;">
                 <div class="card" style="height: 100%;">
                     <div class="card-body" style="display: flex; flex-direction: column;">
-                        <h6 class="mb-2">{{ wf.name }}</h6>
+                        <h6 class="mb-2">{{ wf.name }} {% include "nautobot_workflow_engine/partials/git_badge.html" with workflow=wf %}</h6>
                         {% if wf.description %}
                             <p style="flex-grow: 1;">{{ wf.description|truncatechars:120 }}</p>
                         {% endif %}
@@ -80,7 +80,7 @@
                     <div class="col-md-6 col-lg-4" style="margin-bottom: 15px;">
                         <div class="card" style="height: 100%;">
                             <div class="card-body" style="display: flex; flex-direction: column;">
-                                <h6 class="mb-2">{{ wf.name }}</h6>
+                                <h6 class="mb-2">{{ wf.name }} {% include "nautobot_workflow_engine/partials/git_badge.html" with workflow=wf %}</h6>
                                 {% if wf.description %}
                                     <p style="flex-grow: 1;">{{ wf.description|truncatechars:120 }}</p>
                                 {% endif %}

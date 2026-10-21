@@ -438,13 +438,42 @@ class DynamicWorkflowForm(forms.Form):
                 return False, None
             return value, f"{column.get('label') or column.get('key') or 'Value'} must be true/false."
 
-        if column_type in ("integer", "number"):
+        label = column.get("label") or column.get("key") or "Value"
+        if column_type == "integer":
             if value in (None, ""):
                 return "", None
+            if isinstance(value, bool):
+                return value, f"{label} must be a whole number."
+            if isinstance(value, int):
+                return value, None
+            if isinstance(value, float):
+                if value.is_integer():
+                    return int(value), None
+                return value, f"{label} must be a whole number."
+            text = str(value).strip()
+            if text[:1] == "+":
+                text = text[1:]
+            if text.lstrip("-").isdigit():
+                return int(text), None
+            if "." in text:
+                try:
+                    float(text)
+                except ValueError:
+                    return value, f"{label} must be a number."
+                return value, f"{label} must be a whole number."
+            return value, f"{label} must be a number."
+
+        if column_type == "number":
+            if value in (None, ""):
+                return "", None
+            if isinstance(value, bool):
+                return value, f"{label} must be a number."
+            if isinstance(value, (int, float)):
+                return float(value), None
             try:
-                return int(value), None
+                return float(str(value).strip()), None
             except (TypeError, ValueError):
-                return value, f"{column.get('label') or column.get('key') or 'Value'} must be a number."
+                return value, f"{label} must be a number."
 
         if column_type == "choice":
             if value in (None, ""):

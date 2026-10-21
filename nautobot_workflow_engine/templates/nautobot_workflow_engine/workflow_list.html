@@ -31,6 +31,24 @@
 {% endblock header %}
 
 {% block content %}
+    {% if manage and git_attention_count %}
+        <div class="alert alert-warning" role="status" id="git-attention-banner">
+            {{ git_attention_count }} workflow{{ git_attention_count|pluralize }} are not synced to Git.
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="dismiss-git-banner" onclick="sessionStorage.setItem('nwe-hide-git-banner','1'); this.parentElement.hidden=true;">Dismiss</button>
+        </div>
+    {% endif %}
+    {% if manage %}
+        <form method="get" class="mb-3">
+            <input type="hidden" name="manage" value="1">
+            <label for="git-status-filter">Git status</label>
+            <select id="git-status-filter" name="git_status" class="form-select form-select-sm w-auto d-inline" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for value, label in git_status_choices %}
+                    <option value="{{ value }}" {% if selected_git_status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    {% endif %}
     <style>
         /* Fix dropdown menus being clipped by card overflow */
         .card {

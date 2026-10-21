@@ -30,6 +30,7 @@
                             <tr>
                                 <td>
                                     <strong>{{ wf.name }}</strong>
+                                    {% include "nautobot_workflow_engine/partials/git_badge.html" with workflow=wf %}
                                 </td>
                                 <td>
                                     {% if wf.description %}

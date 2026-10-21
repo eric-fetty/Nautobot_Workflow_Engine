@@ -309,6 +309,84 @@ def _apply_definition(
     return wf
 
 
+def _import_nautobot_by_path(repository_record, raw_bytes, parsed, job_result, relative_path, synced_workflow_keys):
+    """Mark a tracked Nautobot workflow git_invalid when its file no longer has a key.
+
+    A missing key used to skip the file, and the later delete pass then archived it.
+    """
+    lookup = getattr(Workflow.objects, "filter", None)
+    if not callable(lookup):
+        return False
+    try:
+        existing = lookup(
+            source_repo=repository_record,
+            managed_by=MANAGED_BY_NAUTOBOT,
+            git_path=relative_path,
+        ).first()
+    except Exception:
+        return False
+    if existing is None:
+        return False
+    from nautobot_workflow_engine.utilities.sync_rules import consider_nautobot_file
+
+    consider_nautobot_file(repository_record, existing, raw_bytes, parsed, job_result, relative_path)
+    synced_workflow_keys.add(existing.key)
+    return True
+
+
+def _import_same_repo_nautobot(
+    repository_record, workflow_key, raw_bytes, parsed, job_result, relative_path, synced_workflow_keys
+):
+    """Apply latest-wins for a Nautobot-managed workflow in this repository.
+
+    Mock sync tests replace ``Workflow.objects`` with an object that has no ``filter``.
+    Those tests keep the create path.
+    """
+    lookup = getattr(Workflow.objects, "filter", None)
+    if not callable(lookup):
+        return False
+    try:
+        existing = lookup(key=workflow_key).first()
+    except Exception:
+        return False
+    if existing is None or getattr(existing, "managed_by", None) != MANAGED_BY_NAUTOBOT:
+        return False
+    repo_id = getattr(repository_record, "id", None) or getattr(repository_record, "pk", None)
+    if getattr(existing, "source_repo_id", None) != repo_id:
+        return False
+    from nautobot_workflow_engine.utilities.sync_rules import consider_nautobot_file
+
+    consider_nautobot_file(repository_record, existing, raw_bytes, parsed, job_result, relative_path)
+    synced_workflow_keys.add(workflow_key)
+    return True
+
+
+def _remember_git_file(workflow, raw_bytes, relative_path, repository_record):
+    """Store the file hash on a Git-managed workflow so a later adopt knows the path."""
+    if not hasattr(workflow, "git_status"):
+        return
+    from nautobot_workflow_engine.models import GIT_STATUS_IN_SYNC
+    from nautobot_workflow_engine.utilities.sync_rules import file_digest
+
+    workflow.git_status = GIT_STATUS_IN_SYNC
+    workflow.git_path = relative_path
+    workflow.git_content_hash = file_digest(raw_bytes)
+    workflow.git_error = ""
+    head = getattr(repository_record, "current_head", "") or ""
+    if head:
+        workflow.git_commit = head
+    workflow.save(
+        update_fields=["git_status", "git_path", "git_content_hash", "git_error", "git_commit", "last_updated"]
+    )
+
+
+def _archive_deleted_nautobot(repository_record, synced_workflow_keys, job_result):
+    """Archive Nautobot-managed workflows whose file was deleted, when that delete is newer."""
+    from nautobot_workflow_engine.utilities.sync_rules import archive_if_deleted
+
+    archive_if_deleted(repository_record, synced_workflow_keys, job_result)
+
+
 def _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
     """Return True when this file must not overwrite the workflow that already owns ``workflow_key``.
 
@@ -328,6 +406,8 @@ def _sync_should_skip_key(repository_record, workflow_key, job_result, synced_wo
     same_repo = getattr(existing, "source_repo_id", None) == repo_id
     managed_by = getattr(existing, "managed_by", MANAGED_BY_GIT)
     other_repo = not same_repo and getattr(existing, "source_repo_id", None) is not None
+    if managed_by == MANAGED_BY_NAUTOBOT and same_repo:
+        return False
     if managed_by == MANAGED_BY_NAUTOBOT or other_repo:
         job_result.log(
             message=(
@@ -335,8 +415,6 @@ def _sync_should_skip_key(repository_record, workflow_key, job_result, synced_wo
                 "It is Nautobot-managed or owned by another Git repository."
             )
         )
-        if managed_by == MANAGED_BY_NAUTOBOT and same_repo:
-            synced_workflow_keys.add(workflow_key)
         return True
     return False
 
@@ -404,6 +482,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
     if not workflows_path.exists():
         # Workflows directory removed — disable everything previously synced from this repo.
         _disable_workflows_missing_from_repo(repository_record, set(), job_result)
+        _archive_deleted_nautobot(repository_record, set(), job_result)
         clear_repo_script_cache(repository_record)
         return
 
@@ -421,11 +500,26 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
         try:
             content = _process_includes(job_result, yml)
             data = yaml.safe_load(content)
+            raw_bytes = yml.read_bytes() if hasattr(yml, "read_bytes") else content.encode("utf-8")
+            relative_path = f"{wf_dir}/{filename}"
             if not isinstance(data, dict) or not data.get("key"):
+                if _import_nautobot_by_path(
+                    repository_record,
+                    raw_bytes,
+                    data if isinstance(data, dict) else {},
+                    job_result,
+                    relative_path,
+                    synced_workflow_keys,
+                ):
+                    continue
                 job_result.log(message=f"E-NWE-102 Skipping {filename}: workflow file must be a mapping with a key.")
                 continue
 
             workflow_key = data["key"]
+            if _import_same_repo_nautobot(
+                repository_record, workflow_key, raw_bytes, data, job_result, relative_path, synced_workflow_keys
+            ):
+                continue
             if _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
                 continue
 
@@ -448,6 +542,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
                 )
                 _record_sync_revision(saved, canonical)
             synced_workflow_keys.add(workflow_key)
+            _remember_git_file(saved, raw_bytes, relative_path, repository_record)
         except ApprovalRemovalError as exc:
             job_result.log(
                 message=(
@@ -463,11 +558,18 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 
     # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
     _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)
+    _archive_deleted_nautobot(repository_record, synced_workflow_keys, job_result)
 
     clear_repo_script_cache(repository_record)
 
 
 datasource_contents = []
+
+
+def publish_target(repository_record, job_result, delete=False):  # pylint: disable=unused-argument
+    """No-op datasource callback. The repository opts in as a publish target."""
+    job_result.log(message="publish target")
+
 
 datasource_contents.append(
     (
@@ -477,6 +579,17 @@ datasource_contents.append(
             content_identifier="nautobot_workflow_engine.workflows",
             icon="mdi-file-document-outline",
             callback=sync_workflows_from_repo,
+        ),
+    )
+)
+datasource_contents.append(
+    (
+        "extras.gitrepository",
+        DatasourceContent(
+            name="Workflow publishing (Nautobot → Git)",
+            content_identifier="nautobot_workflow_engine.workflow_publish",
+            icon="mdi-source-branch",
+            callback=publish_target,
         ),
     )
 )

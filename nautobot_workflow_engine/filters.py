@@ -20,4 +20,5 @@ class WorkflowFilterSet(NautobotFilterSet):
         """Meta class for WorkflowFilterSet."""
 
         model = Workflow
+        fields = ["git_status", "managed_by", "enabled", "archived", "category"]
         exclude = ["tags"]

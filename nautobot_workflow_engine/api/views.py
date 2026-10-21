@@ -26,23 +26,30 @@ from nautobot_workflow_engine.schema.validate import validate
 from nautobot_workflow_engine.schema.yaml_io import from_yaml, to_yaml
 from nautobot_workflow_engine.services import (
     ServiceError,
+    adopt_workflow,
+    archive_workflow,
     create_draft,
     discard_draft,
     duplicate_workflow,
     publish,
     restore_revision,
     set_enabled,
+    unarchive_workflow,
     update_draft,
 )
 
 from .serializers import (
+    AdoptRequestSerializer,
+    ArchiveRequestSerializer,
     BaseSerializer,
     DetailSerializer,
     DiffSerializer,
     DuplicateSerializer,
     ErrorListSerializer,
+    GitStatusSerializer,
     RefactorRequestSerializer,
     RefactorResponseSerializer,
+    RefreshSerializer,
     RevisionSerializer,
     StaleSerializer,
     ValidateResponseSerializer,
@@ -67,6 +74,15 @@ def _errors_payload(errors):
 
 def _service_response(exc):
     return Response(exc.payload, status=exc.status)
+
+
+def _as_bool(value):
+    """Treat JSON booleans and form values the same."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _load_body(request):
@@ -181,7 +197,7 @@ def _summary(workflow):
         "managed_by": workflow.managed_by,
         "enabled": workflow.enabled,
         "archived": workflow.archived,
-        "git_status": "not_configured",
+        "git_status": workflow.git_status or "not_configured",
         "published_revision": published.number if published is not None else None,
         "draft_revision": draft.number if draft is not None else None,
         "updated": getattr(workflow, "last_updated", None),
@@ -196,8 +212,8 @@ def _detail(workflow):
         "draft": _revision_payload(workflow.draft_revision),
         "base": {
             "revision": head.number if head is not None else None,
-            "git_commit": "",
-            "git_content_hash": "",
+            "git_commit": workflow.git_commit or "",
+            "git_content_hash": workflow.git_content_hash or "",
         },
     }
 
@@ -550,6 +566,23 @@ class WorkflowViewSet(ViewSet):
         try:
             definition = _definition_from_body(data)
             repo = _repository(request.user, data.get("repository"))
+            if data.get("repository") not in (None, ""):
+                from nautobot_workflow_engine.utilities.git_publish import repo_can_publish
+
+                if repo is not None and not repo_can_publish(repo):
+                    return Response(
+                        _errors_payload(
+                            [
+                                FieldError(
+                                    "/repository",
+                                    "repository_required",
+                                    "That repository cannot be published to. It needs workflow publishing and an HTTP token.",
+                                    path="repository",
+                                )
+                            ]
+                        ),
+                        status=400,
+                    )
             saved, revision = publish(
                 user=request.user,
                 workflow=workflow,
@@ -566,10 +599,14 @@ class WorkflowViewSet(ViewSet):
             )
         except ServiceError as exc:
             return _service_response(exc)
+        saved.refresh_from_db()
         body = _detail(saved)
         body["revision"] = _revision_payload(revision)
-        body["git"] = {"status": "not_configured", "job_result": None}
-        body["warnings"] = []
+        body["git"] = {
+            "status": saved.git_status or "not_configured",
+            "job_result": str(saved.git_job_result_id) if saved.git_job_result_id else None,
+        }
+        body["warnings"] = list(getattr(saved, "_git_warnings", []) or [])
         return Response(body, status=202)
 
     @extend_schema(responses={200: WorkflowSummarySerializer, 403: DetailSerializer, 404: DetailSerializer})
@@ -656,6 +693,104 @@ class WorkflowViewSet(ViewSet):
         except ServiceError as exc:
             return _service_response(exc)
         return Response({"workflow": _summary(workflow), "revision": _revision_payload(revision)}, status=201)
+
+    @extend_schema(responses={200: RefreshSerializer, 404: DetailSerializer})
+    def git_refresh(self, request, key=None):
+        """Refresh the repository when the editor opens."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        workflow = _visible(request.user, key, "view")
+        from nautobot_workflow_engine.utilities.git_publish import refresh_on_open
+
+        return Response(refresh_on_open(workflow, request.user))
+
+    @extend_schema(request=AdoptRequestSerializer, responses={200: WorkflowSummarySerializer, 400: DetailSerializer})
+    def adopt(self, request, key=None):
+        """Make a Git-managed workflow editable. Includes are listed until confirm is true."""
+        data, failure = _load_body(request)
+        if failure is not None and request.POST:
+            data = request.POST.dict()
+        elif failure is not None:
+            return failure
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        try:
+            result = adopt_workflow(user=request.user, workflow=workflow, confirm=_as_bool(data.get("confirm")))
+        except ServiceError as exc:
+            return _service_response(exc)
+        body = _summary(result["workflow"])
+        body["adopted"] = result["adopted"]
+        body["includes"] = result["includes"]
+        body["warning"] = result["warning"]
+        return Response(body)
+
+    @extend_schema(responses={202: GitStatusSerializer, 404: DetailSerializer})
+    def git_push(self, request, key=None):
+        """Retry the push now. The database row is already saved."""
+        _require(request.user, "nautobot_workflow_engine.publish_workflow")
+        workflow = _visible(request.user, key, "publish")
+        if workflow.source_repo_id is None:
+            return Response({"detail": "This workflow has no Git repository."}, status=400)
+        from nautobot_workflow_engine.utilities.git_publish import publish_repository
+
+        workflow.git_status = "pending"
+        workflow.git_next_retry_at = None
+        workflow.save(update_fields=["git_status", "git_next_retry_at", "last_updated"])
+        publish_repository(workflow.source_repo_id, request.user)
+        workflow.refresh_from_db()
+        return Response(_git_status_payload(workflow), status=202)
+
+    @extend_schema(responses={200: GitStatusSerializer, 404: DetailSerializer})
+    def git_status(self, request, key=None):
+        """Return the Git badge fields for polling."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        workflow = _visible(request.user, key, "view")
+        return Response(_git_status_payload(workflow))
+
+    @extend_schema(request=ArchiveRequestSerializer, responses={200: WorkflowSummarySerializer, 400: DetailSerializer})
+    def archive(self, request, key=None):
+        """Archive a workflow and remove its file on the next push."""
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        _require(request.user, "nautobot_workflow_engine.delete_workflow")
+        workflow = _visible(request.user, key, "delete")
+        try:
+            saved = archive_workflow(user=request.user, workflow=workflow, confirm_key=data.get("confirm_key") or "")
+        except ServiceError as exc:
+            return _service_response(exc)
+        saved.refresh_from_db()
+        return Response(_summary(saved))
+
+    @extend_schema(responses={200: WorkflowSummarySerializer, 404: DetailSerializer})
+    def unarchive(self, request, key=None):
+        """Restore an archived workflow and publish its file again."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        try:
+            saved = unarchive_workflow(user=request.user, workflow=workflow)
+        except ServiceError as exc:
+            return _service_response(exc)
+        saved.refresh_from_db()
+        return Response(_summary(saved))
+
+
+def _git_status_payload(workflow):
+    from django.urls import reverse
+
+    url = ""
+    if workflow.git_job_result_id:
+        try:
+            url = reverse("extras:jobresult", kwargs={"pk": workflow.git_job_result_id})
+        except Exception:
+            url = ""
+    return {
+        "git_status": workflow.git_status,
+        "git_commit": workflow.git_commit or "",
+        "git_error": workflow.git_error or "",
+        "git_retry_count": workflow.git_retry_count or 0,
+        "git_next_retry_at": workflow.git_next_retry_at,
+        "job_result_url": url,
+    }
 
 
 def _revision_or_404(workflow, number):

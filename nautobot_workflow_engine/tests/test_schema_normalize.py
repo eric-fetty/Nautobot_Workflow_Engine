@@ -41,7 +41,7 @@ class NormalizeTestCase(unittest.TestCase):
             }
         )
         self.assertEqual(canonical["inputs"][0]["choices"][0], {"value": "access", "label": "access"})
-        self.assertEqual(canonical["inputs"][1]["columns"][0]["type"], "integer")
+        self.assertEqual(canonical["inputs"][1]["columns"][0]["type"], "number")
 
     def test_depends_on_accepts_many_and_a_comma_string(self):
         listed = normalize(

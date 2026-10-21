@@ -1,0 +1,20 @@
+{% if workflow %}
+    {% with status=workflow.git_status %}
+        {% if status == "pending" %}
+            <span class="badge bg-primary" title="{{ workflow.git_error }}">Syncing to Git…</span>
+        {% elif status == "in_sync" %}
+            <span class="badge bg-success" title="{{ workflow.git_commit }}">In Git{% if workflow.git_commit %} @ {{ workflow.git_commit|slice:":7" }}{% endif %}</span>
+        {% elif status == "not_synced" %}
+            <span class="badge bg-danger" title="{{ workflow.git_error }}">Not synced to Git</span>
+        {% elif status == "git_invalid" %}
+            <span class="badge bg-danger" title="{{ workflow.git_error }}">Git version invalid</span>
+        {% elif status == "disabled_repo" %}
+            <span class="badge bg-secondary" title="{{ workflow.git_error }}">Publishing off</span>
+        {% else %}
+            <span class="badge bg-secondary">Not in Git</span>
+        {% endif %}
+        {% if workflow.git_job_result_id %}
+            <a class="small ms-1" href="{% url 'extras:jobresult' pk=workflow.git_job_result_id %}">View job log</a>
+        {% endif %}
+    {% endwith %}
+{% endif %}

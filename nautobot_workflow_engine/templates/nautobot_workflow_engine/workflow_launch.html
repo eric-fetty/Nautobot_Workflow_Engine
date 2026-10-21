@@ -2,6 +2,7 @@
 {% extends "base.html" %}
 {% block title %}Launch: {{ workflow.name }}{% endblock title %}
 {% block content %}
+  {% include "nautobot_workflow_engine/partials/git_badge.html" with workflow=workflow %}
   <style>
     .workflow-launch-card {
       width: min(100%, 1100px);

@@ -30,7 +30,7 @@ class SyncOwnershipTestCase(TestCase):
             with patch.object(GitRepository, "filesystem_path", property(lambda _self: tmp)):
                 sync_workflows_from_repo(self.repo, self.job_result, delete=False)
 
-    def test_sync_leaves_nautobot_managed_workflow_unchanged(self):
+    def test_sync_leaves_unpublished_nautobot_workflow_unchanged(self):
         workflow = Workflow.objects.create(
             key="ui-flow",
             name="From the builder",
@@ -44,7 +44,25 @@ class SyncOwnershipTestCase(TestCase):
         self.assertEqual(workflow.name, "From the builder")
         self.assertTrue(workflow.enabled)
         self.assertEqual(workflow.managed_by, MANAGED_BY_NAUTOBOT)
-        self.assertTrue(any("E-NWE-101" in message for message in self.logs))
+        self.assertFalse(any("E-NWE-101" in message for message in self.logs))
+
+    def test_sync_applies_a_newer_git_file_to_an_in_sync_workflow(self):
+        workflow = Workflow.objects.create(
+            key="ui-flow",
+            name="From the builder",
+            enabled=True,
+            managed_by=MANAGED_BY_NAUTOBOT,
+            source_repo=self.repo,
+            git_status="in_sync",
+            git_content_hash="0" * 64,
+            raw_definition={"key": "ui-flow", "name": "From the builder", "enabled": True},
+        )
+        self._sync({"ui-flow.yaml": "key: ui-flow\nname: From Git\nenabled: true\n"})
+        workflow.refresh_from_db()
+        self.assertEqual(workflow.name, "From Git")
+        self.assertEqual(workflow.managed_by, MANAGED_BY_NAUTOBOT)
+        self.assertEqual(workflow.git_status, "in_sync")
+        self.assertFalse(any("E-NWE-101" in message for message in self.logs))
 
     def test_missing_file_does_not_disable_nautobot_managed_workflow(self):
         workflow = Workflow.objects.create(

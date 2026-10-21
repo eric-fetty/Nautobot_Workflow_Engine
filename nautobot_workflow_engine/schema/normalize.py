@@ -22,7 +22,7 @@ def normalize(raw):
     """Return a canonical definition.
 
     Aliases, the legacy approval flag, the legacy ServiceNow key, root ``regex``
-    validators, scalar choices, and the ``number`` column alias are folded.
+    validators, and scalar choices are folded. A ``number`` column stays a decimal type.
     ``enabled`` is operational and is removed. Unknown keys stay, after the schema keys.
     """
     if not isinstance(raw, dict):

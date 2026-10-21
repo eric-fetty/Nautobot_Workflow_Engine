@@ -10,6 +10,7 @@ from .views import (
     BuilderValidateView,
     WorkflowViewSet,
 )
+from .webhooks import GitWebhookView
 
 router = OrderedDefaultRouter()
 router.register("workflows", WorkflowViewSet, basename="workflow")
@@ -23,8 +24,15 @@ workflow_revision = WorkflowViewSet.as_view({"get": "revision_detail"})
 workflow_diff = WorkflowViewSet.as_view({"get": "revision_diff"})
 workflow_restore = WorkflowViewSet.as_view({"post": "revision_restore"})
 workflow_duplicate = WorkflowViewSet.as_view({"post": "duplicate"})
+workflow_refresh = WorkflowViewSet.as_view({"post": "git_refresh"})
+workflow_push = WorkflowViewSet.as_view({"post": "git_push"})
+workflow_git_status = WorkflowViewSet.as_view({"get": "git_status"})
+workflow_adopt = WorkflowViewSet.as_view({"post": "adopt"})
+workflow_archive = WorkflowViewSet.as_view({"post": "archive"})
+workflow_unarchive = WorkflowViewSet.as_view({"post": "unarchive"})
 
 urlpatterns = [
+    path("git/webhook/<uuid:repository_id>/", GitWebhookView.as_view(), name="git-webhook"),
     path("builder/schema/", BuilderSchemaView.as_view(), name="builder-schema"),
     path("builder/context/", BuilderContextView.as_view(), name="builder-context"),
     path("builder/validate/", BuilderValidateView.as_view(), name="builder-validate"),
@@ -38,5 +46,11 @@ urlpatterns = [
     path("workflows/<str:key>/revisions/<int:number>/diff/", workflow_diff, name="workflow-revision-diff"),
     path("workflows/<str:key>/revisions/<int:number>/restore/", workflow_restore, name="workflow-revision-restore"),
     path("workflows/<str:key>/duplicate/", workflow_duplicate, name="workflow-duplicate"),
+    path("workflows/<str:key>/git/refresh/", workflow_refresh, name="workflow-git-refresh"),
+    path("workflows/<str:key>/git/push/", workflow_push, name="workflow-git-push"),
+    path("workflows/<str:key>/git-status/", workflow_git_status, name="workflow-git-status"),
+    path("workflows/<str:key>/adopt/", workflow_adopt, name="workflow-adopt"),
+    path("workflows/<str:key>/archive/", workflow_archive, name="workflow-archive"),
+    path("workflows/<str:key>/restore/", workflow_unarchive, name="workflow-restore"),
 ]
 urlpatterns += router.urls

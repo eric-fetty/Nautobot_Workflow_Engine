@@ -74,10 +74,115 @@
     document.getElementById("copy-yaml").addEventListener("click", copyYaml);
     document.getElementById("download-yaml").addEventListener("click", downloadYaml);
 
-    loadSchema().then(function afterSchema() {
-        render();
-        schedulePreview();
-    });
+    const staleReload = document.getElementById("builder-stale-reload");
+    const staleDownload = document.getElementById("builder-stale-download");
+    if (staleReload) {
+        staleReload.addEventListener("click", function reloadEditor() {
+            window.location.reload();
+        });
+    }
+    if (staleDownload) {
+        staleDownload.addEventListener("click", downloadYaml);
+    }
+    const dismissBanner = document.getElementById("dismiss-git-banner");
+    if (dismissBanner) {
+        if (window.sessionStorage.getItem("nwe-hide-git-banner") === "1") {
+            const banner = document.getElementById("git-attention-banner");
+            if (banner) {
+                banner.hidden = true;
+            }
+        }
+        dismissBanner.addEventListener("click", function hideBanner() {
+            window.sessionStorage.setItem("nwe-hide-git-banner", "1");
+            dismissBanner.parentElement.hidden = true;
+        });
+    }
+
+    function beginEditor() {
+        loadSchema().then(function afterSchema() {
+            render();
+            schedulePreview();
+            pollGitStatus();
+        });
+    }
+
+    if (config.refresh_url) {
+        const checking = document.getElementById("builder-git-check");
+        if (checking) {
+            checking.hidden = false;
+        }
+        fetch(config.refresh_url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                "X-CSRFToken": csrfToken(),
+            },
+            body: "{}",
+        })
+            .then(function readRefresh(response) {
+                return response.json().then(function parsed(data) {
+                    return {ok: response.ok, data: data};
+                });
+            })
+            .then(function afterRefresh(result) {
+                if (checking) {
+                    checking.hidden = true;
+                }
+                const data = result.data || {};
+                if (data.state === "unverified") {
+                    const banner = document.getElementById("builder-git-unverified");
+                    if (banner) {
+                        banner.hidden = false;
+                        banner.textContent = "Couldn't check Git for updates: " + (data.reason || "unreachable") + ". Your save will still be checked.";
+                    }
+                    beginEditor();
+                    return;
+                }
+                const loopKey = "nwe-git-reloaded:" + (config.key || "");
+                if (data.updated && window.sessionStorage.getItem(loopKey) !== "1") {
+                    window.sessionStorage.setItem(loopKey, "1");
+                    window.location.reload();
+                    return;
+                }
+                window.sessionStorage.removeItem(loopKey);
+                beginEditor();
+            })
+            .catch(function refreshFailed() {
+                if (checking) {
+                    checking.hidden = true;
+                }
+                const banner = document.getElementById("builder-git-unverified");
+                if (banner) {
+                    banner.hidden = false;
+                    banner.textContent = "Couldn't check Git for updates: the check failed. Your save will still be checked.";
+                }
+                beginEditor();
+            });
+    } else {
+        beginEditor();
+    }
+
+    function pollGitStatus() {
+        if (!config.git_status_url || config.git_status !== "pending") {
+            return;
+        }
+        window.setTimeout(function poll() {
+            fetch(config.git_status_url, {credentials: "same-origin", headers: {Accept: "application/json"}})
+                .then(function readStatus(response) {
+                    return response.json();
+                })
+                .then(function applyStatus(data) {
+                    if (data && data.git_status && data.git_status !== "pending") {
+                        window.location.reload();
+                    }
+                })
+                .catch(function ignoreStatus() {
+                    return null;
+                });
+        }, 3000);
+    }
 
     function loadSchema() {
         if (!config.schema_url) {
@@ -144,6 +249,8 @@
             const confirmInput = document.getElementById("approval-confirm");
             body.approval_confirm = Boolean(confirmInput && confirmInput.value === "1");
         }
+        body.base_git_commit = config.base_git_commit || "";
+        body.base_content_hash = config.base_content_hash || "";
         fetch(url, {
             method: method,
             credentials: "same-origin",
@@ -160,6 +267,16 @@
                 });
             })
             .then(function handleSave(result) {
+                if (result.status === 409 && result.data && (result.data.code === "stale_git" || result.data.code === "stale_revision")) {
+                    const dialog = document.getElementById("builder-stale-dialog");
+                    const detail = document.getElementById("builder-stale-detail");
+                    if (dialog && detail) {
+                        detail.textContent = result.data.detail || "Reload to continue.";
+                        dialog.hidden = false;
+                    }
+                    showSaveError(result.data.detail || "Reload to continue.");
+                    return;
+                }
                 if (result.status === 409 || result.status === 400 || result.status === 403) {
                     const errors = (result.data && result.data.errors) || [];
                     const message =

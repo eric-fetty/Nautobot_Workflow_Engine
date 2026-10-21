@@ -64,6 +64,14 @@ class WorkflowEngineConfig(NautobotAppConfig):
         "awx_poll_seconds": 5,
         "show_disabled": False,
         "show_add_new_item": os.getenv("SHOW_ADD_NEW_ITEM", "").split(","),
+        "git_committer_name": "Nautobot Workflow Engine",
+        "git_committer_email": "nautobot-workflow-engine@localhost",
+        "git_author_email_domain": "users.noreply.nautobot.local",
+        "git_push_lock_timeout": 300,
+        "git_remote_timeout_seconds": 10,
+        "git_sync_interval_minutes": 5,
+        "git_push_retry_backoff_minutes": [1, 5, 15, 60],
+        "allow_db_only_workflows": True,
     }
     caching_config = {}
     docs_view_name = "plugins:nautobot_workflow_engine:docs"

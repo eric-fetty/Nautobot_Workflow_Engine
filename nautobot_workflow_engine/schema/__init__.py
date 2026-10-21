@@ -41,7 +41,9 @@ def _def(name):
 INPUT_TYPES = tuple(_def("input")["properties"]["type"]["enum"])
 COLUMN_TYPES = tuple(_def("column")["properties"]["type"]["enum"])
 ACTION_TYPES = tuple(_def("action")["properties"]["type"]["enum"])
-COLUMN_TYPE_ALIASES = {alias: "integer" for alias in (_def("column")["properties"]["type"].get("x-aliases") or [])}
+COLUMN_TYPE_ALIASES = {
+    alias: "integer" for alias in (_def("column")["properties"]["type"].get("x-aliases") or []) if alias != "number"
+}
 
 
 def _phase_aliases():
