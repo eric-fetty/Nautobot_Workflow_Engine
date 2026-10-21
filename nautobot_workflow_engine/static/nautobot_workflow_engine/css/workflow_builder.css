@@ -870,8 +870,8 @@ body.nwe-studio-body .nb-page-header {
 .nwe-var-row > .form-select,
 .nwe-var-row > .form-control {
     width: auto;
-    flex: 1 1 8.5rem;
-    min-width: 7rem;
+    flex: 1 1 11rem;
+    min-width: 10.5rem;
 }
 
 .nwe-frow > .nwe-chips {
