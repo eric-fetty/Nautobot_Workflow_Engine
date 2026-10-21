@@ -37,12 +37,15 @@ def filter_fields_for_model(model, user=None):
         return []
     rows = []
     for name, filter_obj in filterset().filters.items():
-        if name in _SKIP or name.startswith("has_"):
+        if name in _SKIP or name.startswith("has_") or "__" in name:
             continue
         kind = _kind(filter_obj)
         if kind is None:
             continue
         field_name = getattr(filter_obj, "field_name", None) or name
+        label = _clean_label(getattr(filter_obj, "label", None) or field_name)
+        if "deprecated" in label.lower():
+            continue
         if not _forward_field(model, field_name) and type(filter_obj).__name__ not in _CHOICE_TYPES:
             continue
         related = _related_model(filter_obj)
@@ -51,7 +54,6 @@ def filter_fields_for_model(model, user=None):
             choices = _choice_names(model, filter_obj, related, user)
         elif kind == "object":
             choices = _object_names(related, user)
-        label = _clean_label(getattr(filter_obj, "label", None) or field_name)
         examples = example_objects(related, user, limit=8) if kind == "object" and related is not None else []
         rows.append(
             {

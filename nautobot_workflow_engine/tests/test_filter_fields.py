@@ -26,6 +26,9 @@ class FilterFieldTests(TestCase):
         self.assertEqual(fields["name"]["lookup"], "")
         self.assertIn("greater than", fields["position"]["operators"])
         self.assertNotIn("interfaces", fields)
+        self.assertNotIn("name__ic", fields)
+        self.assertNotIn("location__n", fields)
+        self.assertNotIn("position__gt", fields)
 
     def test_location_name_is_text(self):
         fields = {row["key"]: row for row in filter_fields_for_model(Location)}
