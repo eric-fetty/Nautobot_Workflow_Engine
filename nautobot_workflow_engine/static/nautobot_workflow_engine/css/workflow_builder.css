@@ -1,5 +1,5 @@
 .nwe-builder {
-    padding-bottom: 5rem;
+    padding-bottom: 6.5rem;
 }
 
 .nwe-rail {
@@ -8,9 +8,65 @@
 }
 
 .nwe-savebar {
-    position: sticky;
+    position: fixed;
     bottom: 0;
-    z-index: 20;
+    left: 15rem;
+    right: 0;
+    z-index: 1020;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+}
+
+body:has(#sidenav.nb-sidenav-collapsed) .nwe-savebar {
+    left: 4rem;
+}
+
+.nwe-toast {
+    bottom: 4.5rem;
+}
+
+.nwe-summary {
+    color: inherit;
+}
+
+.nwe-summary:hover,
+.nwe-input-row:hover {
+    background: rgba(13, 110, 253, 0.06);
+}
+
+.nwe-chevron {
+    display: inline-block;
+    width: 1.1rem;
+    color: var(--bs-secondary);
+}
+
+.nwe-summary-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin-right: 0.5rem;
+}
+
+.nwe-summary-label {
+    margin-right: 0.5rem;
+}
+
+.nwe-group {
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    padding: 0.75rem 1rem 0.25rem;
+    margin: 0.75rem 0;
+}
+
+.nwe-group > summary {
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 0.75rem;
+}
+
+.nwe-preview {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 8rem);
+    overflow: auto;
 }
 
 .nwe-yaml {
@@ -78,6 +134,15 @@
 }
 
 @media (max-width: 991.98px) {
+    .nwe-savebar {
+        left: 0;
+    }
+
+    .nwe-preview {
+        position: static;
+        max-height: none;
+    }
+
     .nwe-rail {
         position: static;
     }

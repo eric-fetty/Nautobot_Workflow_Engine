@@ -112,6 +112,7 @@ export function blankInput(type) {
         required: false,
         default: "",
         help_text: "",
+        placeholder: "",
         depends_on: [],
         show_if: "",
         validators: [],
@@ -188,6 +189,20 @@ export function phaseLabel(phase) {
     return { pre: "Before", main: "Main", post: "Always after" }[phase] || phase;
 }
 
+export function problemLabel(count) {
+    const total = Number(count) || 0;
+    return total === 1 ? "1 problem" : `${total} problems`;
+}
+
+export function visibleHelp(help) {
+    const text = String(help || "");
+    const cut = text.search(/\s*YAML key:\s*\S+/);
+    if (cut < 0) {
+        return text.trim();
+    }
+    return text.slice(0, cut).trim();
+}
+
 export function fromDefinition(definition, previous) {
     const payload = emptyPayload();
     const data = definition || {};
@@ -241,6 +256,8 @@ function inputFromDefinition(item) {
     const query = item.filter && item.filter.query;
     input.filter_query = query == null ? "" : query;
     input.columns = Array.isArray(item.columns) ? item.columns.map((column) => ({ ...column })) : [];
+    input.placeholder = item.placeholder || "";
+    input._keyTouched = true;
     return input;
 }
 

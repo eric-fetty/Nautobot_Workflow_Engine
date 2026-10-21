@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { errorText } from "../nautobot_workflow_engine/static/nautobot_workflow_engine/js/builder/sections.js";
-import { blankInput, referencesTo, slugify, toBindPath } from "../nautobot_workflow_engine/static/nautobot_workflow_engine/js/builder/store.js";
+import { blankInput, problemLabel, referencesTo, slugify, toBindPath, visibleHelp } from "../nautobot_workflow_engine/static/nautobot_workflow_engine/js/builder/store.js";
 
 test("slugify keeps a workflow id short and url-safe", () => {
     assert.equal(slugify("Reboot Device!"), "reboot-device");
@@ -33,6 +33,13 @@ test("deleting an input names every place that still uses it", () => {
     assert.ok(hits.some((hit) => hit.includes("Wait for these fields")));
     assert.ok(hits.some((hit) => hit.includes("Show only when")));
     assert.ok(hits.some((hit) => hit.includes("Main")));
+});
+
+test("problem counts and help sentences stay in plain language", () => {
+    assert.equal(problemLabel(1), "1 problem");
+    assert.equal(problemLabel(2), "2 problems");
+    assert.equal(visibleHelp("Shown under the field. YAML key: help_text."), "Shown under the field.");
+    assert.equal(visibleHelp("YAML key: timezone."), "");
 });
 
 test("plain error text keeps script paths and drops json pointers", () => {

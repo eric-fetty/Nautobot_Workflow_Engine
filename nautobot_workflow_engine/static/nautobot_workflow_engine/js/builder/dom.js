@@ -1,5 +1,7 @@
 /**Small DOM helpers. Text is assigned with textContent, never innerHTML. */
 
+import { visibleHelp } from "./store.js";
+
 export function h(tag, attrs, ...children) {
     const node = document.createElement(tag);
     Object.entries(attrs || {}).forEach(([key, value]) => {
@@ -38,17 +40,15 @@ export function field(label, help, control, { id, error, required } = {}) {
     if (required) {
         labelNode.append(document.createTextNode(" *"));
     }
+    const sentence = visibleHelp(help);
     if (help) {
-        labelNode.title = help;
-        labelNode.append(
-            h("span", { class: "text-muted fw-normal", text: " ⓘ", title: help })
-        );
+        labelNode.append(h("span", { class: "text-muted fw-normal", text: " ⓘ", title: help }));
     }
     const described = [];
     const nodes = [labelNode, control];
-    if (help) {
+    if (sentence) {
         const helpId = inputId ? `${inputId}-help` : "";
-        const helpNode = h("div", { class: "form-text", id: helpId || undefined, text: help });
+        const helpNode = h("div", { class: "form-text", id: helpId || undefined, text: sentence });
         nodes.push(helpNode);
         if (helpId) {
             described.push(helpId);

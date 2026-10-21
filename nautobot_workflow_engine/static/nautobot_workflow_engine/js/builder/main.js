@@ -1,6 +1,6 @@
 import { createApi } from "./api.js";
 import { setJinjaServerError } from "./jinja.js";
-import { createLabels } from "./schema.js";
+import { TYPE_ORDER, createLabels } from "./schema.js";
 import { errorText, renderRail, renderSection } from "./sections.js";
 import {
     blankAction,
@@ -100,6 +100,10 @@ function bind() {
         }
     });
     document.getElementById("builder-undo").addEventListener("click", restoreUndo);
+    const addInputModal = document.getElementById("builder-add-input");
+    if (addInputModal) {
+        addInputModal.addEventListener("click", onClick);
+    }
     const adopt = document.getElementById("builder-adopt");
     if (adopt) {
         adopt.addEventListener("click", adoptWorkflow);
@@ -171,17 +175,28 @@ function onEdit(event) {
         render();
         return;
     }
+    if (target.dataset.bind.endsWith(".key") && target.dataset.bind.startsWith("inputs.")) {
+        const index = Number(target.dataset.bind.split(".")[1]);
+        if (state.payload.inputs[index]) {
+            state.payload.inputs[index]._keyTouched = true;
+            state.payload.inputs[index].key = slugify(target.value);
+            target.value = state.payload.inputs[index].key;
+        }
+    }
     if (target.dataset.bind.endsWith(".label") && target.dataset.bind.startsWith("inputs.")) {
         const index = Number(target.dataset.bind.split(".")[1]);
         const input = state.payload.inputs[index];
         if (input && !input._keyTouched) {
             input.key = slugify(input.label);
-            const summary = document.querySelector(`#input-row-${index} [data-action="toggle-input"]`);
-            if (summary) {
-                const typeLabels = (labels.input.type && labels.input.type.labels) || {};
-                summary.textContent = [input.key || "new-field", input.label || "Untitled", typeLabels[input.type] || input.type, input.required ? "Required" : ""].filter(Boolean).join(" · ");
+            const keyInput = document.getElementById(`field-input-${index}-key`);
+            if (keyInput && document.activeElement !== keyInput) {
+                keyInput.value = input.key;
             }
         }
+        paintInputSummary(index);
+    }
+    if (target.dataset.bind.endsWith(".required") && target.dataset.bind.startsWith("inputs.")) {
+        paintInputSummary(Number(target.dataset.bind.split(".")[1]));
     }
     markDirty();
     scheduleValidate();
@@ -210,12 +225,21 @@ function onClick(event) {
         render();
         return;
     }
+    if (action === "ask-input-type") {
+        openAddInput();
+        return;
+    }
     if (action === "add-input") {
         const picker = document.getElementById("add-input-type");
-        state.payload.inputs.push(blankInput(button.dataset.type || (picker && picker.value) || "string"));
+        const type = button.dataset.type || (picker && picker.value) || "string";
+        state.payload.inputs.push(blankInput(type));
         state.expandedInput = state.payload.inputs.length - 1;
         markDirty();
         render();
+        const modal = document.getElementById("builder-add-input");
+        if (modal && window.bootstrap) {
+            window.bootstrap.Modal.getOrCreateInstance(modal).hide();
+        }
         return;
     }
     if (action === "remove-input") {
@@ -350,6 +374,8 @@ function changeType(index, type) {
         fresh.label = input.label;
         fresh.required = input.required;
         fresh.help_text = input.help_text;
+        fresh.placeholder = input.placeholder;
+        fresh._keyTouched = input._keyTouched;
         state.payload.inputs[index] = fresh;
         markDirty();
         render();
@@ -427,6 +453,48 @@ async function renameInput(index) {
             render();
         }
     );
+}
+
+function openAddInput() {
+    const select = document.getElementById("add-input-type");
+    const typeLabels = (labels.input.type && labels.input.type.labels) || {};
+    if (select && !select.options.length) {
+        TYPE_ORDER.forEach((type) => {
+            const option = document.createElement("option");
+            option.value = type;
+            option.textContent = typeLabels[type] || "Text";
+            select.append(option);
+        });
+    }
+    const modal = document.getElementById("builder-add-input");
+    if (modal && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(modal).show();
+    }
+}
+
+function paintInputSummary(index) {
+    const input = state.payload.inputs[index];
+    const row = document.getElementById(`input-row-${index}`);
+    if (!input || !row) {
+        return;
+    }
+    const typeLabels = (labels.input.type && labels.input.type.labels) || {};
+    const key = row.querySelector(".nwe-summary-key");
+    const labelNode = row.querySelector(".nwe-summary-label");
+    const type = row.querySelector(".nwe-summary-type");
+    const required = row.querySelector(".nwe-summary-required");
+    if (key) {
+        key.textContent = input.key || "new-field";
+    }
+    if (labelNode) {
+        labelNode.textContent = input.label || "Untitled";
+    }
+    if (type) {
+        type.textContent = typeLabels[input.type] || "Text";
+    }
+    if (required) {
+        required.classList.toggle("d-none", !input.required);
+    }
 }
 
 function render() {

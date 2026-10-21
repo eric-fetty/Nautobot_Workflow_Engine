@@ -3,7 +3,7 @@
 import { field, h } from "./dom.js";
 import { jinjaEditor, referenceList } from "./jinja.js";
 import { TYPE_ORDER } from "./schema.js";
-import { phaseLabel } from "./store.js";
+import { phaseLabel, problemLabel, visibleHelp } from "./store.js";
 
 const PHASES = [
     ["pre", "Before"],
@@ -20,9 +20,9 @@ export function renderRail(labels, payload, section, errors) {
     };
     const items = [
         ["details", "Details", ""],
-        ["inputs", `Inputs (${payload.inputs.length})`, counts.inputs ? `${counts.inputs} problems` : ""],
+        ["inputs", `Inputs (${payload.inputs.length})`, counts.inputs ? problemLabel(counts.inputs) : ""],
         ["steps", "Steps", stepSummary(payload)],
-        ["review", "Review & Publish", counts.review ? `${counts.review} problems` : ""],
+        ["review", "Review & Publish", counts.review ? problemLabel(counts.review) : ""],
     ];
     return h(
         "ul",
@@ -41,20 +41,6 @@ export function renderRail(labels, payload, section, errors) {
             );
             if (note) {
                 link.append(h("span", { class: "d-block small", text: note }));
-            }
-            if (id === "steps") {
-                return h(
-                    "li",
-                    { class: "nav-item" },
-                    link,
-                    h(
-                        "ul",
-                        { class: "list-unstyled small ms-3 mb-2" },
-                        PHASES.map(([phase, title]) =>
-                            h("li", { text: `${title}: ${(payload.actions[phase] || []).length}` })
-                        )
-                    )
-                );
             }
             return h("li", { class: "nav-item" }, link);
         })
@@ -187,7 +173,7 @@ function renderDetails({ labels, payload, config, errorFor, readOnly }) {
             }),
             h("label", { class: "form-check-label", for: "field-approval", text: labels.workflow.approval_required.label, title: labels.workflow.approval_required.help })
         ),
-        h("div", { class: "form-text mb-3", text: labels.workflow.approval_required.help }),
+        h("div", { class: "form-text mb-3", text: visibleHelp(labels.workflow.approval_required.help) }),
         renderSchedule(labels, payload, readOnly)
     );
 }
@@ -201,7 +187,7 @@ function renderSchedule(labels, payload, readOnly) {
         h(
             "div",
             { class: "card-body" },
-            h("p", { class: "form-text", text: labels.schedule.help }),
+            h("p", { class: "form-text", text: visibleHelp(labels.schedule.help) }),
             h(
                 "div",
                 { class: "form-check mb-3" },
@@ -241,28 +227,11 @@ function snowInput(label, help, bind, value, readOnly) {
 }
 
 function renderInputs(context) {
-    const { labels, payload, config, state, errorFor, readOnly } = context;
-    const typeLabels = labels.input.type.labels || {};
+    const { payload, readOnly } = context;
     return h(
         "div",
         {},
-        h(
-            "div",
-            { class: "d-flex justify-content-between align-items-center mb-3" },
-            h("h2", { class: "h4 mb-0", text: "Inputs" }),
-            readOnly
-                ? null
-                : h(
-                      "div",
-                      { class: "d-flex gap-2" },
-                      h(
-                          "select",
-                          { class: "form-select form-select-sm", id: "add-input-type", "aria-label": "Field type to add" },
-                          TYPE_ORDER.map((type) => h("option", { value: type, text: typeLabels[type] || type }))
-                      ),
-                      h("button", { type: "button", class: "btn btn-outline-primary", "data-action": "add-input", text: "Add input" })
-                  )
-        ),
+        h("h2", { class: "h4 mb-3", text: "Inputs" }),
         h(
             "div",
             { class: "row" },
@@ -272,17 +241,25 @@ function renderInputs(context) {
                 payload.inputs.length
                     ? h(
                           "div",
-                          { class: "list-group" },
+                          { class: "list-group nwe-input-list" },
                           payload.inputs.map((input, index) => renderInputRow(input, index, context))
                       )
-                    : h("p", { class: "text-muted", text: "No inputs yet. Add the questions people answer when they launch this workflow." })
+                    : h("p", { class: "text-muted", text: "No inputs yet. Add the questions people answer when they launch this workflow." }),
+                readOnly
+                    ? null
+                    : h("button", {
+                          type: "button",
+                          class: "btn btn-outline-primary mt-3",
+                          "data-action": "ask-input-type",
+                          text: "Add input",
+                      })
             ),
             h(
                 "div",
                 { class: "col-xl-5" },
                 h(
                     "div",
-                    { class: "card" },
+                    { class: "card nwe-preview" },
                     h("div", { class: "card-header", text: "Launch form preview" }),
                     h("div", { class: "card-body", id: "launch-preview" }, h("p", { class: "text-muted mb-0", text: "The launch form appears here." }))
                 )
@@ -292,82 +269,140 @@ function renderInputs(context) {
 }
 
 function renderInputRow(input, index, context) {
-    const { labels, state, errorFor, readOnly, payload } = context;
+    const { labels, state, readOnly } = context;
     const open = state.expandedInput === index;
     const typeLabels = labels.input.type.labels || {};
-    const summary = [input.key || "new-field", input.label || "Untitled", typeLabels[input.type] || input.type];
-    if (input.required) {
-        summary.push("Required");
-    }
     return h(
         "div",
-        { class: "list-group-item", id: `input-row-${index}` },
+        { class: `list-group-item nwe-input-row ${open ? "is-open" : ""}`, id: `input-row-${index}` },
         h(
             "div",
-            { class: "d-flex flex-wrap gap-2 align-items-center nwe-input-summary" },
+            { class: "d-flex flex-wrap gap-2 align-items-center" },
             h("button", { type: "button", class: "btn btn-sm btn-outline-secondary", "data-action": "move-input", "data-index": String(index), "data-dir": "-1", text: "Up", disabled: readOnly || undefined, title: "Move up. Alt+Up also works." }),
             h("button", { type: "button", class: "btn btn-sm btn-outline-secondary", "data-action": "move-input", "data-index": String(index), "data-dir": "1", text: "Down", disabled: readOnly || undefined, title: "Move down. Alt+Down also works." }),
-            h("button", {
-                type: "button",
-                class: "btn btn-link text-start text-decoration-none flex-grow-1",
-                "data-action": "toggle-input",
-                "data-index": String(index),
-                text: summary.join(" · "),
-                "aria-expanded": open ? "true" : "false",
-            })
+            h(
+                "button",
+                {
+                    type: "button",
+                    class: "nwe-summary btn btn-link text-start text-decoration-none flex-grow-1",
+                    "data-action": "toggle-input",
+                    "data-index": String(index),
+                    "aria-expanded": open ? "true" : "false",
+                },
+                h("span", { class: "nwe-chevron", "aria-hidden": "true", text: open ? "▾" : "▸" }),
+                h("span", { class: "nwe-summary-key", text: input.key || "new-field" }),
+                h("span", { class: "nwe-summary-label", text: input.label || "Untitled" }),
+                h("span", { class: "badge text-bg-light border nwe-summary-type", text: typeLabels[input.type] || "Text" }),
+                h("span", { class: `badge text-bg-primary nwe-summary-required ${input.required ? "" : "d-none"}`, text: "Required" })
+            ),
+            readOnly
+                ? null
+                : h("button", { type: "button", class: "btn btn-sm btn-outline-danger", "data-action": "remove-input", "data-index": String(index), text: "Remove" })
         ),
         open ? renderInputEditor(input, index, context) : null
+    );
+}
+
+function fieldGroup(title, ...children) {
+    const body = children.flat().filter((child) => child);
+    if (!body.length) {
+        return null;
+    }
+    return h("details", { class: "nwe-group", open: true }, h("summary", { text: title }), ...body);
+}
+
+function helpBits(label, help) {
+    return [
+        h("div", { class: "form-label" }, label || "", help ? h("span", { class: "text-muted fw-normal", text: " ⓘ", title: help }) : null),
+        visibleHelp(help) ? h("div", { class: "form-text", text: visibleHelp(help) }) : null,
+    ];
+}
+
+function renderKeyField(input, index, labels, readOnly) {
+    const tip = (labels.input.key && labels.input.key.help) || "";
+    const label = (labels.input.key && labels.input.key.label) || "Variable name";
+    if (input._keyTouched) {
+        return h(
+            "div",
+            { class: "mb-3" },
+            h("label", { class: "form-label", for: `field-input-${index}-rename` }, label, tip ? h("span", { class: "text-muted fw-normal", text: " ⓘ", title: tip }) : null),
+            visibleHelp(tip) ? h("div", { class: "form-text", text: visibleHelp(tip) }) : null,
+            h(
+                "div",
+                { class: "input-group" },
+                h("input", {
+                    class: "form-control",
+                    id: `field-input-${index}-rename`,
+                    value: input.key,
+                    "aria-label": "Variable name",
+                    readonly: readOnly || undefined,
+                }),
+                readOnly
+                    ? null
+                    : h("button", {
+                          type: "button",
+                          class: "btn btn-outline-secondary",
+                          "data-action": "rename-input",
+                          "data-index": String(index),
+                          text: "Rename",
+                      })
+            )
+        );
+    }
+    return field(
+        label,
+        tip,
+        h("input", {
+            class: "form-control",
+            id: `field-input-${index}-key`,
+            "data-bind": `inputs.${index}.key`,
+            value: input.key,
+            placeholder: "Generated from the label",
+            disabled: readOnly || undefined,
+        }),
+        { id: `field-input-${index}-key` }
     );
 }
 
 function renderInputEditor(input, index, { labels, payload, config, errorFor, readOnly }) {
     const typeLabels = labels.input.type.labels || {};
     const prefix = `inputs.${index}`;
+    const options = [];
+    if (input.type === "object" || input.type === "multiobject") {
+        options.push(renderModel(input, index, config, labels, readOnly, payload));
+    }
+    if (input.type === "choice" || input.type === "multichoice") {
+        options.push(renderChoices(input, index, labels, readOnly, payload));
+    }
     return h(
         "div",
-        { class: "mt-3" },
-        field(labels.input.label.label, labels.input.label.help, h("input", { class: "form-control", id: `field-input-${index}-label`, "data-bind": `${prefix}.label`, value: input.label, disabled: readOnly || undefined }), { id: `field-input-${index}-label`, error: errorFor(`${prefix}.label`), required: true }),
-        h(
-            "div",
-            { class: "mb-3" },
-            h("div", { class: "form-label", text: labels.input.key.label, title: labels.input.key.help }),
-            h("div", { class: "form-text", text: labels.input.key.help }),
-            h("code", { text: input.key ? `{{ inputs.${input.key} }}` : "Set a label to generate the variable name." }),
-            readOnly
-                ? null
-                : h(
-                      "div",
-                      { class: "input-group input-group-sm mt-2" },
-                      h("input", { class: "form-control", id: `field-input-${index}-rename`, value: input.key, "aria-label": "New variable name" }),
-                      h("button", { type: "button", class: "btn btn-outline-secondary", "data-action": "rename-input", "data-index": String(index), text: "Rename" })
-                  )
-        ),
-        field(
-            labels.input.type.label,
-            labels.input.type.help,
-            h(
-                "select",
-                { class: "form-select", id: `field-input-${index}-type`, "data-action": "change-type", "data-index": String(index), disabled: readOnly || undefined },
-                TYPE_ORDER.map((type) => h("option", { value: type, text: typeLabels[type] || type, selected: input.type === type || undefined }))
+        { class: "nwe-editor mt-3" },
+        fieldGroup(
+            "Basics",
+            field(labels.input.label.label, labels.input.label.help, h("input", { class: "form-control", id: `field-input-${index}-label`, "data-bind": `${prefix}.label`, value: input.label, disabled: readOnly || undefined }), { id: `field-input-${index}-label`, error: errorFor(`${prefix}.label`), required: true }),
+            renderKeyField(input, index, labels, readOnly),
+            field(
+                labels.input.type.label,
+                labels.input.type.help,
+                h(
+                    "select",
+                    { class: "form-select", id: `field-input-${index}-type`, "data-action": "change-type", "data-index": String(index), disabled: readOnly || undefined },
+                    TYPE_ORDER.map((type) => h("option", { value: type, text: typeLabels[type] || "Text", selected: input.type === type || undefined }))
+                ),
+                { id: `field-input-${index}-type` }
             ),
-            { id: `field-input-${index}-type` }
+            h(
+                "div",
+                { class: "form-check mb-3" },
+                h("input", { class: "form-check-input", type: "checkbox", id: `field-input-${index}-required`, "data-bind": `${prefix}.required`, checked: input.required, disabled: readOnly || undefined }),
+                h("label", { class: "form-check-label", for: `field-input-${index}-required` }, labels.input.required.label, labels.input.required.help ? h("span", { class: "text-muted fw-normal", text: " ⓘ", title: labels.input.required.help }) : null)
+            ),
+            field(labels.input.default.label, labels.input.default.help, h("input", { class: "form-control", id: `field-input-${index}-default`, "data-bind": `${prefix}.default`, value: input.default == null || typeof input.default === "object" ? (input.default == null ? "" : JSON.stringify(input.default)) : input.default, disabled: readOnly || undefined }), { id: `field-input-${index}-default` }),
+            field(labels.input.help_text.label, labels.input.help_text.help, h("input", { class: "form-control", id: `field-input-${index}-help`, "data-bind": `${prefix}.help_text`, value: input.help_text, disabled: readOnly || undefined }), { id: `field-input-${index}-help` })
         ),
-        field(labels.input.help_text.label, labels.input.help_text.help, h("input", { class: "form-control", id: `field-input-${index}-help`, "data-bind": `${prefix}.help_text`, value: input.help_text, disabled: readOnly || undefined }), { id: `field-input-${index}-help` }),
-        h(
-            "div",
-            { class: "form-check mb-3" },
-            h("input", { class: "form-check-input", type: "checkbox", id: `field-input-${index}-required`, "data-bind": `${prefix}.required`, checked: input.required, disabled: readOnly || undefined }),
-            h("label", { class: "form-check-label", for: `field-input-${index}-required`, text: labels.input.required.label, title: labels.input.required.help })
-        ),
-        field(labels.input.default.label, labels.input.default.help, h("input", { class: "form-control", id: `field-input-${index}-default`, "data-bind": `${prefix}.default`, value: input.default == null ? "" : input.default, disabled: readOnly || undefined }), { id: `field-input-${index}-default` }),
-        input.type === "object" || input.type === "multiobject" ? renderModel(input, index, config, labels, readOnly, payload) : null,
-        input.type === "choice" || input.type === "multichoice" ? renderChoices(input, index, labels, readOnly, payload) : null,
-        renderDepends(input, index, payload, labels, readOnly),
-        renderShowIf(input, index, labels, payload, readOnly),
-        renderValidators(input, index, labels, readOnly),
-        readOnly
-            ? null
-            : h("button", { type: "button", class: "btn btn-outline-danger", "data-action": "remove-input", "data-index": String(index), text: "Remove" })
+        fieldGroup("Options", ...options),
+        fieldGroup("Behavior", renderDepends(input, index, payload, labels, readOnly), renderShowIf(input, index, labels, payload, readOnly)),
+        fieldGroup("Validation", renderValidators(input, index, labels, readOnly))
     );
 }
 
@@ -393,8 +428,7 @@ function renderModel(input, index, config, labels, readOnly, payload) {
         "div",
         {},
         field(labels.input.model.label, labels.input.model.help, h("div", {}, search, select), { id: `field-input-${index}-model` }),
-        h("div", { class: "form-label", text: labels.input.filter.label, title: labels.input.filter.help }),
-        h("div", { class: "form-text", text: labels.input.filter.help }),
+        ...helpBits(labels.input.filter.label, labels.input.filter.help),
         input.filter_query && typeof input.filter_query === "object"
             ? h("p", { class: "form-text", text: "This filter is stored as a structured query. Typing below replaces it." })
             : null,
@@ -422,11 +456,10 @@ function renderChoices(input, index, labels, readOnly, payload) {
     return h(
         "div",
         { class: "mb-3" },
-        h("div", { class: "form-label", text: labels.input.choices.label, title: labels.input.choices.help }),
-        h("div", { class: "form-text", text: labels.input.choices.help }),
+        ...helpBits(labels.input.choices.label, labels.input.choices.help),
         ...rows,
         readOnly ? null : h("button", { type: "button", class: "btn btn-sm btn-outline-secondary mb-2", "data-action": "add-choice", "data-index": String(index), text: "Add option" }),
-        h("div", { class: "form-text", text: "Or compute the options with Jinja. Jinja2 is allowed. YAML key: choices." }),
+        h("div", { class: "form-text" }, "Or compute the options with Jinja.", h("span", { class: "text-muted fw-normal", text: " ⓘ", title: "Jinja2 is allowed. YAML key: choices." })),
         jinjaEditor({
             id: `field-input-${index}-choices`,
             value: input.choices_template || "",
@@ -476,8 +509,7 @@ function renderDepends(input, index, payload, labels, readOnly) {
     return h(
         "div",
         { class: "mb-3", id: `depends-${index}` },
-        h("div", { class: "form-label", text: labels.input.depends_on.label, title: labels.input.depends_on.help }),
-        h("div", { class: "form-text", text: labels.input.depends_on.help }),
+        ...helpBits(labels.input.depends_on.label, labels.input.depends_on.help),
         h(
             "div",
             { class: "d-flex gap-2" },
@@ -493,8 +525,7 @@ function renderShowIf(input, index, labels, payload, readOnly) {
     return h(
         "div",
         { class: "mb-3" },
-        h("div", { class: "form-label", text: labels.input.show_if.label, title: labels.input.show_if.help }),
-        h("div", { class: "form-text", text: labels.input.show_if.help }),
+        ...helpBits(labels.input.show_if.label, labels.input.show_if.help),
         input.show_if && typeof input.show_if === "object"
             ? h("p", { class: "form-text", text: "This field uses a structured condition. Typing below replaces it with a Jinja expression." })
             : null,
@@ -515,8 +546,7 @@ function renderValidators(input, index, labels, readOnly) {
     return h(
         "div",
         { class: "mb-3" },
-        h("div", { class: "form-label", text: labels.input.validators.label, title: labels.input.validators.help }),
-        h("div", { class: "form-text", text: labels.input.validators.help }),
+        ...helpBits(labels.input.validators.label, labels.input.validators.help),
         ...rules.map((rule, ruleIndex) => renderValidator(rule, index, ruleIndex, flagLabels, readOnly)),
         readOnly ? null : h("button", { type: "button", class: "btn btn-sm btn-outline-secondary", "data-action": "add-validator", "data-index": String(index), text: "Add validation rule" })
     );
@@ -536,13 +566,13 @@ function renderValidator(rule, index, ruleIndex, flagLabels, readOnly) {
                 h(
                     "div",
                     { class: "col-md-6" },
-                    h("label", { class: "form-label", text: "Pattern", title: "Regular expression the value must match. YAML key: regex." }),
+                    h("label", { class: "form-label" }, "Pattern", h("span", { class: "text-muted fw-normal", text: " ⓘ", title: "Regular expression the value must match. YAML key: regex." })),
                     h("input", { class: "form-control", "data-bind": `inputs.${index}.validators.${ruleIndex}.regex`, value: rule.regex || "", "aria-label": "Pattern", disabled: readOnly || undefined })
                 ),
                 h(
                     "div",
                     { class: "col-md-6" },
-                    h("label", { class: "form-label", text: "Error text", title: "Shown when the value does not match. YAML key: message." }),
+                    h("label", { class: "form-label" }, "Error text", h("span", { class: "text-muted fw-normal", text: " ⓘ", title: "Shown when the value does not match. YAML key: message." })),
                     h("input", { class: "form-control", "data-bind": `inputs.${index}.validators.${ruleIndex}.message`, value: rule.message || "", "aria-label": "Error text", disabled: readOnly || undefined })
                 )
             ),
@@ -671,8 +701,7 @@ function renderStepEditor(action, phase, index, { labels, payload, config, error
               )
             : null,
         renderMapping(action.type === "awx" ? action.extra_vars : action.with, phase, index, action.type === "awx" ? "extra_vars" : "with", action.type === "awx" ? labels.action.extra_vars : labels.action.with, payload, readOnly),
-        h("div", { class: "form-label mt-3", text: labels.action.when.label, title: labels.action.when.help }),
-        h("div", { class: "form-text", text: labels.action.when.help }),
+        ...helpBits(labels.action.when.label, labels.action.when.help),
         jinjaEditor({
             id: `field-step-${phase}-${index}-when`,
             value: action.when || "",
@@ -690,8 +719,7 @@ function renderMapping(mapping, phase, index, fieldName, meta, payload, readOnly
     return h(
         "div",
         { class: "mb-3" },
-        h("div", { class: "form-label", text: meta.label, title: meta.help }),
-        h("div", { class: "form-text", text: meta.help }),
+        ...helpBits(meta.label, meta.help),
         ...entries.map(([key, value]) =>
             h(
                 "div",
