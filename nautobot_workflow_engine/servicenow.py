@@ -77,7 +77,7 @@ def integration_name_for_workflow(workflow, default="ServiceNow"):
     Returns:
         External Integration name.
     """
-    from .builders import integration_name_from_definition
+    from .models import integration_name_from_definition
 
     config = getattr(workflow, "servicenow_schedule_config", None) or {}
     if not isinstance(config, dict):

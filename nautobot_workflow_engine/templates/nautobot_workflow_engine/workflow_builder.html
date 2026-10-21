@@ -24,6 +24,7 @@
                 <h1 class="mb-0">{% if builder_config.read_only %}View workflow{% elif workflow %}Edit workflow{% else %}New workflow{% endif %}</h1>
                 <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary">Back to Launch</a>
             </div>
+            <div id="builder-save-error" class="alert alert-danger" role="alert" hidden></div>
             {% if errors %}
                 <div class="alert alert-danger" role="alert">
                     <strong>Fix these fields before saving.</strong>
@@ -47,6 +48,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="payload" id="builder-payload-input" value="">
                 <input type="hidden" name="approval_confirm" id="approval-confirm" value="">
+                <input type="hidden" name="base_revision" id="builder-base-revision" value="{% if builder_config.base_revision != None %}{{ builder_config.base_revision }}{% endif %}">
 
                 <div class="card mb-3 workflow-builder-card">
                     <div class="card-header">
@@ -94,7 +96,8 @@
                 </div>
 
                 <div class="d-flex gap-2 mb-4">
-                    <button type="submit" class="btn btn-primary">Save workflow</button>
+                    <button type="submit" class="btn btn-outline-primary" name="action" value="draft">Save draft</button>
+                    <button type="submit" class="btn btn-primary" name="action" value="publish">Publish</button>
                     <a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </form>

@@ -1,0 +1,15 @@
+key: alias-flow
+name: Alias flow
+pre-actions:
+  - type: awx
+    name: before
+    template_id: 1
+main_actions:
+  - type: awx
+    name: main
+    template_id: 2
+post-actions:
+  - type: awx
+    name: after
+    template_id: 3
+owner: netops

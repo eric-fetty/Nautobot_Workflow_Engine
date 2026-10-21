@@ -4,14 +4,14 @@ import unittest
 
 import yaml
 
-from nautobot_workflow_engine.builders import (
-    BuilderValidationError,
+from nautobot_workflow_engine.models import integration_name_from_definition
+from nautobot_workflow_engine.schema.builder_payload import (
     actions_require_repository,
     builder_from_definition,
     definition_from_builder,
     definition_to_yaml,
-    integration_name_from_definition,
 )
+from nautobot_workflow_engine.schema.errors import BuilderValidationError
 
 
 def _base(**overrides):

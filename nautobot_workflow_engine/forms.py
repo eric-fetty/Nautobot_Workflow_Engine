@@ -13,6 +13,19 @@ from .models import Workflow, WorkflowInput
 from .servicenow import normalize_change_ticket
 
 
+def _depends_on_attr(value):
+    """Return a comma-separated dependency list for the launch form."""
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, list):
+        parts = [str(part) for part in value if part not in (None, "")]
+    elif value in (None, ""):
+        parts = []
+    else:
+        parts = [str(value)]
+    return ",".join(parts)
+
+
 class DependentChoiceField(forms.ChoiceField):
     """A ChoiceField that doesn't validate choices for dependent fields."""
 
@@ -147,7 +160,9 @@ class DynamicWorkflowForm(forms.Form):
 
                 field.widget.attrs["data-required"] = "true" if wi.required else "false"
                 field.required = False
-                if wi.visible_when:
+                if isinstance(wi.visible_when, str) and wi.visible_when.strip():
+                    field.widget.attrs["data-show-if-template"] = wi.visible_when
+                elif isinstance(wi.visible_when, dict) and wi.visible_when:
                     # Handle multiple show_if conditions
                     conditions = dict(wi.visible_when)
 
@@ -189,7 +204,7 @@ class DynamicWorkflowForm(forms.Form):
                 if wi.depends_on:
                     # Only set data-depends-on if not already set during field creation
                     if "data-depends-on" not in field.widget.attrs:
-                        field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                        field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 self.fields[wi.key] = field
 
         # Add scheduling fields to every workflow form
@@ -605,7 +620,7 @@ class DynamicWorkflowForm(forms.Form):
                 if has_jinja:
                     field.widget.attrs["data-jinja-choices"] = "true"
                 if has_dependencies:
-                    field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                    field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 if wi.input_type == "multichoice":
                     field.widget.attrs["data-multichoice"] = "true"
                     # For static multichoice without dependencies, populate choices now
@@ -640,7 +655,7 @@ class DynamicWorkflowForm(forms.Form):
                 }
             )
             if wi.depends_on:
-                field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 # Don't pre-load dependent fields - they'll be loaded when dependencies change
                 field.widget.attrs["data-preload"] = "false"
             return field
@@ -659,7 +674,7 @@ class DynamicWorkflowForm(forms.Form):
                 }
             )
             if wi.depends_on:
-                field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 # Don't pre-load dependent fields - they'll be loaded when dependencies change
                 field.widget.attrs["data-preload"] = "false"
             return field

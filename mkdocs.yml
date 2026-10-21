@@ -86,6 +86,7 @@ nav:
       - App Overview: "user/app_overview.md"
       - Getting Started: "user/app_getting_started.md"
   - Workflow Authoring:
+      - Schema: "user/workflow_schema.md"
       - Reference: "user/app_use_cases.md"
       - Reporting Dashboard: "user/app_reporting.md"
       - Custom Filters: "dev/extending.md"

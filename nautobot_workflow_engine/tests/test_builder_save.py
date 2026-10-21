@@ -9,10 +9,10 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from nautobot.extras.models import GitRepository
 
-from nautobot_workflow_engine.builders import definition_from_builder
 from nautobot_workflow_engine.datasources import save_workflow_definition
 from nautobot_workflow_engine.forms import DynamicWorkflowForm
 from nautobot_workflow_engine.models import Workflow, WorkflowHelper
+from nautobot_workflow_engine.schema.builder_payload import definition_from_builder
 from nautobot_workflow_engine.servicenow import integration_name_for_workflow
 
 

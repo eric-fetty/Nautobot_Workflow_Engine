@@ -10,8 +10,8 @@ from django.urls import reverse
 from nautobot.extras.models import GitRepository, ObjectChange
 from nautobot.users.models import ObjectPermission
 
-from nautobot_workflow_engine.builders import builder_from_definition, definition_from_builder
 from nautobot_workflow_engine.models import MANAGED_BY_GIT, MANAGED_BY_NAUTOBOT, Workflow
+from nautobot_workflow_engine.schema.builder_payload import builder_from_definition, definition_from_builder
 
 User = get_user_model()
 _PERM_SEQ = 0

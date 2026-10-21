@@ -6,6 +6,8 @@ from django.db import models
 from nautobot.apps.models import BaseModel, ChangeLoggedModel
 from taggit.managers import TaggableManager
 
+from nautobot_workflow_engine.schema import action_type_choices, input_type_choices, phase_choices
+
 MANAGED_BY_NAUTOBOT = "nautobot"
 MANAGED_BY_GIT = "git"
 MANAGED_BY_CHOICES = (
@@ -51,6 +53,18 @@ class Workflow(ChangeLoggedModel, BaseModel):
         blank=True,
         help_text="Approval stages saved when approval is turned off, so they can be restored.",
     )
+    archived = models.BooleanField(
+        default=False,
+        help_text="Hidden from launch and builder lists unless archived workflows are requested.",
+    )
+    published_revision = models.ForeignKey(
+        "WorkflowRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The revision that raw_definition reflects. Drafts do not change this.",
+    )
     manual_duration_minutes = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -93,25 +107,134 @@ class Workflow(ChangeLoggedModel, BaseModel):
         change_input_key = self.servicenow_schedule_config.get("change_input_key")
         return change_input_key.strip() if isinstance(change_input_key, str) and change_input_key.strip() else None
 
+    def servicenow_integration_name(self, default="ServiceNow"):
+        """Return the External Integration name stored on this workflow."""
+        return integration_name_from_definition(self.raw_definition, default=default)
+
+    @property
+    def draft_revision(self):
+        """Return the single shared draft, if this workflow has one."""
+        return self.revisions.filter(state=WorkflowRevision.STATE_DRAFT).first()
+
     def __str__(self):
         """Return the workflow name as string representation."""
         return self.name
 
 
+def integration_name_from_definition(definition, default="ServiceNow"):
+    """Return the ServiceNow External Integration name stored on a definition."""
+    schedule = definition.get("schedule") if isinstance(definition, dict) else None
+    servicenow = schedule.get("servicenow") if isinstance(schedule, dict) else None
+    if not isinstance(servicenow, dict):
+        return default
+    name = servicenow.get("integration_name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return default
+
+
+class WorkflowRevision(BaseModel):
+    """One saved copy of a workflow definition.
+
+    Revisions are the audit history, so this model is not change-logged.
+    ``published_at`` is T_db for the M3 latest-wins comparison. ``git_commit`` and
+    ``git_author`` are filled when a Git commit is applied. There is at most one
+    draft per workflow; a draft whose ``base_revision`` is no longer the published
+    revision is outdated.
+    """
+
+    STATE_DRAFT = "draft"
+    STATE_PUBLISHED = "published"
+    STATE_SUPERSEDED = "superseded"
+    STATE_DISCARDED = "discarded"
+    STATE_CHOICES = (
+        (STATE_DRAFT, "Draft"),
+        (STATE_PUBLISHED, "Published"),
+        (STATE_SUPERSEDED, "Superseded"),
+        (STATE_DISCARDED, "Discarded"),
+    )
+    SOURCE_BUILDER = "builder"
+    SOURCE_YAML = "yaml"
+    SOURCE_API = "api"
+    SOURCE_GIT = "git"
+    SOURCE_GIT_IMPORT = "git_import"
+    SOURCE_DUPLICATE = "duplicate"
+    SOURCE_CHOICES = (
+        (SOURCE_BUILDER, "Builder"),
+        (SOURCE_YAML, "YAML"),
+        (SOURCE_API, "API"),
+        (SOURCE_GIT, "Git"),
+        (SOURCE_GIT_IMPORT, "Git import"),
+        (SOURCE_DUPLICATE, "Duplicate"),
+    )
+
+    workflow = models.ForeignKey("Workflow", related_name="revisions", on_delete=models.CASCADE)
+    number = models.PositiveIntegerField()
+    state = models.CharField(max_length=20, choices=STATE_CHOICES)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    definition = models.JSONField()
+    yaml = models.TextField(blank=True)
+    content_hash = models.CharField(max_length=64, blank=True)
+    base_revision = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="derived_revisions",
+    )
+    comment = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(
+        dj_settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    published_by = models.ForeignKey(
+        dj_settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    git_commit = models.CharField(max_length=40, blank=True)
+    git_author = models.CharField(max_length=200, blank=True)
+    superseded_reason = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        """One number per workflow, and one draft."""
+
+        ordering = ["number"]
+        constraints = [
+            models.UniqueConstraint(fields=["workflow", "number"], name="unique_revision_number"),
+            models.UniqueConstraint(
+                fields=["workflow"],
+                condition=models.Q(state="draft"),
+                name="one_draft_per_workflow",
+            ),
+        ]
+
+    def __str__(self):
+        """Return a short revision label."""
+        return f"{self.workflow_id} r{self.number} {self.state}"
+
+    @property
+    def is_outdated(self):
+        """A draft is outdated when a newer published revision landed under it."""
+        if self.state != self.STATE_DRAFT:
+            return False
+        published_id = getattr(self.workflow, "published_revision_id", None)
+        if published_id is None:
+            return False
+        return self.base_revision_id != published_id
+
+
 class WorkflowInput(BaseModel):
     """Input field definition for a workflow."""
 
-    TYPE_CHOICES = [
-        ("string", "String"),
-        ("integer", "Integer"),
-        ("boolean", "Boolean"),
-        ("choice", "Choice"),
-        ("multichoice", "Multi-Choice"),
-        ("object", "Object"),
-        ("multiobject", "Multi-Object"),
-        ("list", "List"),
-        ("listdict", "List of Dictionaries"),
-    ]
+    TYPE_CHOICES = input_type_choices()
 
     workflow = models.ForeignKey(Workflow, related_name="inputs", on_delete=models.CASCADE)
     key = models.SlugField()
@@ -125,6 +248,7 @@ class WorkflowInput(BaseModel):
     choices = models.JSONField(null=True, blank=True)
     columns = models.JSONField(null=True, blank=True)
     visible_when = models.JSONField(null=True, blank=True)
+    help_text = models.CharField(max_length=500, blank=True)
     validators = models.JSONField(
         null=True, blank=True
     )  # e.g. [{"regex": "...", "flags": ["IGNORECASE"], "message": "..."}]
@@ -148,19 +272,15 @@ class WorkflowInput(BaseModel):
 class WorkflowAction(BaseModel):
     """An action definition within a workflow."""
 
-    ACTION_TYPES = [("nautobot", "Nautobot"), ("awx", "AWX")]
-    PHASE_CHOICES = [
-        ("pre", "Pre-Action"),
-        ("main", "Main Action"),
-        ("post", "Post-Action"),
-    ]
+    ACTION_TYPES = action_type_choices()
+    PHASE_CHOICES = phase_choices()
 
     workflow = models.ForeignKey(Workflow, related_name="actions", on_delete=models.CASCADE)
     phase = models.CharField(max_length=20, choices=PHASE_CHOICES, default="main")
     order = models.PositiveIntegerField(default=0)
     action_type = models.CharField(max_length=20, choices=ACTION_TYPES)
     name = models.CharField(max_length=200)
-    when = models.CharField(max_length=200, blank=True)
+    when = models.TextField(blank=True)
 
     # Nautobot - simplified to just reference the path
     script_path = models.CharField(max_length=255, blank=True)

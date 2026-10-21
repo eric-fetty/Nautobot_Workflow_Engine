@@ -7,6 +7,7 @@ import yaml
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.utils import timezone
 from nautobot.apps.datasources import DatasourceContent
 from nautobot.extras.models import GitRepository
 
@@ -20,7 +21,12 @@ from .models import (
     WorkflowFilterModule,
     WorkflowHelper,
     WorkflowInput,
+    WorkflowRevision,
 )
+from .schema import PHASE_YAML_KEYS
+from .schema.normalize import normalize
+from .schema.validate import validate
+from .schema.yaml_io import content_hash, to_yaml
 
 PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 
@@ -44,19 +50,6 @@ def _process_includes(job_result, file_handler):
                 job_result.log(f"Template file not found: {template_file}")
 
     return content
-
-
-def _get_action_list(data, *keys):
-    """Return first non-empty action list for any provided YAML key alias."""
-    for key in keys:
-        value = data.get(key)
-        if value is None:
-            continue
-        if isinstance(value, list):
-            return value
-        # Be forgiving if user accidentally provides an empty scalar/object.
-        return []
-    return []
 
 
 def _is_filter_module_path(relative_path):
@@ -131,15 +124,12 @@ def _validate_persisted_definition(data, source_repo):
 
     Actions are checked first so a missing script is the error the builder sees,
     even when an earlier phase would otherwise have been inserted already.
+    ``data`` is canonical: phase aliases have already been folded.
     """
     if not isinstance(data, dict) or not data.get("key"):
         raise ValueError("Workflow definition must include a key.")
     key = data["key"]
-    phased_actions = [
-        ("pre", _get_action_list(data, "pre_actions", "pre-actions", "before_actions", "before-actions")),
-        ("main", _get_action_list(data, "actions", "main_actions", "main-actions")),
-        ("post", _get_action_list(data, "post_actions", "post-actions", "after_actions", "after-actions")),
-    ]
+    phased_actions = [(phase, data.get(yaml_key) or []) for phase, yaml_key in PHASE_YAML_KEYS.items()]
     for phase, actions in phased_actions:
         for act in actions or []:
             if not isinstance(act, dict):
@@ -166,50 +156,78 @@ def _validate_persisted_definition(data, source_repo):
 
 
 def save_workflow_definition(data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT):
-    """Create or update a workflow and replace its inputs and actions.
+    """Normalize, validate, and apply one definition.
 
-    Git sync and the workflow builder both call this so ``raw_definition`` and the
-    normalized ``WorkflowInput`` / ``WorkflowAction`` rows stay in one transaction.
-    Nautobot script actions are checked against ``WorkflowHelper`` when ``source_repo``
-    is set, which is always the case for git sync. That check runs before the write.
-
-    Args:
-        data: Parsed workflow definition.
-        source_repo: Git repository that owns the workflow, or None for an AWX-only builder save.
-        job_result: Optional job result passed through to approval reconciliation.
-        managed_by: ``nautobot`` for builder saves, ``git`` for a repository sync that owns the key.
-
-    Returns:
-        The saved ``Workflow`` instance.
+    Callers that already validated, including the builder service, should call
+    ``apply_definition`` directly. This wrapper remains for Git-free saves and
+    the row-mapping tests.
     """
-    _validate_persisted_definition(data, source_repo)
+    enabled = data.get("enabled", True) if isinstance(data, dict) else True
+    canonical = normalize(data) if isinstance(data, dict) else data
+    _validate_persisted_definition(canonical, source_repo)
+    errors = validate(canonical, repo=None, enforce_policy=False, check_scripts=False)
+    if errors:
+        raise ValueError("; ".join(item["message"] for item in errors))
     with transaction.atomic():
-        return _save_workflow_definition(data, source_repo=source_repo, job_result=job_result, managed_by=managed_by)
+        return apply_definition(
+            canonical,
+            source_repo=source_repo,
+            job_result=job_result,
+            managed_by=managed_by,
+            enabled=enabled,
+        )
 
 
-def _save_workflow_definition(data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT):
+def apply_definition(
+    data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT, enabled=None, workflow=None
+):
+    """Write ``raw_definition`` and replace input and action rows.
+
+    Validation has already passed. ``enabled`` is operational and defaults to the
+    legacy Git value (true when the file omits it) only when the caller does not
+    pass it. Pass ``workflow`` to update that row instead of looking it up by key.
+    """
+    if enabled is None:
+        enabled = data.get("enabled", True) if isinstance(data, dict) else True
+    return _apply_definition(
+        data,
+        source_repo=source_repo,
+        job_result=job_result,
+        managed_by=managed_by,
+        enabled=enabled,
+        workflow=workflow,
+    )
+
+
+def _apply_definition(
+    data, *, source_repo, job_result=None, managed_by=MANAGED_BY_NAUTOBOT, enabled=True, workflow=None
+):
     """Persist one workflow definition. Caller holds the transaction."""
-    yaml_enabled = data.get("enabled", True)
+    yaml_enabled = enabled
     # Prefer approval_required; accept legacy requires_approval from early drafts.
     if "approval_required" in data:
         yaml_approval_required = bool(data.get("approval_required"))
     else:
         yaml_approval_required = bool(data.get("requires_approval", False))
 
-    wf, _created = Workflow.objects.update_or_create(
-        key=data["key"],
-        defaults={
-            "name": data.get("name", data["key"]),
-            "description": data.get("description", ""),
-            "category": data.get("category", ""),
-            "enabled": yaml_enabled,
-            "approval_required": yaml_approval_required,
-            "manual_duration_minutes": data.get("manual_duration_minutes"),
-            "raw_definition": data,
-            "source_repo": source_repo,
-            "managed_by": managed_by,
-        },
-    )
+    defaults = {
+        "name": data.get("name", data["key"]),
+        "description": data.get("description", ""),
+        "category": data.get("category", ""),
+        "enabled": yaml_enabled,
+        "approval_required": yaml_approval_required,
+        "manual_duration_minutes": data.get("manual_duration_minutes"),
+        "raw_definition": data,
+        "source_repo": source_repo,
+        "managed_by": managed_by,
+    }
+    if workflow is None:
+        wf, _created = Workflow.objects.update_or_create(key=data["key"], defaults=defaults)
+    else:
+        for field, value in defaults.items():
+            setattr(workflow, field, value)
+        workflow.save()
+        wf = workflow
     reconcile_approval_definition(wf, job_result=job_result)
     wf.inputs.all().delete()
     for order, ip in enumerate(data.get("inputs", []) or [], start=1):
@@ -248,17 +266,14 @@ def _save_workflow_definition(data, *, source_repo, job_result=None, managed_by=
             columns=ip.get("columns"),
             visible_when=ip.get("show_if"),
             validators=validators,
+            help_text=ip.get("help_text") or "",
             order=order,
         )
 
     # Use bulk deletion to avoid get_absolute_url issues
     WorkflowAction.objects.filter(workflow=wf).delete()
 
-    phased_actions = [
-        ("pre", _get_action_list(data, "pre_actions", "pre-actions", "before_actions", "before-actions")),
-        ("main", _get_action_list(data, "actions", "main_actions", "main-actions")),
-        ("post", _get_action_list(data, "post_actions", "post-actions", "after_actions", "after-actions")),
-    ]
+    phased_actions = [(phase, data.get(yaml_key) or []) for phase, yaml_key in PHASE_YAML_KEYS.items()]
 
     for phase, actions in phased_actions:
         for order, act in enumerate(actions, start=1):
@@ -326,6 +341,45 @@ def _sync_should_skip_key(repository_record, workflow_key, job_result, synced_wo
     return False
 
 
+def _record_sync_revision(workflow, canonical):
+    """Append a published ``source=git`` revision when the applied definition changed.
+
+    Mock workflows used by unit tests have no ``revisions`` relation. Failures here
+    are swallowed so a revision write cannot abort the rest of the sync.
+    """
+    revisions = getattr(workflow, "revisions", None)
+    if revisions is None or not hasattr(revisions, "create"):
+        return
+    try:
+        text = to_yaml(canonical)
+        digest = content_hash(text)
+        published = getattr(workflow, "published_revision", None)
+        if (
+            published is not None
+            and getattr(published, "content_hash", "") == digest
+            and getattr(published, "state", "") == WorkflowRevision.STATE_PUBLISHED
+        ):
+            return
+        if published is not None and getattr(published, "pk", None) and hasattr(published, "save"):
+            published.state = WorkflowRevision.STATE_SUPERSEDED
+            published.superseded_reason = "Replaced by a Git sync."
+            published.save(update_fields=["state", "superseded_reason"])
+        latest = revisions.order_by("-number").values_list("number", flat=True).first() or 0
+        revision = revisions.create(
+            number=latest + 1,
+            state=WorkflowRevision.STATE_PUBLISHED,
+            source=WorkflowRevision.SOURCE_GIT,
+            definition=canonical,
+            yaml=text,
+            content_hash=digest,
+            published_at=timezone.now(),
+        )
+        workflow.published_revision = revision
+        workflow.save(update_fields=["published_revision"])
+    except Exception:
+        return
+
+
 def sync_workflows_from_repo(repository_record: GitRepository, job_result, delete=False):
     """Sync workflow definitions and helper files from a Git repository.
 
@@ -359,34 +413,53 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
     _sync_repo_python_modules(repository_record, repo_path, job_result)
     validate_repo_filter_modules(repository_record)
 
-    for yml in sorted(list(workflows_path.glob("*.y*ml"))):
-        content = _process_includes(job_result, yml)
-        data = yaml.safe_load(content)
-        if not isinstance(data, dict) or not data.get("key"):
-            job_result.log(message=f"E-NWE-102 Skipping {yml.name}: workflow file must be a mapping with a key.")
-            continue
-
-        workflow_key = data["key"]
-        if _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
-            continue
-
+    yaml_files = list(workflows_path.glob("*.y*ml"))
+    yaml_files.sort(key=lambda item: str(getattr(item, "name", "") or ""))
+    for yml in yaml_files:
+        filename = getattr(yml, "name", None) or "workflow.yaml"
+        workflow_key = getattr(yml, "stem", None) or "workflow"
         try:
-            save_workflow_definition(
-                data,
-                source_repo=repository_record,
-                job_result=job_result,
-                managed_by=MANAGED_BY_GIT,
-            )
+            content = _process_includes(job_result, yml)
+            data = yaml.safe_load(content)
+            if not isinstance(data, dict) or not data.get("key"):
+                job_result.log(message=f"E-NWE-102 Skipping {filename}: workflow file must be a mapping with a key.")
+                continue
+
+            workflow_key = data["key"]
+            if _sync_should_skip_key(repository_record, workflow_key, job_result, synced_workflow_keys):
+                continue
+
+            enabled = data.get("enabled", True)
+            canonical = normalize(data)
+            errors = validate(canonical, repo=repository_record, enforce_policy=False, check_scripts=True)
+            if errors:
+                rendered = "; ".join(
+                    f"{item.get('pointer') or item.get('path')}: {item.get('message')}" for item in errors
+                )
+                job_result.log(message=f"E-NWE-102 Skipping '{workflow_key}' from {filename}: {rendered}")
+                continue
+            with transaction.atomic():
+                saved = apply_definition(
+                    canonical,
+                    source_repo=repository_record,
+                    job_result=job_result,
+                    managed_by=MANAGED_BY_GIT,
+                    enabled=enabled,
+                )
+                _record_sync_revision(saved, canonical)
+            synced_workflow_keys.add(workflow_key)
         except ApprovalRemovalError as exc:
             job_result.log(
                 message=(
-                    f"E-NWE-301 Skipping '{workflow_key}' from {yml.name}: {exc} "
+                    f"E-NWE-301 Skipping '{workflow_key}' from {filename}: {exc} "
                     "The stored workflow was left unchanged."
                 )
             )
             synced_workflow_keys.add(workflow_key)
             continue
-        synced_workflow_keys.add(workflow_key)
+        except Exception as exc:
+            job_result.log(message=f"E-NWE-102 Skipping '{workflow_key}' from {filename}: {exc}")
+            continue
 
     # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
     _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)

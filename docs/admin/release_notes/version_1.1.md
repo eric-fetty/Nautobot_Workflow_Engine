@@ -9,6 +9,7 @@ This document describes all new features and changes in the release. The format 
 - Includes related scheduling/UI polish, migration cleanup for an orphaned experimental column, and documentation for authors and administrators.
 - Package compatibility remains Nautobot `>=3.0.0,<4.0.0` and Python `>=3.10,<3.14`. The approval feature is a no-op on Nautobot versions below 3.2.
 - Workflow Jinja (`when`, `with`, `extra_vars`, choices, and filter queries) now renders in a sandbox. Templates that reach private attributes or call methods that change data are rejected. The patterns the sandbox refuses include `cycler.__init__.__globals__`, `lipsum.__globals__`, `joiner.__init__.__globals__`, `namespace.__init__.__globals__`, and `{{ user.password }}`.
+- Workflow definitions now have one JSON Schema. Drafts and published revisions are stored separately, and the builder API rejects a save that started from an older revision. Git sync keeps going when one file is invalid. The `when` column stores the full template, up to the 10 kB cap.
 
 <!-- towncrier release notes start -->
 

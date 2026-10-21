@@ -28,32 +28,33 @@ from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin
 from nautobot.extras.models import ExternalIntegration, GitRepository
 
 from .approvals import (
-    ApprovalRemovalError,
     approval_stage_summary,
     nautobot_supports_approval_workflows,
     pending_approval_count,
 )
-from .builders import (
-    AUTHOR_CODE_MESSAGE,
-    BuilderValidationError,
-    actions_require_repository,
-    builder_from_definition,
-    builder_policy_errors,
-    code_changes,
-    content_type_allowed,
-    definition_from_builder,
-    definition_to_yaml,
-    empty_builder_payload,
-    lookup_allowed,
-    script_path_allowed,
-)
-from .datasources import save_workflow_definition
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
-from .models import MANAGED_BY_GIT, MANAGED_BY_NAUTOBOT, Workflow, WorkflowHelper, WorkflowInput, WorkflowRun
+from .models import MANAGED_BY_GIT, Workflow, WorkflowHelper, WorkflowInput, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
+from .schema.builder_payload import (
+    actions_require_repository,
+    builder_from_definition,
+    definition_from_builder,
+    definition_to_yaml,
+    empty_builder_payload,
+)
+from .schema.errors import BuilderValidationError
+from .schema.policy import (
+    AUTHOR_CODE_MESSAGE,
+    builder_policy_errors,
+    code_changes,
+    content_type_allowed,
+    lookup_allowed,
+    script_path_allowed,
+)
 from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
+from .services import ServiceError, duplicate_workflow, publish, update_draft
 from .tables import WorkflowTable
 
 logger = logging.getLogger(__name__)
@@ -1484,8 +1485,23 @@ def _options_lookup_denied(model, clean_filters):
     return None
 
 
-class ScopeError(Exception):
-    """Raised when a saved workflow would leave the caller's object scope."""
+def _editor_base_number(workflow):
+    """Return the revision number a save must name, or None when nothing is stored yet."""
+    if workflow is None:
+        return None
+    draft = workflow.draft_revision
+    if draft is not None:
+        return draft.number
+    if workflow.published_revision_id and workflow.published_revision is not None:
+        return workflow.published_revision.number
+    return None
+
+
+def _posted_enable(request):
+    """Return the enable flag when the form sent one. Omitted means leave it unchanged."""
+    if "enable" not in request.POST:
+        return None
+    return request.POST.get("enable") in ("1", "true", "True", "on")
 
 
 def _payload_from_request(request):
@@ -1600,6 +1616,25 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         ),
         "yaml_url": reverse("plugins:nautobot_workflow_engine:workflow_builder_yaml"),
         "list_url": reverse("plugins:nautobot_workflow_engine:workflows_list"),
+        "schema_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-schema"),
+        "create_api_url": reverse("plugins-api:nautobot_workflow_engine-api:workflow-list"),
+        "draft_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-draft", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "publish_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-publish", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "publish_url_template": reverse(
+            "plugins-api:nautobot_workflow_engine-api:workflow-publish", kwargs={"key": "__KEY__"}
+        ),
+        "edit_url_template": reverse(
+            "plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": "__KEY__"}
+        ),
+        "base_revision": _editor_base_number(workflow),
         "is_edit": is_edit,
         "read_only": read_only,
         "banner": banner,
@@ -1658,7 +1693,13 @@ class WorkflowBuilderView(ObjectPermissionRequiredMixin, TemplateView):
         """Add the builder payload and reference data to the template."""
         context = super().get_context_data(**kwargs)
         workflow = self.get_object()
-        payload = builder_from_definition(workflow.raw_definition) if workflow is not None else empty_builder_payload()
+        if workflow is None:
+            payload = empty_builder_payload()
+        else:
+            source = (
+                workflow.draft_revision.definition if workflow.draft_revision is not None else workflow.raw_definition
+            )
+            payload = builder_from_definition(source, enabled=workflow.enabled)
         if workflow is not None and workflow.source_repo_id:
             payload["source_repo"] = str(workflow.source_repo_id)
         context.update(self._page_context(workflow, payload, [], is_edit=workflow is not None))
@@ -1703,41 +1744,59 @@ class WorkflowBuilderView(ObjectPermissionRequiredMixin, TemplateView):
         if policy_errors:
             return self._render(workflow, payload, policy_errors, is_edit=bool(key))
 
-        prior_definition = (
-            copy.deepcopy(workflow.raw_definition) if workflow is not None and workflow.raw_definition else {}
-        )
+        if workflow is not None and workflow.draft_revision is not None:
+            prior_definition = copy.deepcopy(workflow.draft_revision.definition or {})
+        elif workflow is not None and workflow.raw_definition:
+            prior_definition = copy.deepcopy(workflow.raw_definition)
+        else:
+            prior_definition = {}
         permission_errors = self._permission_errors(request, workflow, payload, definition, prior_definition)
         if permission_errors:
             return self._render(workflow, payload, permission_errors, is_edit=bool(key), status=403)
-        changes = code_changes(prior_definition, definition)
 
         repository, repo_errors = _repository_for_payload(payload, definition, user=request.user)
         if repo_errors:
             return self._render(workflow, payload, repo_errors, is_edit=bool(key), status=400)
 
+        action = request.POST.get("action") or "publish"
+        sent_base = "base_revision" in request.POST
+        base_revision = request.POST.get("base_revision")
+        enable = _posted_enable(request)
         try:
-            with transaction.atomic():
-                saved = save_workflow_definition(definition, source_repo=repository, managed_by=MANAGED_BY_NAUTOBOT)
-                self._assert_still_in_scope(
-                    request,
-                    saved,
-                    created=workflow is None,
-                    definition=definition,
+            if action == "draft":
+                if workflow is None:
+                    from .services import create_draft
+
+                    saved, _revision = create_draft(
+                        user=request.user,
+                        definition=definition,
+                        repository=repository,
+                        source="builder",
+                    )
+                else:
+                    _revision = update_draft(
+                        user=request.user,
+                        workflow=workflow,
+                        definition=definition,
+                        base_revision=base_revision,
+                        require_base=sent_base,
+                    )
+                    saved = workflow
+            else:
+                saved, _revision = publish(
+                    user=request.user,
                     workflow=workflow,
-                    changes=changes,
+                    definition=definition,
+                    base_revision=base_revision,
+                    enable=enable,
+                    approval_confirm=_approval_confirmed(request, payload),
+                    repository=repository,
+                    require_base=sent_base,
+                    source="builder",
                 )
-        except ApprovalRemovalError as exc:
-            return self._render(
-                workflow,
-                payload,
-                [{"path": exc.path, "message": str(exc)}],
-                is_edit=bool(key),
-                status=400,
-            )
-        except ScopeError as exc:
-            return self._render(workflow, payload, [{"path": "", "message": str(exc)}], is_edit=bool(key), status=403)
-        except ValueError as exc:
-            return self._render(workflow, payload, [{"path": "", "message": str(exc)}], is_edit=bool(key), status=400)
+        except ServiceError as exc:
+            errors = exc.payload.get("errors") or [{"path": "", "message": exc.payload.get("detail") or str(exc)}]
+            return self._render(workflow, payload, errors, is_edit=bool(key), status=exc.status)
         except Exception as exc:
             logger.exception("Workflow builder save failed")
             return self._render(
@@ -1798,32 +1857,6 @@ class WorkflowBuilderView(ObjectPermissionRequiredMixin, TemplateView):
                 errors.append({"path": pointer, "message": AUTHOR_CODE_MESSAGE})
         return errors
 
-    def _assert_still_in_scope(self, request, saved, created, definition, workflow, changes):
-        """Roll the save back when the result leaves the caller's object permissions."""
-        user = request.user
-        action = "add" if created else "change"
-        if not Workflow.objects.restrict(user, action).filter(pk=saved.pk).exists():
-            raise ScopeError(
-                "This change would move the workflow outside what you're allowed to edit (for example the category)"
-            )
-        old_enabled = bool(workflow.enabled) if workflow is not None else False
-        enabled_changed = (
-            created and bool(definition.get("enabled")) or (workflow is not None and old_enabled != bool(saved.enabled))
-        )
-        old_approval = bool(workflow.approval_required) if workflow is not None else False
-        turning_approval_off = workflow is not None and old_approval and not saved.approval_required
-        if (enabled_changed or turning_approval_off) and not Workflow.objects.restrict(user, "publish").filter(
-            pk=saved.pk
-        ).exists():
-            raise ScopeError(
-                "This change would move the workflow outside what you're allowed to edit (for example the category)"
-            )
-        if changes:
-            if not Workflow.objects.restrict(user, "author_code").filter(pk=saved.pk).exists():
-                raise ScopeError(
-                    "This change would move the workflow outside what you're allowed to edit (for example the category)"
-                )
-
     def _render(self, workflow, payload, errors, is_edit=False, status=200):
         """Re-render the builder with validation errors."""
         return render(
@@ -1859,21 +1892,15 @@ class WorkflowDuplicateView(ObjectPermissionRequiredMixin, View):
             source = Workflow.objects.restrict(request.user, "view").get(key=key)
         except Workflow.DoesNotExist:
             raise Http404
-        definition = dict(source.raw_definition or {})
-        definition["key"] = _duplicate_key(source.key)
-        definition["name"] = f"Copy of {source.name}"[:200]
-        definition["enabled"] = False
         try:
-            with transaction.atomic():
-                saved = save_workflow_definition(
-                    definition, source_repo=source.source_repo, managed_by=MANAGED_BY_NAUTOBOT
-                )
-                if not Workflow.objects.restrict(request.user, "add").filter(pk=saved.pk).exists():
-                    raise ScopeError(
-                        "This change would move the workflow outside what you're allowed to edit (for example the category)"
-                    )
-        except (ScopeError, ValueError, ApprovalRemovalError) as exc:
-            raise PermissionDenied(str(exc))
+            saved, _revision = duplicate_workflow(
+                user=request.user,
+                source=source,
+                key=_duplicate_key(source.key),
+                name=f"Copy of {source.name}"[:200],
+            )
+        except ServiceError as exc:
+            raise PermissionDenied(exc.payload.get("detail") or str(exc))
         messages.success(request, f"Duplicated {source.name} as {saved.name}.")
         return redirect("plugins:nautobot_workflow_engine:workflow_builder_edit", key=saved.key)
 

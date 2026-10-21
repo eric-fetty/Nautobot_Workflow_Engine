@@ -1,0 +1,665 @@
+"""Builder REST API. Git endpoints, dry-run, and launch preview are later milestones."""
+
+import ast
+import hashlib
+import json
+
+from django.contrib.contenttypes.models import ContentType
+from django.http import Http404
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from nautobot.extras.models import ExternalIntegration, GitRepository
+from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.parsers import BaseParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
+
+from nautobot_workflow_engine.models import Workflow, WorkflowFilterModule, WorkflowHelper, WorkflowRevision
+from nautobot_workflow_engine.schema import load_schema
+from nautobot_workflow_engine.schema.builder_payload import definition_from_builder
+from nautobot_workflow_engine.schema.errors import BuilderValidationError, FieldError
+from nautobot_workflow_engine.schema.normalize import normalize
+from nautobot_workflow_engine.schema.policy import content_type_allowed, script_path_allowed
+from nautobot_workflow_engine.schema.references import find_references, rename_reference
+from nautobot_workflow_engine.schema.validate import validate
+from nautobot_workflow_engine.schema.yaml_io import from_yaml, to_yaml
+from nautobot_workflow_engine.services import (
+    ServiceError,
+    create_draft,
+    discard_draft,
+    duplicate_workflow,
+    publish,
+    restore_revision,
+    set_enabled,
+    update_draft,
+)
+
+from .serializers import (
+    BaseSerializer,
+    DetailSerializer,
+    DiffSerializer,
+    DuplicateSerializer,
+    ErrorListSerializer,
+    RefactorRequestSerializer,
+    RefactorResponseSerializer,
+    RevisionSerializer,
+    StaleSerializer,
+    ValidateResponseSerializer,
+    WorkflowDetailSerializer,
+    WorkflowSummarySerializer,
+)
+
+
+class BodyParser(BaseParser):
+    """Leave the body as bytes so bad UTF-8 and bad JSON become field errors."""
+
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        """Return the raw body."""
+        return stream.read()
+
+
+def _errors_payload(errors):
+    return {"errors": [dict(item) for item in errors]}
+
+
+def _service_response(exc):
+    return Response(exc.payload, status=exc.status)
+
+
+def _load_body(request):
+    """Return a JSON object, or a 400 response for bad UTF-8 or bad JSON."""
+    raw = request.data if isinstance(request.data, (bytes, bytearray)) else request.body
+    if not raw:
+        return {}, None
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, Response(
+            _errors_payload([FieldError("", "yaml", "Request body is not valid text.")]),
+            status=400,
+        )
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None, Response(
+            _errors_payload([FieldError("", "yaml", "Request body is not valid JSON.")]),
+            status=400,
+        )
+    if not isinstance(parsed, dict):
+        return None, Response(
+            _errors_payload([FieldError("", "invalid_type", "Request body must be an object.")]),
+            status=400,
+        )
+    return parsed, None
+
+
+def _definition_from_body(data):
+    """Normalize a definition, YAML document, or the current builder payload."""
+    if data.get("yaml") not in (None, ""):
+        try:
+            loaded = from_yaml(data["yaml"])
+        except Exception as exc:
+            raise ServiceError(400, errors=[dict(FieldError("", "yaml", f"YAML could not be read: {exc}"))])
+        if not isinstance(loaded, dict):
+            raise ServiceError(400, errors=[dict(FieldError("", "yaml", "YAML must be a mapping."))])
+        return normalize(loaded)
+    if data.get("definition") not in (None, ""):
+        definition = data["definition"]
+        if isinstance(definition, str):
+            try:
+                definition = json.loads(definition)
+            except json.JSONDecodeError as exc:
+                raise ServiceError(400, errors=[dict(FieldError("", "yaml", f"Definition is not valid JSON: {exc}"))])
+        if not isinstance(definition, dict):
+            raise ServiceError(400, errors=[dict(FieldError("", "invalid_type", "Definition must be an object."))])
+        return normalize(definition)
+    if "payload" in data:
+        try:
+            return definition_from_builder(data["payload"])
+        except BuilderValidationError as exc:
+            raise ServiceError(400, errors=exc.errors)
+    raise ServiceError(400, errors=[dict(FieldError("", "required", "Send a definition, yaml, or payload."))])
+
+
+def _repository(user, raw_id):
+    if raw_id in (None, ""):
+        return None
+    visible = GitRepository.objects.restrict(user, "view")
+    try:
+        return visible.get(pk=raw_id)
+    except (GitRepository.DoesNotExist, ValueError, TypeError):
+        raise ServiceError(
+            400,
+            errors=[
+                dict(
+                    FieldError(
+                        "/source_repo",
+                        "repository_required",
+                        "That Git repository no longer exists.",
+                        path="source_repo",
+                    )
+                )
+            ],
+        )
+
+
+def _revision_payload(revision, *, include_body=True):
+    if revision is None:
+        return None
+    payload = {
+        "number": revision.number,
+        "state": revision.state,
+        "source": revision.source,
+        "comment": revision.comment,
+        "created": revision.created,
+        "created_by": getattr(revision.created_by, "username", None),
+        "published_at": revision.published_at,
+        "published_by": getattr(revision.published_by, "username", None),
+        "git_commit": revision.git_commit,
+        "git_author": revision.git_author,
+        "base_revision": revision.base_revision.number if revision.base_revision_id else None,
+        "outdated": revision.is_outdated,
+        "superseded_reason": revision.superseded_reason,
+        "content_hash": revision.content_hash,
+    }
+    if include_body:
+        payload["definition"] = revision.definition
+        payload["yaml"] = revision.yaml
+    return payload
+
+
+def _summary(workflow):
+    published = workflow.published_revision
+    draft = workflow.draft_revision
+    return {
+        "key": workflow.key,
+        "name": workflow.name,
+        "category": workflow.category,
+        "managed_by": workflow.managed_by,
+        "enabled": workflow.enabled,
+        "archived": workflow.archived,
+        "git_status": "not_configured",
+        "published_revision": published.number if published is not None else None,
+        "draft_revision": draft.number if draft is not None else None,
+        "updated": getattr(workflow, "last_updated", None),
+    }
+
+
+def _detail(workflow):
+    head = workflow.draft_revision or workflow.published_revision
+    return {
+        "workflow": _summary(workflow),
+        "published": _revision_payload(workflow.published_revision),
+        "draft": _revision_payload(workflow.draft_revision),
+        "base": {
+            "revision": head.number if head is not None else None,
+            "git_commit": "",
+            "git_content_hash": "",
+        },
+    }
+
+
+def _require(user, perm):
+    if not user.has_perm(perm):
+        raise PermissionDenied(detail="You do not have permission to perform this action.")
+
+
+def _visible(user, key, action):
+    try:
+        return Workflow.objects.restrict(user, action).get(key=key)
+    except Workflow.DoesNotExist:
+        raise NotFound(detail="Not found.")
+
+
+def _module_doc(content):
+    try:
+        tree = ast.parse(content or "")
+    except SyntaxError:
+        return ""
+    doc = ast.get_docstring(tree) or ""
+    return doc.strip().splitlines()[0] if doc.strip() else ""
+
+
+def _filter_entries(content):
+    try:
+        tree = ast.parse(content or "")
+    except SyntaxError:
+        return []
+    found = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "FILTERS" and isinstance(node.value, ast.Dict):
+                for key in node.value.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        found.append({"name": key.value, "doc": ""})
+    return found
+
+
+class BuilderSchemaView(APIView):
+    """Return the workflow JSON Schema. The response is cached with an ETag."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(responses={200: OpenApiResponse(description="Workflow JSON Schema"), 403: DetailSerializer})
+    def get(self, request):
+        """Return the schema document."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        document = load_schema()
+        etag = hashlib.sha256(json.dumps(document, sort_keys=True).encode("utf-8")).hexdigest()
+        if request.META.get("HTTP_IF_NONE_MATCH") == etag:
+            response = Response(status=304)
+            response["ETag"] = etag
+            return response
+        response = Response(document)
+        response["ETag"] = etag
+        return response
+
+
+class BuilderContextView(APIView):
+    """Pickers for the builder. Every list is restricted to what this user can view."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(
+        parameters=[OpenApiParameter(name="repository", required=False, type=str)],
+        responses={200: OpenApiResponse(description="Builder pickers"), 403: DetailSerializer},
+    )
+    def get(self, request):
+        """Return repositories, scripts, models, integrations, categories, and filters."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        repositories = []
+        visible_ids = []
+        for repo in GitRepository.objects.restrict(user, "view").order_by("name"):
+            visible_ids.append(repo.pk)
+            repositories.append(
+                {
+                    "id": str(repo.pk),
+                    "name": repo.name,
+                    "branch": repo.branch,
+                    "can_publish": user.has_perm("nautobot_workflow_engine.publish_workflow"),
+                    "has_credentials": bool(repo.secrets_group_id),
+                }
+            )
+        requested = (request.query_params.get("repository") or "").strip()
+        helper_qs = WorkflowHelper.objects.filter(source_repo_id__in=visible_ids)
+        if requested:
+            helper_qs = helper_qs.filter(source_repo_id=requested)
+        scripts = []
+        for repo_id, file_path, content in helper_qs.values_list("source_repo_id", "file_path", "content"):
+            if not script_path_allowed(file_path) or file_path.endswith("__init__.py"):
+                continue
+            if "run(" not in (content or ""):
+                continue
+            scripts.append({"path": file_path, "repo_id": str(repo_id), "doc": _module_doc(content)})
+        models = []
+        for content_type in ContentType.objects.order_by("app_label", "model"):
+            model = content_type.model_class()
+            if model is None:
+                continue
+            label = f"{content_type.app_label}.{model.__name__}"
+            if not content_type_allowed(label):
+                continue
+            models.append(
+                {
+                    "value": label,
+                    "label": f"{content_type.app_label} | {model._meta.verbose_name}",
+                    "group": content_type.app_label,
+                }
+            )
+        filters = []
+        filter_qs = WorkflowFilterModule.objects.filter(source_repo_id__in=visible_ids)
+        if requested:
+            filter_qs = filter_qs.filter(source_repo_id=requested)
+        for content in filter_qs.values_list("content", flat=True):
+            filters.extend(_filter_entries(content))
+        categories = list(
+            Workflow.objects.restrict(user, "view")
+            .exclude(category="")
+            .order_by("category")
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        return Response(
+            {
+                "repositories": repositories,
+                "scripts": scripts,
+                "models": models,
+                "integrations": [
+                    {"name": name}
+                    for name in ExternalIntegration.objects.restrict(user, "view")
+                    .order_by("name")
+                    .values_list("name", flat=True)
+                ],
+                "categories": categories,
+                "filters": filters,
+                "capabilities": {
+                    "can_add": user.has_perm("nautobot_workflow_engine.add_workflow"),
+                    "can_author_code": user.has_perm("nautobot_workflow_engine.author_code_workflow"),
+                    "can_publish": user.has_perm("nautobot_workflow_engine.publish_workflow"),
+                },
+            }
+        )
+
+
+class BuilderValidateView(APIView):
+    """Normalize and validate without writing. This endpoint does not return 500."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(
+        request=RefactorRequestSerializer,
+        responses={200: ValidateResponseSerializer, 400: ErrorListSerializer, 403: DetailSerializer},
+    )
+    def post(self, request):
+        """Return the canonical definition, YAML, errors, and references."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            definition = _definition_from_body(data)
+            repo = _repository(user, data.get("repository"))
+        except ServiceError as exc:
+            if exc.status != 400:
+                return _service_response(exc)
+            return Response(exc.payload, status=400)
+        except Exception as exc:
+            return Response(_errors_payload([FieldError("", "yaml", str(exc))]), status=200)
+        try:
+            errors = validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
+        except Exception as exc:
+            errors = [FieldError("", "yaml", str(exc))]
+        yaml_text = ""
+        references = {"inputs": [], "results": []}
+        try:
+            yaml_text = to_yaml(definition)
+            references = find_references(definition)
+        except Exception:
+            yaml_text = yaml_text or ""
+        return Response(
+            {
+                "definition": definition,
+                "yaml": yaml_text,
+                "errors": [dict(item) for item in errors],
+                "warnings": [],
+                "references": references,
+            }
+        )
+
+
+class BuilderRefactorView(APIView):
+    """Rename an input or an action and the references that point at it."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(
+        request=RefactorRequestSerializer,
+        responses={200: RefactorResponseSerializer, 400: ErrorListSerializer, 403: DetailSerializer},
+    )
+    def post(self, request):
+        """Return the renamed definition and the pointers that changed."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            definition = normalize(data.get("definition") or {})
+        except Exception as exc:
+            return Response(_errors_payload([FieldError("", "yaml", str(exc))]), status=400)
+        operation = data.get("op")
+        if operation not in ("rename_input", "rename_action"):
+            return Response(
+                _errors_payload([FieldError("/op", "enum", "op must be rename_input or rename_action.")]),
+                status=400,
+            )
+        updated, changes = rename_reference(definition, operation, data.get("from") or "", data.get("to") or "")
+        return Response({"definition": updated, "changes": changes})
+
+
+_WRITE = {
+    200: RevisionSerializer,
+    201: WorkflowDetailSerializer,
+    202: WorkflowDetailSerializer,
+    204: OpenApiResponse(description="Draft discarded"),
+    400: ErrorListSerializer,
+    403: DetailSerializer,
+    404: DetailSerializer,
+    409: StaleSerializer,
+}
+
+
+class WorkflowViewSet(ViewSet):
+    """List, draft, and publish workflows. Git push and archive arrive in M3."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+    lookup_field = "key"
+    lookup_value_regex = "[^/]+"
+
+    @extend_schema(responses={200: WorkflowSummarySerializer(many=True), 403: DetailSerializer})
+    def list(self, request):
+        """Return workflows this user can view."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        rows = Workflow.objects.restrict(request.user, "view").order_by("name")
+        return Response([_summary(workflow) for workflow in rows])
+
+    @extend_schema(responses={201: WorkflowDetailSerializer, 400: ErrorListSerializer, 403: DetailSerializer})
+    def create(self, request):
+        """Create a draft. Runtime rows stay empty until publish."""
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            definition = _definition_from_body(data)
+            repo = _repository(request.user, data.get("repository") or (data.get("payload") or {}).get("source_repo"))
+            workflow, _revision = create_draft(
+                user=request.user,
+                definition=definition,
+                repository=repo,
+                comment=data.get("comment") or "",
+                source=WorkflowRevision.SOURCE_API,
+            )
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response(
+            {"workflow": _summary(workflow), "revision": _revision_payload(workflow.draft_revision)}, status=201
+        )
+
+    @extend_schema(responses={200: WorkflowDetailSerializer, 403: DetailSerializer, 404: DetailSerializer})
+    def retrieve(self, request, key=None):
+        """Return the published revision, the draft, and the base the editor must send back."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        return Response(_detail(_visible(request.user, key, "view")))
+
+    @extend_schema(request=BaseSerializer, responses=_WRITE, methods=["PUT"])
+    @extend_schema(
+        responses={204: OpenApiResponse(description="Draft discarded"), 404: DetailSerializer}, methods=["DELETE"]
+    )
+    def draft(self, request, key=None):
+        """Save or discard the shared draft. A draft does not change the published definition."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        if request.method == "DELETE":
+            try:
+                discard_draft(user=request.user, workflow=workflow)
+            except ServiceError as exc:
+                return _service_response(exc)
+            return Response(status=204)
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        if "base_revision" not in data:
+            return Response(
+                _errors_payload([FieldError("/base_revision", "required", "Send the revision you started from.")]),
+                status=400,
+            )
+        try:
+            definition = _definition_from_body(data)
+            revision = update_draft(
+                user=request.user,
+                workflow=workflow,
+                definition=definition,
+                base_revision=data.get("base_revision"),
+                comment=data.get("comment") or "",
+                base_git_commit=data.get("base_git_commit"),
+                base_content_hash=data.get("base_content_hash"),
+                require_base=True,
+                source=WorkflowRevision.SOURCE_API,
+            )
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response({"revision": _revision_payload(revision)})
+
+    @extend_schema(responses=_WRITE)
+    def publish_revision(self, request, key=None):
+        """Publish the definition. Git push is M3, so git.status is not_configured."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        if "base_revision" not in data:
+            return Response(
+                _errors_payload([FieldError("/base_revision", "required", "Send the revision you started from.")]),
+                status=400,
+            )
+        try:
+            definition = _definition_from_body(data)
+            repo = _repository(request.user, data.get("repository"))
+            saved, revision = publish(
+                user=request.user,
+                workflow=workflow,
+                definition=definition,
+                base_revision=data.get("base_revision"),
+                enable=data.get("enable", None) if "enable" in data else None,
+                commit_summary=data.get("commit_summary") or "",
+                approval_confirm=bool(data.get("approval_confirm")),
+                repository=repo if repo is not None else workflow.source_repo,
+                base_git_commit=data.get("base_git_commit"),
+                base_content_hash=data.get("base_content_hash"),
+                require_base=True,
+                source=WorkflowRevision.SOURCE_API,
+            )
+        except ServiceError as exc:
+            return _service_response(exc)
+        body = _detail(saved)
+        body["revision"] = _revision_payload(revision)
+        body["git"] = {"status": "not_configured", "job_result": None}
+        body["warnings"] = []
+        return Response(body, status=202)
+
+    @extend_schema(responses={200: WorkflowSummarySerializer, 403: DetailSerializer, 404: DetailSerializer})
+    def enable(self, request, key=None):
+        """Enable a published workflow."""
+        return self._set_enabled(request, key, True)
+
+    @extend_schema(responses={200: WorkflowSummarySerializer, 403: DetailSerializer, 404: DetailSerializer})
+    def disable(self, request, key=None):
+        """Disable a published workflow."""
+        return self._set_enabled(request, key, False)
+
+    def _set_enabled(self, request, key, enabled):
+        _require(request.user, "nautobot_workflow_engine.publish_workflow")
+        workflow = _visible(request.user, key, "publish")
+        try:
+            saved = set_enabled(user=request.user, workflow=workflow, enabled=enabled)
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response(_summary(saved))
+
+    @extend_schema(responses={200: RevisionSerializer(many=True), 403: DetailSerializer, 404: DetailSerializer})
+    def revisions(self, request, key=None):
+        """Return revision history, including superseded revisions."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        workflow = _visible(request.user, key, "view")
+        return Response([_revision_payload(revision) for revision in workflow.revisions.order_by("number")])
+
+    @extend_schema(responses={200: RevisionSerializer, 404: DetailSerializer})
+    def revision_detail(self, request, key=None, number=None):
+        """Return one revision, including its YAML."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        workflow = _visible(request.user, key, "view")
+        revision = _revision_or_404(workflow, number)
+        return Response(_revision_payload(revision))
+
+    @extend_schema(
+        parameters=[OpenApiParameter(name="against", required=False, type=str)],
+        responses={200: DiffSerializer, 404: DetailSerializer},
+    )
+    def revision_diff(self, request, key=None, number=None):
+        """Return YAML for Nautobot's diff view."""
+        _require(request.user, "nautobot_workflow_engine.view_workflow")
+        workflow = _visible(request.user, key, "view")
+        revision = _revision_or_404(workflow, number)
+        against = request.query_params.get("against") or "published"
+        if against == "published":
+            original = workflow.published_revision.yaml if workflow.published_revision_id else ""
+        else:
+            original = _revision_or_404(workflow, against).yaml
+        return Response({"original_yaml": original or "", "modified_yaml": revision.yaml or ""})
+
+    @extend_schema(responses={200: RevisionSerializer, 400: ErrorListSerializer, 404: DetailSerializer})
+    def revision_restore(self, request, key=None, number=None):
+        """Copy an old revision into the shared draft."""
+        _require(request.user, "nautobot_workflow_engine.change_workflow")
+        workflow = _visible(request.user, key, "change")
+        revision = _revision_or_404(workflow, number)
+        try:
+            restored = restore_revision(user=request.user, workflow=workflow, revision=revision)
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response({"revision": _revision_payload(restored)})
+
+    @extend_schema(
+        request=DuplicateSerializer,
+        responses={201: WorkflowDetailSerializer, 400: ErrorListSerializer, 403: DetailSerializer},
+    )
+    def duplicate(self, request, key=None):
+        """Copy a workflow into a disabled Nautobot-managed draft."""
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        source = _visible(request.user, key, "view")
+        new_key = (data.get("key") or "").strip()
+        new_name = (data.get("name") or "").strip()
+        if not new_key or not new_name:
+            return Response(
+                _errors_payload([FieldError("/key", "required", "Send a key and a name for the copy.")]),
+                status=400,
+            )
+        try:
+            workflow, revision = duplicate_workflow(user=request.user, source=source, key=new_key, name=new_name)
+        except ServiceError as exc:
+            return _service_response(exc)
+        return Response({"workflow": _summary(workflow), "revision": _revision_payload(revision)}, status=201)
+
+
+def _revision_or_404(workflow, number):
+    try:
+        return workflow.revisions.get(number=int(number))
+    except (WorkflowRevision.DoesNotExist, TypeError, ValueError):
+        raise Http404("Not found.")

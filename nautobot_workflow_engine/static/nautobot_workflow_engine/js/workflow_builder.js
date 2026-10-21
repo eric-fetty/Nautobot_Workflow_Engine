@@ -17,24 +17,8 @@
     let previewTimer = null;
     let previewText = "";
 
-    const INPUT_TYPES = [
-        ["string", "String"],
-        ["integer", "Integer"],
-        ["boolean", "Boolean"],
-        ["choice", "Choice"],
-        ["multichoice", "Multi-choice"],
-        ["object", "Object"],
-        ["multiobject", "Multi-object"],
-        ["list", "List"],
-        ["listdict", "List of dictionaries"],
-    ];
-    const COLUMN_TYPES = [
-        ["string", "String"],
-        ["integer", "Integer"],
-        ["number", "Number"],
-        ["boolean", "Boolean"],
-        ["choice", "Choice"],
-    ];
+    let inputTypes = [];
+    let columnTypes = [];
 
     form.addEventListener("input", onField);
     form.addEventListener("change", onField);
@@ -78,12 +62,138 @@
             }
         }
         document.getElementById("builder-payload-input").value = JSON.stringify(serialize());
+        const baseInput = document.getElementById("builder-base-revision");
+        if (baseInput && config.base_revision != null) {
+            baseInput.value = String(config.base_revision);
+        }
+        if (config.schema_url) {
+            event.preventDefault();
+            saveThroughApi(event.submitter && event.submitter.value);
+        }
     });
     document.getElementById("copy-yaml").addEventListener("click", copyYaml);
     document.getElementById("download-yaml").addEventListener("click", downloadYaml);
 
-    render();
-    schedulePreview();
+    loadSchema().then(function afterSchema() {
+        render();
+        schedulePreview();
+    });
+
+    function loadSchema() {
+        if (!config.schema_url) {
+            return Promise.resolve();
+        }
+        return fetch(config.schema_url, {credentials: "same-origin", headers: {Accept: "application/json"}})
+            .then(function readSchema(response) {
+                if (!response.ok) {
+                    throw new Error("Could not load the workflow schema.");
+                }
+                return response.json();
+            })
+            .then(function applySchema(schema) {
+                const inputEnum = schema.$defs && schema.$defs.input && schema.$defs.input.properties.type;
+                const columnEnum = schema.$defs && schema.$defs.column && schema.$defs.column.properties.type;
+                inputTypes = enumPairs(inputEnum);
+                columnTypes = enumPairs(columnEnum);
+            })
+            .catch(function schemaFailed(error) {
+                showSaveError(error.message || "Could not load the workflow schema.");
+            });
+    }
+
+    function enumPairs(property) {
+        const values = (property && property.enum) || [];
+        const labels = (property && property["x-ui"] && property["x-ui"].labels) || {};
+        return values.map(function pair(value) {
+            return [value, labels[value] || value];
+        });
+    }
+
+    function csrfToken() {
+        const input = form.querySelector("input[name=csrfmiddlewaretoken]");
+        return input ? input.value : "";
+    }
+
+    function showSaveError(message) {
+        const node = document.getElementById("builder-save-error");
+        if (!node) {
+            return;
+        }
+        node.hidden = false;
+        node.textContent = message;
+    }
+
+    function saveThroughApi(action) {
+        const chosen = action || "publish";
+        const payload = serialize();
+        const body = {
+            payload: payload,
+            base_revision: config.base_revision,
+            comment: "",
+        };
+        let url = chosen === "draft" ? config.draft_url : config.publish_url;
+        let method = chosen === "draft" ? "PUT" : "POST";
+        if (!url) {
+            url = config.create_api_url;
+            method = "POST";
+            if (chosen === "publish") {
+                body.enable = Boolean(payload.enabled);
+            }
+        } else if (chosen === "publish") {
+            body.enable = Boolean(payload.enabled);
+            const confirmInput = document.getElementById("approval-confirm");
+            body.approval_confirm = Boolean(confirmInput && confirmInput.value === "1");
+        }
+        fetch(url, {
+            method: method,
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "X-CSRFToken": csrfToken(),
+            },
+            body: JSON.stringify(body),
+        })
+            .then(function readSave(response) {
+                return response.json().then(function parsed(data) {
+                    return {ok: response.ok, status: response.status, data: data};
+                });
+            })
+            .then(function handleSave(result) {
+                if (result.status === 409 || result.status === 400 || result.status === 403) {
+                    const errors = (result.data && result.data.errors) || [];
+                    const message =
+                        (result.data && result.data.detail) ||
+                        errors.map(function formatError(item) {
+                            return (item.path ? item.path + ": " : "") + item.message;
+                        }).join(" ") ||
+                        "Could not save the workflow.";
+                    showSaveError(message);
+                    return;
+                }
+                if (!result.ok) {
+                    showSaveError("Could not save the workflow.");
+                    return;
+                }
+                if (chosen === "publish" && !config.publish_url && result.data && result.data.workflow) {
+                    const publishUrl = (config.publish_url_template || "").replace("__KEY__", result.data.workflow.key);
+                    config.publish_url = publishUrl;
+                    config.draft_url = publishUrl.replace(/publish\/$/, "draft/");
+                    config.base_revision = result.data.revision && result.data.revision.number;
+                    saveThroughApi("publish");
+                    return;
+                }
+                const savedKey = result.data.workflow && result.data.workflow.key;
+                if (savedKey && config.edit_url_template) {
+                    window.location = config.edit_url_template.replace("__KEY__", savedKey);
+                    return;
+                }
+                window.location.reload();
+            })
+            .catch(function saveFailed() {
+                showSaveError("Could not save the workflow.");
+            });
+    }
 
     function normalizePayload(payload) {
         const schedule = Object.assign(
@@ -130,7 +240,8 @@
             type: input.type || "string",
             required: Boolean(input.required),
             default: defaultForEditor(input),
-            depends_on: input.depends_on || [],
+            depends_on: Array.isArray(input.depends_on) ? input.depends_on.slice() : [],
+            show_if_template: typeof input.show_if === "string" ? input.show_if : "",
             show_if_rows: showIfToRows(input.show_if),
             validators: (input.validators || []).map(normalizeValidator),
             choices: Array.isArray(input.choices) ? input.choices.map(normalizeChoice) : [],
@@ -239,6 +350,7 @@
             }
             showIf[control] = raw.includes("|") ? raw.split("|").map(coerceScalar) : coerceScalar(raw);
         });
+        const showIfValue = Object.keys(showIf).length ? showIf : input.show_if_template || showIf;
         return {
             key: input.key.trim(),
             label: input.label,
@@ -246,7 +358,7 @@
             required: Boolean(input.required),
             default: serializeDefault(input),
             depends_on: input.depends_on || [],
-            show_if: showIf,
+            show_if: showIfValue,
             validators: (input.validators || []).map(serializeValidator),
             choices: input.choices_template ? input.choices_template : input.choices || [],
             model: input.model,
@@ -457,7 +569,7 @@
                 "Type",
                 selectInput(
                     "inputs." + index + ".type",
-                    INPUT_TYPES.map(function mapType(item) {
+                    inputTypes.map(function mapType(item) {
                         return {value: item[0], label: item[1]};
                     }),
                     input.type,
@@ -621,7 +733,7 @@
                     "Column type",
                     selectInput(
                         "inputs." + index + ".columns." + columnIndex + ".type",
-                        COLUMN_TYPES.map(function mapType(item) {
+                        columnTypes.map(function mapType(item) {
                             return {value: item[0], label: item[1]};
                         }),
                         column.type,

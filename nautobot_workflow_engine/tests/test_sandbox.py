@@ -10,8 +10,9 @@ from jinja2 import Environment
 from jinja2.exceptions import SecurityError
 
 from nautobot_workflow_engine import executors
-from nautobot_workflow_engine.builders import BuilderValidationError, definition_from_builder
 from nautobot_workflow_engine.executors import _execute_phase_actions, _render
+from nautobot_workflow_engine.schema.builder_payload import definition_from_builder
+from nautobot_workflow_engine.schema.errors import BuilderValidationError
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "workflows"
 ESCAPE_PAYLOADS = (
