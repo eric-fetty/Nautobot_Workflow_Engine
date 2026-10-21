@@ -11,6 +11,7 @@ This document describes all new features and changes in the release. The format 
 - Workflow Jinja (`when`, `with`, `extra_vars`, choices, and filter queries) now renders in a sandbox. Templates that reach private attributes or call methods that change data are rejected. The patterns the sandbox refuses include `cycler.__init__.__globals__`, `lipsum.__globals__`, `joiner.__init__.__globals__`, `namespace.__init__.__globals__`, and `{{ user.password }}`.
 - Workflow definitions now have one JSON Schema. Drafts and published revisions are stored separately, and the builder API rejects a save that started from an older revision. Git sync keeps going when one file is invalid. The `when` column stores the full template, up to the 10 kB cap.
 - Nautobot-managed workflows can publish to their own Git repository and import later commits. The later change wins. A failed push leaves the database save in place and shows **Not synced to Git**. A `number` column keeps decimal values; `integer` rejects them.
+- The workflow builder is organized into Details, Inputs, Steps, and Review & Publish. Labels use plain language and name the YAML key. ServiceNow scheduling is labeled as a change window.
 
 <!-- towncrier release notes start -->
 

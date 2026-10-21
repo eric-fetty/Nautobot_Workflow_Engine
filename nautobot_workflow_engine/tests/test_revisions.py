@@ -168,3 +168,47 @@ class RevisionLifecycleTestCase(TestCase):
         self.assertEqual(form.fields["target"].widget.attrs["data-depends-on"], "site,role")
         self.assertEqual(form.fields["target"].widget.attrs["data-show-if-template"], "{{ inputs.site }}")
         self.assertEqual(list(workflow.inputs.get(key="target").depends_on), ["site", "role"])
+        shown = DynamicWorkflowForm(
+            data={"site": "lab", "role": "edge", "target": "sw1", "execution_type": "immediate"},
+            workflow=workflow,
+        )
+        self.assertTrue(shown.is_valid(), shown.errors)
+        self.assertEqual(shown.cleaned_data["target"], "sw1")
+        hidden = DynamicWorkflowForm(
+            data={"site": "", "role": "edge", "target": "sw1", "execution_type": "immediate"},
+            workflow=workflow,
+        )
+        self.assertTrue(hidden.is_valid(), hidden.errors)
+        self.assertIsNone(hidden.cleaned_data["target"])
+
+    def test_launch_form_enforces_case_insensitive_patterns(self):
+        from nautobot_workflow_engine.datasources import save_workflow_definition
+        from nautobot_workflow_engine.forms import DynamicWorkflowForm
+
+        definition = _definition("pattern-flow")
+        definition["inputs"] = [
+            {
+                "key": "reason",
+                "label": "Reason",
+                "type": "string",
+                "validators": [
+                    {
+                        "regex": r"^[a-z0-9 .,']{3,}$",
+                        "flags": ["IGNORECASE"],
+                        "message": "Use at least 3 letters or numbers.",
+                    }
+                ],
+            }
+        ]
+        workflow = save_workflow_definition(definition, source_repo=None)
+        rejected = DynamicWorkflowForm(
+            data={"reason": "!!", "execution_type": "immediate"},
+            workflow=workflow,
+        )
+        self.assertFalse(rejected.is_valid())
+        self.assertIn("Use at least 3 letters or numbers.", rejected.errors["reason"])
+        accepted = DynamicWorkflowForm(
+            data={"reason": "Power Supply", "execution_type": "immediate"},
+            workflow=workflow,
+        )
+        self.assertTrue(accepted.is_valid(), accepted.errors)

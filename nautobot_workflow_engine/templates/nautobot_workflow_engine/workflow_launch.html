@@ -131,7 +131,7 @@
         {% with has_error=field.errors %}
         {% with attrs=field.field.widget.attrs %}
         <div class="mb-3" id="group_{{ field.name }}"
-             {% if "data-depends-on" in attrs or "data-show-if-field" in attrs %}style="display:none"{% endif %}>
+             {% if "data-depends-on" in attrs or "data-show-if-field" in attrs or "data-show-if-template" in attrs %}style="display:none"{% endif %}>
              {% endwith %}
 
           {% if field.field.widget.input_type == "checkbox" %}
@@ -332,6 +332,39 @@
         if (el.type === 'checkbox') return el.checked ? 'true' : 'false';
         return el.value || ''; 
       }
+      // Schema flags are Python names (IGNORECASE). The browser RegExp uses i, m, and s.
+      function jsRegexFlags(flags) {
+        var list = Array.isArray(flags) ? flags : String(flags || '').split(/[\s,|]+/);
+        var map = {
+          IGNORECASE: 'i', I: 'i', i: 'i',
+          MULTILINE: 'm', M: 'm', m: 'm',
+          DOTALL: 's', S: 's', s: 's'
+        };
+        var out = '';
+        list.forEach(function(flag) {
+          var mapped = map[String(flag || '').trim()];
+          if (mapped && out.indexOf(mapped) === -1) out += mapped;
+        });
+        return out;
+      }
+      function compileValidator(validator) {
+        if (!validator || !validator.regex) return null;
+        try {
+          return new RegExp(validator.regex, jsRegexFlags(validator.flags));
+        } catch (e) {
+          console.warn('Invalid validator pattern', validator.regex);
+          return null;
+        }
+      }
+      function simpleShowIfKey(el) {
+        var template = (el.getAttribute('data-show-if-template') || '').trim();
+        var match = template.match(/^\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}$/);
+        return match ? match[1] : '';
+      }
+      function simpleShowIfValue(value) {
+        var text = String(value || '').trim().toLowerCase();
+        return text !== '' && text !== 'false' && text !== 'none' && text !== '0' && text !== 'no';
+      }
       function depsOf(el) {
         var s = el.getAttribute('data-depends-on');
         return s ? s.split(',').filter(Boolean) : [];
@@ -346,6 +379,8 @@
     
       // ---------- visibility rules ----------
       function showRuleSatisfied(el) {
+        var simple = simpleShowIfKey(el);
+        if (simple && !simpleShowIfValue(ctrlVal(simple))) return false;
         var ctrl = el.getAttribute('data-show-if-field');
         if (!ctrl) return true;
         var allow = (el.getAttribute('data-show-if-values') || '').split('|').filter(Boolean);
@@ -1220,9 +1255,8 @@
           for (var i = 0; i < parsedValidators.length; i++) {
             var validator = parsedValidators[i];
             if (validator.regex) {
-              var flags = validator.flags ? validator.flags.join('') : '';
-              var regex = new RegExp(validator.regex, flags);
-              if (!regex.test(value)) {
+              var regex = compileValidator(validator);
+              if (regex && !regex.test(value)) {
                 return {
                   valid: false,
                   message: validator.message || 'Invalid format'
@@ -1898,9 +1932,8 @@
               if (v && Array.isArray(col.validators)) {
                 col.validators.forEach(function(validator){
                   if (validator.regex) {
-                    var flags = (validator.flags || []).join('');
-                    var regex = new RegExp(validator.regex, flags);
-                    if (!regex.test(v)) {
+                    var regex = compileValidator(validator);
+                    if (regex && !regex.test(v)) {
                       errors.push(validator.message || (labelText + ' format is invalid.'));
                     }
                   }
@@ -2308,7 +2341,7 @@
       function updateVisibility() {
         // pass 1: apply visibility and capture transitions
         var transitions = [];
-        document.querySelectorAll('#dynamic-form [data-show-if-field], #dynamic-form [data-depends-on]').forEach(function(el){
+        document.querySelectorAll('#dynamic-form [data-show-if-field], #dynamic-form [data-show-if-template], #dynamic-form [data-depends-on]').forEach(function(el){
           var vis = showRuleSatisfied(el) && depsSatisfied(el);
           var t = setVisible(el, vis);
           if (t && !t.prev && t.now) transitions.push(el); // became visible
@@ -2426,9 +2459,8 @@
             var validatorList = JSON.parse(validators);
             validatorList.forEach(function(validator) {
               if (validator.regex) {
-                var flags = (validator.flags || []).join('');
-                var regex = new RegExp(validator.regex, flags);
-                if (!regex.test(value)) {
+                var regex = compileValidator(validator);
+                if (regex && !regex.test(value)) {
                   errors.push(validator.message || label + ' format is invalid.');
                 }
               }
@@ -2679,9 +2711,8 @@
                   if (Array.isArray(col.validators) && value) {
                     col.validators.forEach(function(validator){
                       if (validator.regex) {
-                        var flags = (validator.flags || []).join('');
-                        var regex = new RegExp(validator.regex, flags);
-                        if (!regex.test(String(value))) {
+                        var regex = compileValidator(validator);
+                        if (regex && !regex.test(String(value))) {
                           var msg4 = (getFieldLabel(fieldName)) + ' row ' + (idx + 1) + ': ' + (validator.message || (labelText + ' format is invalid.'));
                           showFieldError(fieldName, [msg4]);
                           hasErrors = true;
@@ -2957,7 +2988,7 @@
         // visibility rules are evaluated. We use a temporary global flag that
         // `setVisible` checks to skip wiping values.
         window._preserve_initial = true;
-        document.querySelectorAll('#dynamic-form [data-show-if-field], #dynamic-form [data-depends-on]').forEach(function(el){
+        document.querySelectorAll('#dynamic-form [data-show-if-field], #dynamic-form [data-show-if-template], #dynamic-form [data-depends-on]').forEach(function(el){
           setVisible(el, false);
         });
         updateVisibility();

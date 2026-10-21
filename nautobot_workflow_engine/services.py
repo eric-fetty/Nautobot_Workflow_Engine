@@ -173,12 +173,33 @@ def _format_time(moment):
 
 
 def create_draft(
-    *, user, definition, repository=None, comment="", source=WorkflowRevision.SOURCE_BUILDER, key=None, name=None
+    *,
+    user,
+    definition,
+    repository=None,
+    comment="",
+    source=WorkflowRevision.SOURCE_BUILDER,
+    key=None,
+    name=None,
+    strict=True,
 ):
     """Create a Nautobot-managed workflow and its first draft. Runtime rows are not written."""
     if not user.has_perm("nautobot_workflow_engine.add_workflow"):
         raise ServiceError(403, detail="You need permission to add a workflow.")
     workflow_key = key or definition.get("key")
+    if not workflow_key:
+        raise ServiceError(
+            400,
+            errors=[
+                {
+                    "pointer": "/key",
+                    "path": "key",
+                    "code": "required",
+                    "message": "Workflow ID is required.",
+                    "field_label": "Workflow ID",
+                }
+            ],
+        )
     if Workflow.objects.filter(key=workflow_key).exists():
         raise ServiceError(
             400,
@@ -191,7 +212,7 @@ def create_draft(
                 }
             ],
         )
-    _raise_validation(definition, repository)
+    draft_errors = _draft_errors(definition, repository, strict=strict)
     _require_author(user, None, {}, definition)
     with transaction.atomic():
         workflow = Workflow.objects.create(
@@ -216,6 +237,7 @@ def create_draft(
             base=None,
         )
         _assert_scope(user, workflow, "add")
+    workflow._draft_errors = draft_errors
     return workflow, revision
 
 
@@ -230,6 +252,7 @@ def update_draft(
     base_content_hash=None,
     require_base=True,
     source=WorkflowRevision.SOURCE_BUILDER,
+    strict=True,
 ):
     """Replace the shared draft. The published definition and the rows stay as they are."""
     if workflow.managed_by != MANAGED_BY_NAUTOBOT:
@@ -246,7 +269,7 @@ def update_draft(
     )
     if conflict and conflict.get("code"):
         raise ServiceError(409, **conflict)
-    _raise_validation(definition, workflow.source_repo)
+    draft_errors = _draft_errors(definition, workflow.source_repo, strict=strict)
     _require_author(user, workflow, _author_base(workflow), definition)
     with transaction.atomic():
         current = workflow.draft_revision
@@ -265,6 +288,7 @@ def update_draft(
         )
         workflow.save(update_fields=["last_updated"])
         _assert_scope(user, workflow, "change")
+    revision._draft_errors = draft_errors
     return revision
 
 
@@ -498,6 +522,14 @@ def _raise_validation(definition, repo):
     errors = validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
     if errors:
         raise ServiceError(400, errors=errors)
+
+
+def _draft_errors(definition, repo, *, strict):
+    """Drafts may be saved while invalid. Publish still refuses them."""
+    errors = validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
+    if errors and strict:
+        raise ServiceError(400, errors=errors)
+    return [dict(item) for item in errors]
 
 
 def _author_base(workflow):

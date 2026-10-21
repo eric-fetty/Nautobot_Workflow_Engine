@@ -18,6 +18,7 @@ from django.db import transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDay, TruncWeek
 from django.http import Http404, HttpResponse, JsonResponse
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -598,6 +599,11 @@ class InputOptionsView(View):
     def _build_enhanced_context(self, workflow, form_data):
         """Build context with both IDs and resolved object properties."""
         context = {"inputs": {}}
+        request_user = getattr(self.request, "user", None)
+        if request_user is not None and getattr(request_user, "is_authenticated", False):
+            from nautobot_workflow_engine.executors import SafeUser
+
+            context["user"] = SafeUser.from_user(request_user)
 
         for key, value in form_data.items():
             if not value:
@@ -1617,6 +1623,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         can_author_code = user.has_perm("nautobot_workflow_engine.author_code_workflow", target)
         can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow", target)
     stages = approval_stage_summary(workflow) if workflow is not None else []
+    draft = workflow.draft_revision if workflow is not None else None
     return {
         "payload": payload,
         "repositories": repositories,
@@ -1628,6 +1635,10 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "yaml_url": reverse("plugins:nautobot_workflow_engine:workflow_builder_yaml"),
         "list_url": reverse("plugins:nautobot_workflow_engine:workflows_list"),
         "schema_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-schema"),
+        "validate_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-validate"),
+        "refactor_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-refactor"),
+        "launch_preview_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-launch-preview"),
+        "csrf_token": get_token(request),
         "create_api_url": reverse("plugins-api:nautobot_workflow_engine-api:workflow-list"),
         "draft_url": (
             reverse("plugins-api:nautobot_workflow_engine-api:workflow-draft", kwargs={"key": workflow.key})
@@ -1660,10 +1671,33 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         ),
         "key": workflow.key if workflow is not None else "",
         "git_status": workflow.git_status if workflow is not None else "",
+        "git_error": workflow.git_error if workflow is not None else "",
+        "git_next_retry_at": (
+            workflow.git_next_retry_at.isoformat() if workflow is not None and workflow.git_next_retry_at else ""
+        ),
+        "managed_by": workflow.managed_by if workflow is not None else "nautobot",
+        "enabled": bool(workflow.enabled) if workflow is not None else False,
+        "draft_number": draft.number if draft is not None else None,
+        "published_number": (
+            workflow.published_revision.number if workflow is not None and workflow.published_revision_id else None
+        ),
+        "push_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-push", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
         "is_edit": is_edit,
         "read_only": read_only,
         "banner": banner,
         "duplicate_url": duplicate_url,
+        "adopt_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-adopt", kwargs={"key": workflow.key})
+            if workflow is not None
+            and workflow.managed_by == MANAGED_BY_GIT
+            and user.has_perm("nautobot_workflow_engine.change_workflow", workflow)
+            and user.has_perm("nautobot_workflow_engine.publish_workflow", workflow)
+            else ""
+        ),
         "can_author_code": can_author_code,
         "can_publish": can_publish,
         "approval_stages": stages,

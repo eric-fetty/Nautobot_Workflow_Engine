@@ -5,6 +5,7 @@ from nautobot.apps.api import OrderedDefaultRouter
 
 from .views import (
     BuilderContextView,
+    BuilderLaunchPreviewView,
     BuilderRefactorView,
     BuilderSchemaView,
     BuilderValidateView,
@@ -37,6 +38,7 @@ urlpatterns = [
     path("builder/context/", BuilderContextView.as_view(), name="builder-context"),
     path("builder/validate/", BuilderValidateView.as_view(), name="builder-validate"),
     path("builder/refactor/", BuilderRefactorView.as_view(), name="builder-refactor"),
+    path("builder/launch-preview/", BuilderLaunchPreviewView.as_view(), name="builder-launch-preview"),
     path("workflows/<str:key>/draft/", workflow_draft, name="workflow-draft"),
     path("workflows/<str:key>/publish/", workflow_publish, name="workflow-publish"),
     path("workflows/<str:key>/enable/", workflow_enable, name="workflow-enable"),

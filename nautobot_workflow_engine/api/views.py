@@ -1,4 +1,4 @@
-"""Builder REST API. Git endpoints, dry-run, and launch preview are later milestones."""
+"""Builder REST API. Dry-run remains a later milestone."""
 
 import ast
 import hashlib
@@ -17,7 +17,7 @@ from rest_framework.viewsets import ViewSet
 
 from nautobot_workflow_engine.models import Workflow, WorkflowFilterModule, WorkflowHelper, WorkflowRevision
 from nautobot_workflow_engine.schema import load_schema
-from nautobot_workflow_engine.schema.builder_payload import definition_from_builder
+from nautobot_workflow_engine.schema.builder_payload import definition_from_builder, payload_to_raw
 from nautobot_workflow_engine.schema.errors import BuilderValidationError, FieldError
 from nautobot_workflow_engine.schema.normalize import normalize
 from nautobot_workflow_engine.schema.policy import content_type_allowed, script_path_allowed
@@ -112,7 +112,14 @@ def _load_body(request):
     return parsed, None
 
 
-def _definition_from_body(data):
+def _wants_strict(data):
+    """Draft saves may send ``strict: false`` so an unfinished form can be kept."""
+    if not isinstance(data, dict) or "strict" not in data:
+        return True
+    return data.get("strict") is not False
+
+
+def _definition_from_body(data, *, strict=True):
     """Normalize a definition, YAML document, or the current builder payload."""
     if data.get("yaml") not in (None, ""):
         try:
@@ -133,6 +140,13 @@ def _definition_from_body(data):
             raise ServiceError(400, errors=[dict(FieldError("", "invalid_type", "Definition must be an object."))])
         return normalize(definition)
     if "payload" in data:
+        if not strict:
+            raw, _build_errors = payload_to_raw(data["payload"])
+            if not isinstance(raw, dict):
+                raise ServiceError(
+                    400, errors=[dict(FieldError("", "invalid_type", "Builder payload must be an object."))]
+                )
+            return normalize(raw)
         try:
             return definition_from_builder(data["payload"])
         except BuilderValidationError as exc:
@@ -390,9 +404,23 @@ class BuilderValidateView(APIView):
         data, failure = _load_body(request)
         if failure is not None:
             return failure
+        build_errors = []
         try:
-            definition = _definition_from_body(data)
-            repo = _repository(user, data.get("repository"))
+            if isinstance(data, dict) and "payload" in data:
+                raw, build_errors = payload_to_raw(data["payload"])
+                try:
+                    definition = normalize(raw) if isinstance(raw, dict) else {}
+                except Exception as exc:
+                    definition = raw if isinstance(raw, dict) else {}
+                    build_errors = list(build_errors) + [FieldError("", "yaml", str(exc))]
+                try:
+                    repo = _repository(user, data.get("repository"))
+                except ServiceError as exc:
+                    repo = None
+                    build_errors = list(build_errors) + list(exc.payload.get("errors") or [])
+            else:
+                definition = _definition_from_body(data)
+                repo = _repository(user, data.get("repository") if isinstance(data, dict) else None)
         except ServiceError as exc:
             if exc.status != 400:
                 return _service_response(exc)
@@ -400,9 +428,11 @@ class BuilderValidateView(APIView):
         except Exception as exc:
             return Response(_errors_payload([FieldError("", "yaml", str(exc))]), status=200)
         try:
-            errors = validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
+            errors = list(build_errors) + list(
+                validate(definition, repo=repo, enforce_policy=True, check_scripts=repo is not None)
+            )
         except Exception as exc:
-            errors = [FieldError("", "yaml", str(exc))]
+            errors = list(build_errors) + [FieldError("", "yaml", str(exc))]
         yaml_text = ""
         references = {"inputs": [], "results": []}
         try:
@@ -456,6 +486,68 @@ class BuilderRefactorView(APIView):
         return Response({"definition": updated, "changes": changes})
 
 
+class BuilderLaunchPreviewView(APIView):
+    """Render the launch form for a definition that has not been published yet."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(responses={200: OpenApiResponse(description="HTML launch-form preview"), 403: DetailSerializer})
+    def post(self, request):
+        """Return an HTML fragment. Labels are escaped by the template."""
+        from django.shortcuts import render
+
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+            or user.has_perm("nautobot_workflow_engine.view_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        try:
+            definition = _definition_from_body(data, strict=False)
+        except ServiceError as exc:
+            return _service_response(exc)
+        if not isinstance(definition, dict):
+            definition = {}
+        fields = [_preview_field(item) for item in definition.get("inputs") or [] if isinstance(item, dict)]
+        response = render(
+            getattr(request, "_request", request),
+            "nautobot_workflow_engine/partials/launch_preview.html",
+            {"fields": fields},
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+def _preview_field(item):
+    """Describe one launch-form control without writing database rows."""
+    kind = item.get("type") or "string"
+    choices = []
+    raw_choices = item.get("choices")
+    if isinstance(raw_choices, list):
+        for choice in raw_choices:
+            if isinstance(choice, dict):
+                choices.append({"value": choice.get("value"), "label": choice.get("label") or choice.get("value")})
+            elif choice not in (None, ""):
+                choices.append({"value": choice, "label": str(choice)})
+    show_if = item.get("show_if")
+    return {
+        "key": item.get("key") or "",
+        "label": item.get("label") or item.get("key") or "Field",
+        "type": kind,
+        "required": bool(item.get("required")),
+        "help": item.get("help_text") or "",
+        "choices": choices,
+        "model": item.get("model") or "",
+        "depends_on": item.get("depends_on") if isinstance(item.get("depends_on"), list) else [],
+        "show_if": show_if if isinstance(show_if, (dict, str)) else "",
+    }
+
+
 _WRITE = {
     200: RevisionSerializer,
     201: WorkflowDetailSerializer,
@@ -490,7 +582,8 @@ class WorkflowViewSet(ViewSet):
         if failure is not None:
             return failure
         try:
-            definition = _definition_from_body(data)
+            strict = _wants_strict(data)
+            definition = _definition_from_body(data, strict=strict)
             repo = _repository(request.user, data.get("repository") or (data.get("payload") or {}).get("source_repo"))
             workflow, _revision = create_draft(
                 user=request.user,
@@ -498,11 +591,17 @@ class WorkflowViewSet(ViewSet):
                 repository=repo,
                 comment=data.get("comment") or "",
                 source=WorkflowRevision.SOURCE_API,
+                strict=strict,
             )
         except ServiceError as exc:
             return _service_response(exc)
         return Response(
-            {"workflow": _summary(workflow), "revision": _revision_payload(workflow.draft_revision)}, status=201
+            {
+                "workflow": _summary(workflow),
+                "revision": _revision_payload(workflow.draft_revision),
+                "errors": list(getattr(workflow, "_draft_errors", []) or []),
+            },
+            status=201,
         )
 
     @extend_schema(responses={200: WorkflowDetailSerializer, 403: DetailSerializer, 404: DetailSerializer})
@@ -534,7 +633,8 @@ class WorkflowViewSet(ViewSet):
                 status=400,
             )
         try:
-            definition = _definition_from_body(data)
+            strict = _wants_strict(data)
+            definition = _definition_from_body(data, strict=strict)
             revision = update_draft(
                 user=request.user,
                 workflow=workflow,
@@ -545,10 +645,13 @@ class WorkflowViewSet(ViewSet):
                 base_content_hash=data.get("base_content_hash"),
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
+                strict=strict,
             )
         except ServiceError as exc:
             return _service_response(exc)
-        return Response({"revision": _revision_payload(revision)})
+        return Response(
+            {"revision": _revision_payload(revision), "errors": list(getattr(revision, "_draft_errors", []) or [])}
+        )
 
     @extend_schema(responses=_WRITE)
     def publish_revision(self, request, key=None):
@@ -730,12 +833,18 @@ class WorkflowViewSet(ViewSet):
         workflow = _visible(request.user, key, "publish")
         if workflow.source_repo_id is None:
             return Response({"detail": "This workflow has no Git repository."}, status=400)
+        from nautobot.extras.secrets.exceptions import SecretError
+
         from nautobot_workflow_engine.utilities.git_publish import publish_repository
 
         workflow.git_status = "pending"
         workflow.git_next_retry_at = None
         workflow.save(update_fields=["git_status", "git_next_retry_at", "last_updated"])
-        publish_repository(workflow.source_repo_id, request.user)
+        try:
+            publish_repository(workflow.source_repo_id, request.user)
+        except SecretError:
+            # The row already records a sanitized failure. Retry now should show that, not a 500.
+            pass
         workflow.refresh_from_db()
         return Response(_git_status_payload(workflow), status=202)
 

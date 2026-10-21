@@ -253,7 +253,20 @@ class DynamicWorkflowForm(forms.Form):
             for dep in wi.depends_on or []:
                 if not cleaned_data.get(dep):
                     return False
-            if wi.visible_when:
+            if isinstance(wi.visible_when, str) and wi.visible_when.strip():
+                from nautobot_workflow_engine.executors import SafeUser, _render
+
+                context = {"inputs": cleaned_data or {}}
+                request_user = getattr(getattr(self, "request", None), "user", None)
+                if request_user is not None and getattr(request_user, "is_authenticated", False):
+                    context["user"] = SafeUser.from_user(request_user)
+                try:
+                    rendered = _render(wi.visible_when, context, repo=getattr(self.workflow, "source_repo", None))
+                except Exception:
+                    return False
+                text = str(rendered or "").strip().lower()
+                return text not in ("", "false", "none", "0", "no")
+            if isinstance(wi.visible_when, dict) and wi.visible_when:
                 # Handle multiple show_if conditions - ALL must be satisfied
                 for ctrl_key, ctrl_val in wi.visible_when.items():
                     ctrl_vals = ctrl_val if isinstance(ctrl_val, list) else [ctrl_val]
@@ -310,8 +323,9 @@ class DynamicWorkflowForm(forms.Form):
                             cleaned_data[wi.key] = json.loads(multiobject_value)
                         except (json.JSONDecodeError, ValueError):
                             cleaned_data[wi.key] = []
-                # Client-side validation handles required fields - skip server-side validation
-                pass
+                value = cleaned_data.get(wi.key)
+                if isinstance(value, str):
+                    self._apply_pattern_validators(wi.key, value, wi.validators)
             else:
                 cleaned_data[wi.key] = None  # Hide field if not visible
 
@@ -410,6 +424,24 @@ class DynamicWorkflowForm(forms.Form):
             except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
+
+    def _apply_pattern_validators(self, field_name, value, validators):
+        """Reject a value that misses an author-supplied pattern. Flags use Python names."""
+        if not isinstance(validators, list) or not value:
+            return
+        for validator in validators:
+            if not isinstance(validator, dict) or not validator.get("regex"):
+                continue
+            try:
+                regex = re.compile(validator["regex"], flags=self._resolve_regex_flags(validator.get("flags")))
+            except re.error:
+                self.add_error(field_name, "This field has an invalid pattern.")
+                continue
+            if regex.search(value) is None:
+                self.add_error(
+                    field_name,
+                    validator.get("message") or "This value does not match the required pattern.",
+                )
 
     def _resolve_regex_flags(self, flag_names):
         """Translate serialized regex flags into Python re flags."""

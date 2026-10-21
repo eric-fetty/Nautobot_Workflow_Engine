@@ -1,6 +1,6 @@
 """Convert the current builder page payload to and from a canonical definition.
 
-The page still edits this payload until the M4 UI. Saving it runs the same
+The builder page edits this payload. Saving it runs the same
 normalize and validate pipeline as Git sync and the API.
 """
 

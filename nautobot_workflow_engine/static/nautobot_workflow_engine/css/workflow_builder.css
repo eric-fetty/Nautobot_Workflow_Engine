@@ -1,0 +1,90 @@
+.nwe-builder {
+    padding-bottom: 5rem;
+}
+
+.nwe-rail {
+    position: sticky;
+    top: 4.5rem;
+}
+
+.nwe-savebar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+}
+
+.nwe-yaml {
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+}
+
+.nwe-input-summary {
+    cursor: pointer;
+}
+
+.nwe-validator .btn {
+    white-space: nowrap;
+}
+
+.nwe-jinja {
+    position: relative;
+}
+
+.nwe-jinja-highlight,
+.nwe-jinja textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0.375rem 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.nwe-jinja-highlight {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    color: transparent;
+    border: 1px solid transparent;
+}
+
+.nwe-jinja-highlight .nwe-token {
+    color: var(--bs-primary);
+    background: rgba(13, 110, 253, 0.12);
+    border-radius: 0.2rem;
+}
+
+.nwe-jinja textarea {
+    position: relative;
+    background: transparent;
+    resize: vertical;
+}
+
+.nwe-suggest {
+    position: absolute;
+    z-index: 5;
+    left: 0;
+    right: 0;
+    max-height: 12rem;
+    overflow: auto;
+}
+
+.nwe-multiselect-list {
+    max-height: 10rem;
+    overflow: auto;
+}
+
+@media (max-width: 991.98px) {
+    .nwe-rail {
+        position: static;
+    }
+
+    .nwe-rail .nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+}

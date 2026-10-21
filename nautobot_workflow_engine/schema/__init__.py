@@ -74,7 +74,7 @@ def action_type_choices():
 
 def phase_choices():
     """Return ``(value, label)`` pairs for action phases."""
-    labels = {"pre": "Pre-Action", "main": "Main Action", "post": "Post-Action"}
+    labels = {"pre": "Before", "main": "Main", "post": "Always after"}
     return [(phase, labels[phase]) for phase in PHASES]
 
 

@@ -18,8 +18,8 @@
       "title": "Key",
       "description": "Stable slug. It does not change after the first publish.",
       "x-ui": {
-        "label": "Key",
-        "help": "Letters, numbers, hyphens, and underscores. This slug does not change after publish. YAML key: key.",
+        "label": "Workflow ID",
+        "help": "Used in URLs, the Git file name, and approvals. Generated from the name. Can't be changed after the first publish. YAML key: key.",
         "widget": "text",
         "group": "details",
         "advanced": false,
@@ -73,8 +73,8 @@
       "title": "Approval required",
       "description": "When true on Nautobot 3.2+, launches can enter the approval pipeline.",
       "x-ui": {
-        "label": "Approval required",
-        "help": "Requires Nautobot 3.2 or newer. Launches can wait for approval. YAML key: approval_required.",
+        "label": "Require approval before running",
+        "help": "Needs Nautobot 3.2 or newer and at least one approval stage. YAML key: approval_required.",
         "widget": "checkbox",
         "group": "details",
         "advanced": false,
@@ -87,8 +87,8 @@
       "title": "Manual duration",
       "description": "Minutes this work would take without automation.",
       "x-ui": {
-        "label": "Manual duration (minutes)",
-        "help": "Minutes this work would take by hand. Used on the dashboard. YAML key: manual_duration_minutes.",
+        "label": "Time saved per run (minutes)",
+        "help": "How long this takes by hand. Used by the Dashboard. YAML key: manual_duration_minutes.",
         "widget": "number",
         "group": "details",
         "advanced": true,
@@ -98,8 +98,8 @@
     "schedule": {
       "$ref": "#/$defs/schedule",
       "x-ui": {
-        "label": "Schedule",
-        "help": "When the workflow may run. YAML key: schedule.",
+        "label": "ServiceNow change window",
+        "help": "Lets people run this workflow inside an approved ServiceNow change window. YAML key: schedule.servicenow.",
         "widget": "schedule",
         "group": "schedule",
         "advanced": false,
@@ -134,7 +134,7 @@
       ],
       "x-ui": {
         "label": "Before",
-        "help": "Steps that run before the main steps. A failure stops the run. YAML key: pre_actions.",
+        "help": "Runs first, and also when a scheduled run is created. If one fails, nothing else runs. YAML key: pre_actions.",
         "widget": "list",
         "group": "steps",
         "advanced": false,
@@ -153,7 +153,7 @@
       ],
       "x-ui": {
         "label": "Main",
-        "help": "The main steps, in order. YAML key: actions.",
+        "help": "Runs in order. A failure is recorded and the remaining main steps still run. YAML key: actions.",
         "widget": "list",
         "group": "steps",
         "advanced": false,
@@ -172,8 +172,8 @@
         "after-actions"
       ],
       "x-ui": {
-        "label": "After",
-        "help": "Steps that always run last. YAML key: post_actions.",
+        "label": "Always after",
+        "help": "Always runs last, even after failures. Its failure does not fail the run. YAML key: post_actions.",
         "widget": "list",
         "group": "steps",
         "advanced": false,
@@ -197,8 +197,8 @@
           "pattern": "^[-a-zA-Z0-9_]+$",
           "title": "Key",
           "x-ui": {
-            "label": "Key",
-            "help": "Variable name. Refer to it as {{ inputs.<key> }}. YAML key: key.",
+            "label": "Variable name",
+            "help": "Use it as {{ inputs.<name> }}. Generated from the label. YAML key: key.",
             "widget": "text",
             "group": "inputs",
             "advanced": false,
@@ -233,22 +233,22 @@
           ],
           "title": "Type",
           "x-ui": {
-            "label": "Type",
-            "help": "Text, whole number, yes/no, choice, Nautobot object, list, or table. YAML key: type.",
+            "label": "Field type",
+            "help": "Text, whole number, yes/no, pick one, pick many, Nautobot object, list of text, or table. YAML key: type.",
             "widget": "select",
             "group": "inputs",
             "advanced": false,
             "code": false,
             "labels": {
-              "string": "String",
-              "integer": "Integer",
-              "boolean": "Boolean",
-              "choice": "Choice",
-              "multichoice": "Multi-choice",
-              "object": "Object",
-              "multiobject": "Multi-object",
-              "list": "List",
-              "listdict": "List of dictionaries"
+              "string": "Text",
+              "integer": "Whole number",
+              "boolean": "Yes/No",
+              "choice": "Pick one",
+              "multichoice": "Pick many",
+              "object": "Nautobot object",
+              "multiobject": "Nautobot objects",
+              "list": "List of text",
+              "listdict": "Table"
             }
           }
         },
@@ -309,8 +309,8 @@
           },
           "title": "Depends on",
           "x-ui": {
-            "label": "Depends on",
-            "help": "Other inputs that must have a value first. Select more than one. Clear the selection to remove them. YAML key: depends_on.",
+            "label": "Wait for these fields",
+            "help": "This field stays hidden until the listed fields have values. Their values can be used in this field's filter. Select more than one, or clear the list. YAML key: depends_on.",
             "widget": "multiselect",
             "group": "inputs",
             "advanced": false,
@@ -321,8 +321,8 @@
         "show_if": {
           "title": "Show if",
           "x-ui": {
-            "label": "Show if",
-            "help": "When to show this input. Use field and value rows, or a Jinja template such as {{ inputs.confirm }}. Jinja2 is allowed. YAML key: show_if.",
+            "label": "Show only when",
+            "help": "Show this field only when the condition is true. Every row must match, or write a Jinja template. Jinja2 is allowed. YAML key: show_if.",
             "widget": "conditions",
             "group": "inputs",
             "advanced": false,
@@ -366,8 +366,8 @@
           "pattern": "^[A-Za-z_][\\w]*\\.[A-Za-z_][\\w]*$",
           "title": "Model",
           "x-ui": {
-            "label": "Model",
-            "help": "Nautobot model, for example dcim.Device. YAML key: model.",
+            "label": "Object type",
+            "help": "Which Nautobot object this field picks, for example a device. YAML key: model.",
             "widget": "select",
             "group": "inputs",
             "advanced": false,
@@ -381,8 +381,8 @@
             "query": {
               "title": "Filter query",
               "x-ui": {
-                "label": "Filter query",
-                "help": "ORM lookup or a Jinja template. Jinja2 is allowed. YAML key: filter.query.",
+                "label": "Only show objects where",
+                "help": "Limit the objects offered. A Jinja template is allowed. Jinja2 is allowed. YAML key: filter.query.",
                 "widget": "filter",
                 "group": "inputs",
                 "advanced": false,
@@ -422,8 +422,8 @@
           },
           "title": "Validators",
           "x-ui": {
-            "label": "Validators",
-            "help": "Patterns the value must match, each with a message and flags. YAML key: validators.",
+            "label": "Validation rules",
+            "help": "A pattern the value must match, plus the error text people see. YAML key: validators.",
             "widget": "validators",
             "group": "inputs",
             "advanced": true,
@@ -668,8 +668,8 @@
             "advanced": false,
             "code": false,
             "labels": {
-              "nautobot": "Nautobot",
-              "awx": "AWX"
+              "nautobot": "Run Nautobot script",
+              "awx": "Launch AWX job template"
             }
           }
         },
@@ -679,8 +679,8 @@
           "maxLength": 200,
           "title": "Name",
           "x-ui": {
-            "label": "Name",
-            "help": "Step name. Results are available as {{ results.<name> }}. Must be unique. YAML key: name.",
+            "label": "Step name",
+            "help": "Results are available as {{ results.<name> }}. The name must be unique. YAML key: name.",
             "widget": "text",
             "group": "steps",
             "advanced": false,
@@ -692,7 +692,7 @@
           "maxLength": 10240,
           "title": "Condition",
           "x-ui": {
-            "label": "Condition",
+            "label": "Run only if",
             "help": "Run this step only when the condition is true. Jinja2 is allowed, for example {{ inputs.confirm }}. YAML key: when.",
             "widget": "template",
             "group": "steps",
@@ -719,8 +719,8 @@
           "additionalProperties": true,
           "title": "Parameters",
           "x-ui": {
-            "label": "Parameters",
-            "help": "Parameters passed to the script. Values may be Jinja templates. Jinja2 is allowed. YAML key: with.",
+            "label": "Script parameters",
+            "help": "Values passed to the script. Each value can be a Jinja template. Jinja2 is allowed. YAML key: with.",
             "widget": "mapping",
             "group": "steps",
             "advanced": false,
@@ -732,8 +732,8 @@
           "minimum": 1,
           "title": "AWX template",
           "x-ui": {
-            "label": "Job template ID",
-            "help": "Numeric AWX job template ID. YAML key: template_id.",
+            "label": "Job template",
+            "help": "The numeric job template ID from AWX. YAML key: template_id.",
             "widget": "number",
             "group": "steps",
             "advanced": false,
@@ -745,8 +745,8 @@
           "additionalProperties": true,
           "title": "Extra vars",
           "x-ui": {
-            "label": "Extra vars",
-            "help": "Variables passed to the AWX job. Values may be Jinja templates. Jinja2 is allowed. YAML key: extra_vars.",
+            "label": "Extra variables",
+            "help": "Variables passed to the AWX job. Each value can be a Jinja template. Jinja2 is allowed. YAML key: extra_vars.",
             "widget": "mapping",
             "group": "steps",
             "advanced": false,
@@ -757,8 +757,8 @@
           "type": "boolean",
           "title": "Monitor",
           "x-ui": {
-            "label": "Wait for the job",
-            "help": "Wait for the AWX job to finish. YAML key: monitor.",
+            "label": "Wait for the AWX job to finish",
+            "help": "The step waits until AWX reports the job is done. YAML key: monitor.",
             "widget": "checkbox",
             "group": "steps",
             "advanced": false,
@@ -777,8 +777,8 @@
         }
       },
       "x-ui": {
-        "label": "Schedule",
-        "help": "When the workflow may run. YAML key: schedule.",
+        "label": "ServiceNow change window",
+        "help": "Lets people run this workflow inside an approved ServiceNow change window. YAML key: schedule.servicenow.",
         "widget": "schedule",
         "group": "schedule",
         "advanced": false,

@@ -261,7 +261,7 @@ def publish_repository(repository_id, user, job_logger=None, job_result=None, lo
     try:
         return _publish_locked(repository, user, log, job_result)
     except SecretError:
-        _fail(repository, "E-NWE-203 The repository secret could not be read.", job_result, log)
+        _fail(repository, "E-NWE-203 The Git token could not be read.", job_result, log)
         raise
     except Exception as exc:
         _fail(repository, readable_failure(exc, repository), job_result, log)
@@ -322,7 +322,7 @@ def readable_failure(exc, repository):
         return "E-NWE-204 Push rejected: non-fast-forward retries ran out."
     if isinstance(exc, SecretError) or "secret" in lowered or "authentication" in lowered or "401" in lowered:
         if "no http token" in lowered or "token not found" in lowered:
-            return "E-NWE-203 The repository's secrets group has no HTTP token."
+            return "E-NWE-203 No HTTP token is configured for this repository."
         return f"E-NWE-203 {text}"[:500]
     if "path_exists" in lowered:
         return text

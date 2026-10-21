@@ -186,3 +186,29 @@ class GitPushResponseTestCase(BareRepoMixin, TransactionTestCase):
         self.assertEqual(saved.name, "Saved anyway")
         self.assertEqual(saved.git_status, "not_synced")
         self.assertNotIn(TOKEN_VALUE, saved.git_error)
+
+    def test_retry_returns_status_when_the_secret_cannot_be_read(self):
+        from nautobot.extras.secrets.exceptions import SecretError
+
+        saved, _revision = self.save_and_push(self.definition(key="secret-retry", name="Secret retry"))
+        saved.git_status = GIT_STATUS_NOT_SYNCED
+        saved.git_error = "E-NWE-203 earlier"
+        saved.save(update_fields=["git_status", "git_error", "last_updated"])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        push_url = reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-push", kwargs={"key": saved.key})
+
+        def boom(record):
+            raise SecretError(record, "environment-variable", f"cannot read {TOKEN_VALUE}")
+
+        with patch(
+            "nautobot.extras.datasources.git.get_repo_from_url_to_path_and_from_branch",
+            side_effect=boom,
+        ):
+            retry = client.post(push_url)
+        self.assertEqual(retry.status_code, 202, getattr(retry, "data", retry.content))
+        self.assertEqual(retry.data["git_status"], "not_synced")
+        self.assertIn("E-NWE-203", retry.data["git_error"])
+        self.assertNotIn(TOKEN_VALUE, retry.content.decode())
+        saved.refresh_from_db()
+        self.assertEqual(saved.name, "Secret retry")

@@ -58,6 +58,16 @@ class InputOptionsSecurityTestCase(TestCase):
             kwargs={"key": self.workflow.key, "child": "tag"},
         )
 
+    def test_filter_template_can_use_the_signed_in_user(self):
+        grant(self.user, ["view"], Tag)
+        self.workflow_input.filter_query = {"name__icontains": "{{ user.username }}"}
+        self.workflow_input.save()
+        mine = Tag.objects.create(name="picker-only")
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200, response.content)
+        values = [item["value"] for item in response.json()["options"]]
+        self.assertEqual(values, [str(mine.pk)])
+
     def test_queryset_is_restricted(self):
         grant(self.user, ["view"], Tag, constraints={"name": "lab-a"})
         response = self.client.get(self.url)
