@@ -1451,3 +1451,74 @@ body.nwe-studio-body #header > .container-fluid {
     overflow-wrap: anywhere;
     white-space: pre-wrap;
 }
+
+/* ---------- timezone picker (B11) ---------- */
+.nwe-tz {
+    position: relative;
+    max-width: 26rem;
+}
+
+.nwe-tz-input {
+    padding-right: 7.5rem;
+    cursor: pointer;
+}
+
+.nwe-tz-input:focus {
+    cursor: text;
+}
+
+.nwe-tz-off {
+    position: absolute;
+    top: 50%;
+    right: 2.1rem;
+    transform: translateY(-50%);
+    color: var(--nwe-muted);
+    font-family: var(--nwe-mono);
+    font-size: 0.75rem;
+    pointer-events: none;
+}
+
+.nwe-tz-chev {
+    position: absolute;
+    top: 50%;
+    right: 0.7rem;
+    transform: translateY(-50%);
+    color: var(--nwe-muted);
+    pointer-events: none;
+}
+
+.nwe-tz-list {
+    width: 100%;
+    min-width: 0;
+    max-height: 19rem;
+}
+
+.nwe-tz-list .nwe-pop-item {
+    gap: 0.4rem;
+}
+
+.nwe-tz-list .nwe-pop-item small {
+    font-family: var(--nwe-mono);
+    font-size: 0.72rem;
+}
+
+.nwe-tz-list .nwe-pop-item.on {
+    color: var(--nwe-accent-text);
+    font-weight: 600;
+}
+
+.nwe-tz-check {
+    display: inline-flex;
+    width: 1rem;
+    color: var(--nwe-accent-text);
+}
+
+.nwe-tz-check .mdi {
+    color: inherit;
+}
+
+.nwe-tz-empty {
+    padding: 0.6rem;
+    color: var(--nwe-muted);
+    font-size: 0.82rem;
+}

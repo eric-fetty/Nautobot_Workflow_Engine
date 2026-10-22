@@ -38,7 +38,6 @@ from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_wo
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
 from .launch_ui import launch_context, option_meta, related_for_meta
-from .script_params import script_parameters
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -58,9 +57,19 @@ from .schema.policy import (
     lookup_allowed,
     script_path_allowed,
 )
+from .script_params import script_parameters
 from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
-from .services import STATUS_HELP, ServiceError, duplicate_workflow, git_stale_banner, publish, status_label, update_draft
+from .services import (
+    STATUS_HELP,
+    ServiceError,
+    duplicate_workflow,
+    git_stale_banner,
+    publish,
+    status_label,
+    update_draft,
+)
 from .tables import WorkflowTable
+from .timezones import timezone_choices
 
 logger = logging.getLogger(__name__)
 PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
@@ -1813,6 +1822,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "scripts_by_repo": scripts_by_repo,
         "scripts": scripts,
         "content_types": content_types,
+        "timezones": timezone_choices(),
         "snow_states": [
             "New",
             "Assess",

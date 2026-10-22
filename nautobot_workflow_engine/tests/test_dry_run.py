@@ -80,7 +80,12 @@ class DryRunTestCase(TestCase):
         """The builder's Preview run: resolves inputs, evaluates conditions, renders parameters. Nothing runs."""
         definition = json.loads(json.dumps(DEFINITION))
         definition["pre_actions"] = [
-            {"type": "nautobot", "name": "check", "script": "scripts/check.py", "with": {"device": "{{ inputs.device }}"}}
+            {
+                "type": "nautobot",
+                "name": "check",
+                "script": "scripts/check.py",
+                "with": {"device": "{{ inputs.device }}"},
+            }
         ]
         definition["post_actions"] = [
             {"type": "nautobot", "name": "note", "script": "scripts/note.py", "when": "{{ not inputs.confirm }}"}

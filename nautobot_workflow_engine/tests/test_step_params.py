@@ -105,7 +105,15 @@ class StepParamRoundTripTestCase(unittest.TestCase):
         payload = builder_from_definition(copy.deepcopy(DEFINITION))
         step = payload["actions"]["pre"][0]
         step.update(
-            {"type": "awx", "script": "", "with": {}, "template_id": 7, "template_name": "Ping", "extra_vars": {}, "monitor": True}
+            {
+                "type": "awx",
+                "script": "",
+                "with": {},
+                "template_id": 7,
+                "template_name": "Ping",
+                "extra_vars": {},
+                "monitor": True,
+            }
         )
         saved = definition_from_builder(payload)
         switched = saved["pre_actions"][0]

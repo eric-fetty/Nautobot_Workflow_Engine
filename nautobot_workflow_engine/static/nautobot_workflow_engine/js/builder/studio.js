@@ -268,6 +268,10 @@ function localIssues() {
     if (payload.schedule.enabled && !payload.schedule.integration_name) {
         buckets.schedule.push("Choose a ServiceNow connection.");
     }
+    const zone = payload.schedule.timezone;
+    if (payload.schedule.enabled && zone && config.timezones?.length && zone.toUpperCase() !== "UTC" && !config.timezones.some((item) => item.name === zone)) {
+        buckets.schedule.push(`“${zone}” isn’t a timezone. Choose one from the list.`);
+    }
     state.serverErrors.forEach((item) => {
         const section = item.section || "review";
         const bucket = buckets[section] ? section : "review";
@@ -1701,6 +1705,156 @@ function whenEditor(phase, action, index) {
     ]);
 }
 
+const FALLBACK_ZONES = [{ name: "UTC", offset: "UTC+00:00", common: true }];
+
+function zoneLabel(name) {
+    return String(name || "").replace(/_/g, " ");
+}
+
+/**
+ * Searchable timezone dropdown (combobox). Common zones first, then every zone
+ * Python's zoneinfo knows. Empty in the YAML means UTC.
+ */
+function timezonePicker(current) {
+    const zones = config.timezones && config.timezones.length ? config.timezones : FALLBACK_ZONES;
+    const known = new Map(zones.map((zone) => [zone.name, zone]));
+    let selected = current && known.has(current) ? current : current ? current : "UTC";
+    let open = false;
+    let rows = [];
+    let active = -1;
+    const listId = "nwe-tz-list";
+    const input = h("input", {
+        class: "form-control nwe-tz-input",
+        id: "nwe-tz",
+        role: "combobox",
+        autocomplete: "off",
+        spellcheck: "false",
+        "aria-autocomplete": "list",
+        "aria-label": "Change window timezone",
+        "aria-expanded": "false",
+        "aria-controls": listId,
+        value: zoneLabel(selected),
+    });
+    const offset = h("span", { class: "nwe-tz-off", "aria-hidden": "true", text: known.get(selected)?.offset || "" });
+    const chevron = h("span", { class: "nwe-tz-chev", "aria-hidden": "true" }, [icon("chevron-down")]);
+    const list = h("div", { class: "nwe-pop nwe-ac nwe-tz-list", id: listId, role: "listbox", hidden: "hidden" });
+    const wrap = h("div", { class: "nwe-tz" }, [input, offset, chevron, list]);
+
+    function matches(query) {
+        const needle = query.trim().toLowerCase().replace(/[\s_]+/g, " ");
+        if (!needle) return zones;
+        return zones.filter((zone) => `${zoneLabel(zone.name)} ${zone.offset}`.toLowerCase().includes(needle));
+    }
+
+    function paint(query) {
+        rows = matches(query);
+        const nodes = [];
+        const shown = rows.slice(0, 300);
+        let section = null;
+        shown.forEach((zone, index) => {
+            const group = query.trim() ? "Matches" : zone.common ? "Common" : "All timezones";
+            if (group !== section && !query.trim()) {
+                nodes.push(h("div", { class: "nwe-pop-sec", role: "presentation", text: group }));
+            }
+            section = group;
+            nodes.push(h("button", {
+                type: "button",
+                tabindex: "-1",
+                class: `nwe-pop-item${index === active ? " hl" : ""}${zone.name === selected ? " on" : ""}`,
+                role: "option",
+                id: `nwe-tz-opt-${index}`,
+                "aria-selected": zone.name === selected ? "true" : "false",
+                "data-zone": zone.name,
+            }, [
+                h("span", { class: "nwe-tz-check", "aria-hidden": "true" }, zone.name === selected ? [icon("check")] : []),
+                h("span", { class: "nwe-tz-name", text: zoneLabel(zone.name) }),
+                h("small", { text: zone.offset }),
+            ]));
+        });
+        if (!shown.length) nodes.push(h("div", { class: "nwe-tz-empty", text: `No timezone matches “${query.trim()}”.` }));
+        if (rows.length > shown.length) nodes.push(h("div", { class: "nwe-ac-foot", text: `${rows.length - shown.length} more. Keep typing to narrow it down.` }));
+        list.replaceChildren(...nodes);
+        input.setAttribute("aria-activedescendant", active >= 0 ? `nwe-tz-opt-${active}` : "");
+        list.querySelector(".hl")?.scrollIntoView({ block: "nearest" });
+    }
+
+    function show(query) {
+        open = true;
+        list.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+        active = Math.max(0, matches(query).findIndex((zone) => zone.name === selected));
+        paint(query);
+        if (!query) list.querySelector(".on")?.scrollIntoView({ block: "center" });
+    }
+
+    function hide() {
+        open = false;
+        list.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+    }
+
+    function choose(name) {
+        selected = name;
+        input.value = zoneLabel(name);
+        offset.textContent = known.get(name)?.offset || "";
+        hide();
+        assign("schedule.timezone", name);
+        touch();
+        const summary = wrap.closest("details")?.querySelector("summary");
+        if (summary) summary.textContent = `Advanced · timezone (${zoneLabel(name)}), ServiceNow field names, ticket pattern`;
+    }
+
+    input.addEventListener("focus", () => {
+        input.select();
+        show("");
+    });
+    input.addEventListener("click", () => {
+        if (!open) show("");
+    });
+    input.addEventListener("input", () => {
+        offset.textContent = "";
+        if (!open) show(input.value);
+        active = 0;
+        paint(input.value);
+    });
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (!open) return show("");
+            const count = Math.min(rows.length, 300);
+            if (!count) return;
+            active = (active + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+            paint(input.value === zoneLabel(selected) ? "" : input.value);
+        } else if (event.key === "Enter") {
+            if (!open) return;
+            event.preventDefault();
+            const zone = rows[active];
+            if (zone) choose(zone.name);
+        } else if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            input.value = zoneLabel(selected);
+            offset.textContent = known.get(selected)?.offset || "";
+            hide();
+        }
+    });
+    input.addEventListener("blur", () => {
+        window.setTimeout(() => {
+            if (wrap.contains(document.activeElement)) return;
+            input.value = zoneLabel(selected);
+            offset.textContent = known.get(selected)?.offset || "";
+            hide();
+        }, 120);
+    });
+    list.addEventListener("mousedown", (event) => event.preventDefault());
+    list.addEventListener("click", (event) => {
+        const item = event.target.closest("[data-zone]");
+        if (item) choose(item.dataset.zone);
+    });
+    return wrap;
+}
+
 function scheduleView() {
     const schedule = payload.schedule;
     const textInputs = payload.inputs.filter((input) => input.type === "string" && input.key);
@@ -1722,10 +1876,10 @@ function scheduleView() {
                     h("option", { value: "", text: "Choose an input…" }),
                     ...textInputs.map((input) => h("option", { value: input.key, text: input.label || input.key, selected: schedule.change_input_key === input.key })),
                 ])),
-                field("Window timezone", h("input", { class: "form-control", "data-bind": "schedule.timezone", value: schedule.timezone || "" })),
                 gridField("Allowed change states", h("div", { class: "nwe-checks" }, (config.snow_states || []).map((name) => checkChip({ "data-action": "snow-state", "data-state": name }, (schedule.allowed_states || []).includes(name), name))), "The run is only allowed while the change is in one of these states."),
-                h("details", {}, [
-                    h("summary", { text: "Advanced · ServiceNow field names, ticket pattern" }),
+                h("details", { class: "nwe-advanced", "data-adv": "schedule", open: state.openAdvanced === "schedule" ? true : null }, [
+                    h("summary", { text: `Advanced · timezone (${zoneLabel(schedule.timezone || "UTC")}), ServiceNow field names, ticket pattern` }),
+                    field("Change window timezone", timezonePicker(schedule.timezone || ""), "Used to read change window times that ServiceNow sends without a timezone. Defaults to UTC."),
                     field("Window start fields", h("input", { class: "form-control", "data-bind": "schedule.start_fields", value: (schedule.start_fields || []).join(", ") })),
                     field("Window end fields", h("input", { class: "form-control", "data-bind": "schedule.end_fields", value: (schedule.end_fields || []).join(", ") })),
                     field("Ticket pattern", h("input", { class: "form-control", "data-bind": "schedule.ticket_regex", value: schedule.ticket_regex || "" })),

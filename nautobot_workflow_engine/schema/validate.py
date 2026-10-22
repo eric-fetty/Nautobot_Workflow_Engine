@@ -1,8 +1,8 @@
 """JSON Schema plus semantic checks. Nothing here writes to the database."""
 
-import zoneinfo
 from jsonschema import Draft202012Validator
 
+from ..timezones import is_valid_timezone
 from . import ACTION_TYPES, PHASE_YAML_KEYS, TEMPLATE_SOURCE_LIMIT, load_schema
 from .errors import FieldError
 from .policy import script_path_allowed
@@ -481,7 +481,7 @@ def _schedule(definition, errors):
             FieldError(
                 "/schedule/servicenow/timezone",
                 "timezone_invalid",
-                "Enter a valid timezone, or leave this empty.",
+                "Choose a timezone from the list. Leave it empty to use UTC.",
                 section="schedule",
                 field_label="Timezone",
             )
@@ -489,13 +489,7 @@ def _schedule(definition, errors):
 
 
 def _timezone_exists(name):
-    if name.upper() == "UTC":
-        return True
-    try:
-        zoneinfo.ZoneInfo(name)
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
-        return False
-    return True
+    return is_valid_timezone(name)
 
 
 def reserved_key_errors(raw):
