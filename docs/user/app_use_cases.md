@@ -38,13 +38,15 @@ actions:
 
 Open **Workflows** and choose **New workflow** or **Edit**. The page has five steps: **Details**, **Inputs**, **Steps**, **Schedule & approval**, and **Review & publish**. A numbered stepper on the left shows a check, the step number, or an issue count. **Back** and **Next** move between steps. The Nautobot sidebar collapses to icons while the builder is open.
 
-Every change saves itself, within about a second, into one shared draft. There is no Save button. The header reads **Saving…**, then **Draft saved · just now**, or names the person who last edited the draft. People running the workflow keep the published version. A new workflow stays off Run until it is published. The status line is one of:
+Every change saves itself, within about a second, into one shared draft. There is no Save button. The header reads **Saving…**, then **Draft saved · just now**, or names the person who last edited the draft. People running the workflow keep the published version. A new workflow stays off Run until it is published. The status pill, in the header and on the Workflows list, is one of:
 
-- **Draft (not published yet)**
-- **Published vN · up to date**
-- **Published vN · draft changes**
+- **Draft**: never published. Only editors can see it.
+- **Published**: people run what the builder shows.
+- **Published · unpublished changes**: people run the published workflow; the draft has changes that are not live yet.
 
-**Publish changes** is enabled only when the draft differs from the published version and has no issues. Publishing saves version N with who, when, and an optional note, pushes that YAML to the workflow's Git repository, and makes it live immediately. Runs already in progress finish on the version they started with. **Discard draft** asks first. **Versions** lists published copies; **Restore into draft** copies one into the draft and does not make it live. **Test run** is a dry run of the draft. Without the publish permission the button is **Request publish**.
+Hover over or tab to the pill for a one-line explanation. The list filters use the same words: **All**, **Published**, **Unpublished changes**, and **Draft**. Version numbers do not appear in the status or on the buttons; they are listed only in **Versions** (in the **⋯** menu).
+
+The publish button reads **Publish** for a workflow that has never been published and **Publish changes** after that. It is enabled only when the draft differs from the published version and has no issues. Publishing adds an entry to Versions with who, when, and an optional note, pushes that YAML to the workflow's Git repository, and makes it live immediately. Runs already in progress finish on the version they started with. **Discard draft** asks first. **Versions** lists published copies; **Restore into draft** copies one into the draft and does not make it live. **Preview run** shows what the draft would do without running anything. Without the publish permission the button is **Request publish**.
 
 **Enabled** is a switch in the header and on the list. It applies immediately after the first publish and does not create a Git commit.
 
@@ -60,15 +62,32 @@ A table has a column editor. On the launch form the grid is editable. **Download
 
 ### Steps and ServiceNow
 
-Steps are a pipeline. **Before** stops the run when a step fails. **Main** records a failure and continues. **Always run at the end** runs even after failures. The card shows a label. The step key, used as `{{ results.<key> }}`, is under **Advanced** and locks after the first publish. **Run only if** runs the step only when the rendered value is `true`, `1`, `yes`, `on`, or `y`.
+Steps are a pipeline drawn on one timeline. **Before** stops the run when a step fails. **Main** records a failure and continues. **Always run at the end** runs even after failures. A **+** between steps inserts one at that point.
 
-**Schedule & approval** stores the ServiceNow change window. The connection is a Nautobot External Integration. The change-number field is one of the text inputs.
+Each step card has, in its header, **Move up**, **Move down**, **Duplicate**, and **Delete**, the same controls as an input row. Delete can be undone from the notice that follows.
 
-### Review, Edit YAML, and Test run
+In the step editor:
+
+- **Step type** is a segmented control: **Nautobot script** or **AWX job**. Switching keeps the name, key, condition, and phase. If the switch would drop the script or job settings or the parameters, the builder asks first and offers **Undo** afterwards.
+- **Step name** is what people see on the card, in run history, and in **What runs**. The step key, used as `{{ results.<key> }}`, is under **Advanced**. It is made from the name (lowercase, words joined with `_`) until you edit it, and it locks after the first publish because run history and later steps refer to it. Renaming an unpublished step updates later `{{ results.<key> }}` references.
+- **Parameters** lists what the script declares (from a module-level `PARAMETERS` dict, or read from `run()` when there is none; the script is never executed to find out). Each parameter has a mode:
+    - **From an input**: pick a launch-form input, and an attribute such as `id` or `name` for an object.
+    - **Fixed value**: a typed value, saved as-is.
+    - **Expression**: Jinja, with autocomplete for `inputs.` and `results.` (type, or press Ctrl+Space), a syntax check that names the problem and offers **Fix it** for typos, and a live preview rendered with the Launch form values.
+    The card summarises each parameter as a chip. The YAML is unchanged: modes are inferred from the value, so existing workflows open with the right mode.
+- **Run only if** runs the step only when the rendered value is `true`, `1`, `yes`, `on`, or `y`. It uses the same Jinja editor.
+
+**Schedule & approval** stores the ServiceNow change window. The connection is a Nautobot External Integration. The change-number field is one of the text inputs. Under **Advanced**, **Change window timezone** is a searchable list of every timezone Python's `zoneinfo` knows, common ones first, with the current UTC offset beside each. It defaults to UTC. The value is used for window times that ServiceNow returns without a timezone. Anything not in the list is rejected when you save.
+
+### Review, Edit YAML, and Preview run
 
 Review lists what changes for people running the workflow, in plain language, with the YAML diff under it. **Edit YAML** is for people with the *Author templates and scripts* permission. It parses into the draft and shows errors on the line they belong to.
 
-**Test run** uses the draft. It does not start a script, call AWX, create a workflow run, or schedule a job.
+**Preview run** (on **Review & publish**, under **What runs**, and in the **⋯** menu) uses the draft and the values in the **Launch form** preview. It never executes anything: it does not start a script, call AWX, create a workflow run, record an object change, or schedule a job. It:
+
+1. resolves the inputs, and lists any that are missing or invalid before showing a single step;
+2. evaluates each step's **Run only if** condition and says why a step would be skipped;
+3. renders each step's parameters with those values, and shows rendering errors on the step they belong to.
 
 See [Git and the builder](gitops_migration.md) and [Permissions](permissions.md).
 

@@ -6,7 +6,7 @@ The builder uses three workflow permissions. Object permissions still apply, so 
 | --- | --- |
 | `nautobot_workflow_engine.view_workflow` | See published workflows on the Workflows list and open Run. |
 | `nautobot_workflow_engine.add_workflow` | Create a workflow. The first edits are a shared draft. |
-| `nautobot_workflow_engine.change_workflow` | Edit the shared draft, discard it, restore a version into the draft, and run **Test run**. |
+| `nautobot_workflow_engine.change_workflow` | Edit the shared draft, discard it, restore a version into the draft, and run **Preview run**. |
 | `nautobot_workflow_engine.publish_workflow` | **Publish changes**, turn **Enabled** on or off, and retry a Git push. Without it the button is **Request publish**. |
 | `nautobot_workflow_engine.author_code_workflow` | Change Jinja that is not a single `{{ inputs... }}` or `{{ results... }}` reference, change a script path, and use **Edit YAML**. |
 
@@ -14,7 +14,7 @@ The builder uses three workflow permissions. Object permissions still apply, so 
 
 **Edit YAML** always asks for that permission, because a YAML document can change any code field. Someone without it still uses the form.
 
-**Test run** uses the change permission. It renders templates in the sandbox and does not write a run, a scheduled job, or an object change.
+**Preview run** uses the change permission. It renders templates in the sandbox and does not run a script, call AWX, or write a run, a scheduled job, or an object change.
 
 Every workflow opens in the same editor. There is no read-only Git workflow and no separate Launch or Manage menu. **Enabled** is Nautobot state: it applies immediately after the first publish and does not make a Git commit. A YAML `enabled:` value only sets that switch the first time the file is imported.
 
