@@ -2,6 +2,8 @@
 
 import { blankAction, blankInput, referencesTo, setPath, slugify } from "./store.js";
 import { createField } from "../shared/fields.js";
+import { jinjaEditor } from "../shared/jinja.js";
+import { fixedText, fixedValue, inputRef, isTemplate, paramMode } from "../shared/template.js";
 
 const configNode = document.getElementById("workflow-builder-config");
 const config = configNode ? JSON.parse(configNode.textContent) : {};
@@ -17,8 +19,10 @@ payload.inputs.forEach((input) => {
 });
 ["pre", "main", "post"].forEach((phase) => {
     (payload.actions[phase] || []).forEach((action) => {
-        action._nameTouched = Boolean(action.name);
         if (!action.label) action.label = action.name || "";
+        // The key keeps following the label until someone edits it by hand.
+        action._origName = action.name || "";
+        action._nameTouched = Boolean(action.name) && action.name !== keyFrom(action.label);
     });
 });
 
@@ -123,8 +127,9 @@ function inputLocked(input) {
     return (config.published_input_keys || []).includes(input.key) && input._keyTouched;
 }
 
+/** A step's key is fixed once a published version uses it: run history and later steps refer to it. */
 function stepLocked(action) {
-    return (config.published_step_names || []).includes(action.name) && action._nameTouched;
+    return Boolean(action._origName) && (config.published_step_names || []).includes(action._origName);
 }
 
 /** A deep copy of an input or step, without the builder's own bookkeeping timers. */
@@ -149,6 +154,90 @@ function stepReferences(name, self) {
     return allSteps()
         .filter((action) => action !== self && pattern.test(JSON.stringify([action.when || "", action.with || "", action.extra_vars || ""])))
         .map((action) => `“${action.label || action.name}”`);
+}
+
+/** Keep an unpublished step's key in step with its label, and point later references at the new key. */
+function followLabel(phase, index) {
+    const action = payload.actions[phase][index];
+    if (!action || action._nameTouched || stepLocked(action)) return;
+    const others = allSteps().filter((item) => item !== action).map((item) => item.name);
+    const next = uniqueKey(keyFrom(action.label) || "step", others);
+    if (next === action.name) return;
+    renameStepRefs(action.name, next, action);
+    action.name = next;
+    paintKey(phase, index);
+}
+
+function paintKey(phase, index) {
+    const action = payload.actions[phase][index];
+    const id = `${phase}:${index}`;
+    const box = app.querySelector(`[data-step-key="${id}"]`);
+    if (box && box !== document.activeElement) box.value = action.name || "";
+    const text = app.querySelector(`[data-step-key-text="${id}"]`);
+    if (text) text.textContent = action.name || "—";
+    const help = app.querySelector(`[data-step-key-help="${id}"]`);
+    if (help) help.replaceChildren(...keyHelp(action, phase, index));
+}
+
+function renameStepRefs(from, to, self) {
+    if (!from || from === to) return;
+    const pattern = new RegExp(`\\bresults\\.${from}\\b`, "g");
+    const swap = (value) => {
+        if (typeof value === "string") return value.replace(pattern, `results.${to}`);
+        if (Array.isArray(value)) return value.map(swap);
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, swap(item)]));
+        return value;
+    };
+    allSteps().forEach((action) => {
+        if (action === self) return;
+        if (action.when) action.when = swap(action.when);
+        if (action.with) action.with = swap(action.with);
+        if (action.extra_vars) action.extra_vars = swap(action.extra_vars);
+    });
+}
+
+/**
+ * Switch a step between a Nautobot script and an AWX job. The label, key,
+ * condition and phase (which sets what a failure does) stay; the script or
+ * template and its parameters can't carry over, so ask before dropping them.
+ */
+function sentence(text) {
+    return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+function changeStepType(phase, index, type) {
+    const row = payload.actions[phase][index];
+    if (!row || (row.type || "nautobot") === type) return;
+    const before = cloneRow(row);
+    const params = paramEntries(row).length;
+    const raw = row.type === "awx" ? row.extra_vars : row.with;
+    const lose = [];
+    if (row.type === "awx" ? row.template_name || row.template_id : row.script) lose.push(row.type === "awx" ? "the job template" : "the script");
+    if (params) lose.push(row.type === "awx" ? `${params} extra variable${params === 1 ? "" : "s"}` : `${params} parameter${params === 1 ? "" : "s"}`);
+    else if (typeof raw === "string" && raw.trim()) lose.push("the parameter template");
+    const target = type === "awx" ? "an AWX job" : "a Nautobot script";
+    const label = row.label || row.name || "this step";
+    if (lose.length && !window.confirm(`Change “${label}” to ${target}?\n\n${sentence(lose.join(" and "))} will be removed. The name, key, condition and phase stay.`)) {
+        renderEditor();
+        return;
+    }
+    row.type = type;
+    row.script = "";
+    row.with = {};
+    row.template_name = "";
+    row.template_id = null;
+    row.extra_vars = {};
+    row.monitor = type === "awx" ? true : null;
+    delete row._modes;
+    renderAll();
+    touch();
+    if (lose.length) {
+        toast(`Changed to ${target}.`, () => {
+            payload.actions[phase][index] = before;
+            renderAll();
+            touch();
+        });
+    }
 }
 
 function allSteps() {
@@ -851,7 +940,20 @@ function filterEditor(input, index) {
             h("button", { type: "button", class: "nwe-link muted ms-auto", "data-action": "filter-mode", "data-index": String(index) }, [icon(input.filter_mode === "jinja" ? "filter-variant" : "code-braces"), input.filter_mode === "jinja" ? "Back to the filter builder" : "Switch to advanced (Jinja)"]),
         ]),
         input.filter_mode === "jinja"
-            ? h("textarea", { class: "form-control font-monospace", rows: "4", "data-bind": `inputs.${index}.filter_query`, value: input.filter_query || "" })
+            ? templateEditor({
+                value: input.filter_query || "",
+                phase: null,
+                index: 0,
+                rows: 4,
+                preview: false,
+                placeholder: "location: \"{{ inputs.location.id }}\"",
+                label: "Filter query",
+                onChange: (next) => {
+                    input.filter_query = next;
+                    touch();
+                    scheduleCount(index);
+                },
+            })
             : h("div", {}, [
                 ...(input.filter_rows || []).map((row, rowIndex) => filterRow(input, index, row, rowIndex)),
                 !(input.filter_rows || []).length ? h("div", { class: "form-text", text: `No conditions: every ${noun} is offered.` }) : null,
@@ -985,7 +1087,17 @@ function visibilityEditor(input, index) {
     if (advanced) {
         return h("div", {}, [
             h("label", { class: "form-label", text: "Visibility" }),
-            h("textarea", { class: "form-control font-monospace", rows: "2", "data-bind": `inputs.${index}.show_if`, value: typeof input.show_if === "string" ? input.show_if : "" }),
+            templateEditor({
+                value: typeof input.show_if === "string" ? input.show_if : "",
+                phase: null,
+                index: 0,
+                placeholder: "{{ inputs.mode == 'existing' }}",
+                label: "Show this field when",
+                onChange: (next) => {
+                    input.show_if = next;
+                    touch();
+                },
+            }),
             h("button", { type: "button", class: "nwe-link muted", "data-action": "show-visual", "data-index": String(index) }, [icon("filter-variant"), "Back to the condition builder"]),
         ]);
     }
@@ -1113,30 +1225,75 @@ function paramEntries(action) {
     return Object.entries(raw);
 }
 
+const INPUT_ICONS = {
+    string: "form-textbox",
+    integer: "numeric",
+    boolean: "toggle-switch-outline",
+    choice: "radiobox-marked",
+    multichoice: "checkbox-marked-outline",
+    object: "cube-outline",
+    multiobject: "cube-outline",
+    list: "format-list-bulleted",
+    listdict: "table",
+};
+
+/** How one parameter value reads in a sentence: an input chip, a literal, or an expression chip. */
 function valueChip(value) {
-    const text = String(value ?? "");
-    const match = text.match(/^\{\{\s*inputs\.([A-Za-z0-9_]+)(?:\.([A-Za-z0-9_.]+))?\s*\}\}$/);
-    if (!match) return h("span", { text });
-    const input = inputByKey(match[1]);
-    const label = input ? input.label || input.key : match[1];
-    return h("span", { class: "nwe-var", text: match[2] ? `${label} › ${match[2]}` : label });
+    const read = paramMode(value);
+    if (read.mode === "input") {
+        const input = inputByKey(read.input);
+        if (!input) return h("span", { class: "nwe-var bad", title: "This input doesn’t exist" }, [icon("alert-circle-outline"), read.input]);
+        const label = input.label || input.key;
+        return h("span", { class: "nwe-var" }, [icon(INPUT_ICONS[input.type] || "form-textbox"), read.attr ? `${label} › ${read.attr}` : label]);
+    }
+    if (read.mode === "expr") {
+        const text = String(value).replace(/\s+/g, " ").trim();
+        return h("span", { class: "nwe-var expr", title: text }, [icon("code-braces"), text.length > 34 ? `${text.slice(0, 33)}…` : text]);
+    }
+    if (value === "" || value == null) return h("span", { class: "nwe-muted", text: "empty" });
+    if (typeof value === "boolean") return h("span", { class: "nwe-lit", text: value ? "Yes" : "No" });
+    return h("span", { class: "nwe-lit", text: fixedText(value) });
+}
+
+function scriptMeta(action) {
+    if (action.type === "awx" || !action.script) return null;
+    return (config.scripts || []).find((item) => item.path === action.script) || null;
+}
+
+function missingParams(action) {
+    const meta = scriptMeta(action);
+    if (!meta) return [];
+    const raw = action.with;
+    if (typeof raw === "string") return [];
+    const map = raw && typeof raw === "object" ? raw : {};
+    return (meta.params || []).filter((param) => param.required && (map[param.name] === undefined || map[param.name] === ""));
 }
 
 function stepSummary(action) {
     const bits = [];
+    const raw = action.type === "awx" ? action.extra_vars : action.with;
+    if (typeof raw === "string" && raw.trim()) bits.push(h("span", { class: "nwe-var expr" }, [icon("code-braces"), "a parameter template"]));
     paramEntries(action).forEach(([key, value], index) => {
         if (index) bits.push(", ");
-        bits.push(h("span", { class: "nwe-param", text: key }));
+        bits.push(h("span", { class: "nwe-pkey", text: key }));
         bits.push(" = ");
         bits.push(valueChip(value));
     });
+    const missing = missingParams(action);
+    const tail = missing.length ? [h("span", { class: "nwe-missing ms-1" }, [icon("alert-circle-outline"), `Needs ${missing.map((param) => param.name).join(", ")}`])] : [];
     if (action.type === "awx") {
-        if (!action.template_name) return h("span", { class: "nwe-missing", text: "Choose an AWX job template" });
-        return h("span", {}, ["Launch AWX template ", h("b", { text: action.template_name }), bits.length ? " with " : "", ...bits]);
+        if (!action.template_id) return h("span", { class: "nwe-missing" }, [icon("alert-circle-outline"), "Enter the AWX job template ID"]);
+        return h("span", {}, ["Launch AWX template ", h("b", { text: action.template_name || `#${action.template_id}` }), bits.length ? " with " : "", ...bits]);
     }
     const name = scriptName(action.script);
-    if (!name) return h("span", { class: "nwe-missing", text: "Choose which script to run" });
-    return h("span", {}, ["Run script ", h("b", { text: name }), bits.length ? " with " : "", ...bits]);
+    if (!name) return h("span", { class: "nwe-missing" }, [icon("alert-circle-outline"), "Choose which script to run"]);
+    return h("span", {}, ["Run script ", h("b", { text: name }), bits.length ? " with " : "", ...bits, ...tail]);
+}
+
+function paintStepSummary(phase, index) {
+    const node = app.querySelector(`[data-step-sum="${phase}:${index}"]`);
+    const action = (payload.actions[phase] || [])[index];
+    if (node && action) node.replaceChildren(stepSummary(action));
 }
 
 function whenPlain(action) {
@@ -1165,7 +1322,7 @@ function rowActions(kind, index, count, name, phase) {
 
 function stepCard(phase, action, index) {
     const open = state.openStep === `${phase}:${index}`;
-    const missing = action.type === "awx" ? !action.template_name && !action.template_id : !scriptName(action.script);
+    const missing = action.type === "awx" ? !action.template_id : !scriptName(action.script);
     const list = payload.actions[phase] || [];
     const name = action.label || action.name || "Untitled step";
     const flags = [];
@@ -1190,73 +1347,367 @@ function stepCard(phase, action, index) {
     ]);
 }
 
+const STEP_TYPES = [
+    ["nautobot", "Nautobot script", "script-text-outline"],
+    ["awx", "AWX job", "ansible"],
+];
+const PARAM_MODES = [
+    ["input", "From an input", "form-textbox"],
+    ["fixed", "Fixed value", "pencil-outline"],
+    ["expr", "Expression", "code-braces"],
+];
+const PARAM_TYPE_LABEL = { string: "text", integer: "number", boolean: "yes / no", object: "Nautobot object", multiobject: "Nautobot objects", list: "list", choice: "choice", dict: "mapping" };
+
 function stepEditor(phase, action, index) {
     const base = `actions.${phase}.${index}`;
     const scripts = (config.scripts || []).filter((item) => !payload.source_repo || item.repo === String(payload.source_repo));
     const choices = scripts.length ? scripts : (config.scripts || []);
+    const meta = scriptMeta(action);
+    const locked = stepLocked(action);
+    const key = action.name || "";
     return h("div", { class: "nwe-step-body" }, [
+        h("div", { class: "nwe-step-type" }, [
+            h("span", { class: "nwe-step-type-label", id: `nwe-type-${phase}-${index}`, text: "What it runs" }),
+            h("div", { class: "nwe-seg", role: "radiogroup", "aria-labelledby": `nwe-type-${phase}-${index}` }, STEP_TYPES.map(([type, label, glyph]) => {
+                const on = (action.type || "nautobot") === type;
+                return h("button", { type: "button", role: "radio", "aria-checked": on ? "true" : "false", class: on ? "on" : "", "data-action": "step-type", "data-type": type, "data-phase": phase, "data-index": String(index) }, [icon(glyph), label]);
+            })),
+        ]),
         h("div", { class: "nwe-grid" }, [
-            gridField("Step name", h("input", { class: "form-control", "data-bind": `${base}.label`, value: action.label || "" }), "A friendly label, shown on this card and in run history."),
+            gridField("Step name", h("input", { class: "form-control", "data-bind": `${base}.label`, value: action.label || "", placeholder: action.type === "awx" ? "Reboot the device" : "Check the device is reachable" }), "Shown on this card, in run history and in What happens."),
             action.type === "awx"
-                ? gridField("Job template", h("input", { class: "form-control", "data-bind": `${base}.template_name`, value: action.template_name || "", placeholder: "Network · Reboot device" }), "The template’s name. The numeric id stays under Advanced.")
+                ? gridField("Job template", h("div", { class: "nwe-template-pick" }, [
+                    h("input", { class: `form-control nwe-template-id ${action.template_id ? "" : "is-invalid"}`, type: "number", min: "1", "data-bind": `${base}.template_id`, value: action.template_id ?? "", placeholder: "ID", "aria-label": "Job template ID" }),
+                    h("input", { class: "form-control", "data-bind": `${base}.template_name`, value: action.template_name || "", placeholder: "Network · Reboot device", "aria-label": "Job template name" }),
+                ]), "Its ID in AWX, and the name people know it by (shown on this card).")
                 : gridField("Script", h("select", { class: `form-select ${scriptName(action.script) ? "" : "is-invalid"}`, "data-bind": `${base}.script` }, [
                     h("option", { value: "", text: "Choose a script…" }),
                     ...choices.map((item) => h("option", { value: item.path, text: item.name, selected: action.script === item.path })),
-                ]), scriptName(action.script) ? action.script : "Choose which script to run."),
-            h("div", { class: "nwe-span" }, [varsEditor(phase, action, index)]),
+                ]), meta ? (meta.params.length ? `${action.script} · asks for ${meta.params.length} parameter${meta.params.length === 1 ? "" : "s"}` : action.script) : "Choose which script to run."),
+            h("div", { class: "nwe-span" }, [paramsEditor(phase, action, index)]),
             action.type === "awx" ? h("div", { class: "nwe-span" }, [
-                h("label", { class: "nwe-switch" }, [
-                    h("input", { type: "checkbox", "data-bind": `${base}.monitor`, checked: Boolean(action.monitor) }),
-                    h("span", { class: "nwe-switch-ui" }),
-                    h("span", {}, [h("b", { text: "Wait for the AWX job to finish" }), h("small", { text: "The run waits until AWX reports success or failure." })]),
-                ]),
+                switchRow({ "data-bind": `${base}.monitor`, checked: action.monitor !== false }, "Wait for the AWX job to finish", "The run waits until AWX reports success or failure, so later steps can rely on it."),
             ]) : null,
             h("div", { class: "nwe-span" }, [whenEditor(phase, action, index)]),
         ]),
-        h("details", { class: "nwe-advanced" }, [
-            h("summary", { text: "Advanced · step key" }),
-            gridField(
-                "Step key",
-                h("input", { class: "form-control", "data-bind": `${base}.name`, value: action.name || "", disabled: stepLocked(action) }),
-                stepLocked(action) ? `Locked because v${config.published_number} uses it.` : `Made from the step name. Later steps use {{ results.${action.name || "name"} }}.`,
-            ),
-            action.type === "awx" ? gridField("Template id", h("input", { class: "form-control", type: "number", min: "1", "data-bind": `${base}.template_id`, value: action.template_id ?? "" }), "The numeric job template id AWX expects.") : null,
+        h("details", { class: "nwe-advanced", open: state.openAdvanced === `${phase}:${index}` ? true : null, "data-adv": `${phase}:${index}` }, [
+            h("summary", {}, ["Advanced", h("span", { class: "nwe-adv-key" }, [" · step key ", h("code", { "data-step-key-text": `${phase}:${index}`, text: key || "—" })])]),
+            h("div", { class: "nwe-grid" }, [
+                gridField(
+                    "Step key",
+                    h("div", { class: `nwe-keybox${locked ? " locked" : ""}` }, [
+                        h("input", { class: "form-control nwe-code", "data-bind": `${base}.name`, "data-step-key": `${phase}:${index}`, value: key, readonly: locked ? "readonly" : null, "aria-readonly": locked ? "true" : null, spellcheck: "false" }),
+                        locked ? h("span", { class: "nwe-keylock", title: "Locked", "aria-hidden": "true" }, [icon("lock-outline")]) : null,
+                    ]),
+                    null,
+                ),
+                h("div", { class: "nwe-span nwe-key-help", "data-step-key-help": `${phase}:${index}` }, keyHelp(action, phase, index)),
+            ]),
         ]),
     ]);
 }
 
-function varsEditor(phase, action, index) {
-    const entries = paramEntries(action);
-    const raw = action.type === "awx" ? action.extra_vars : action.with;
-    if (typeof raw === "string") {
-        return gridField(action.type === "awx" ? "Extra variables" : "Script parameters", h("textarea", { class: "form-control font-monospace", rows: "3", "data-bind": `actions.${phase}.${index}.${action.type === "awx" ? "extra_vars" : "with"}`, value: raw }));
+function keyHelp(action, phase, index) {
+    const key = action.name || "key";
+    const ref = h("code", { class: "nwe-code", text: `{{ results.${key} }}` });
+    if (stepLocked(action)) return [icon("lock-outline"), h("span", {}, ["Locked because the published version uses it: run history and later steps (", ref, ") refer to it."])];
+    if (action._nameTouched) {
+        return [h("span", {}, ["Later steps read this step’s result as ", ref, ". "]), h("button", { type: "button", class: "nwe-link", "data-action": "key-from-label", "data-phase": phase, "data-index": String(index) }, [icon("refresh"), "Make it from the step name again"])];
     }
-    return h("div", {}, [
-        h("label", { class: "form-label", text: action.type === "awx" ? "Extra variables" : "Script parameters" }),
-        ...entries.map(([key, value]) => h("div", { class: "nwe-var-row" }, [
-            h("input", { class: "form-control form-control-sm", "data-var-key": `${phase}:${index}`, "data-old": key, value: key }),
-            h("input", { class: "form-control form-control-sm", "data-var-val": `${phase}:${index}`, "data-old": key, value: value }),
-            h("button", { type: "button", class: "nwe-icon", "data-action": "rm-var", "data-phase": phase, "data-index": String(index), "data-key": key, text: "×" }),
-        ])),
-        h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-var", "data-phase": phase, "data-index": String(index), text: action.type === "awx" ? "+ Add variable" : "+ Add parameter" }),
+    return [h("span", {}, ["Made from the step name as you type. Later steps read its result as ", ref, ". It’s fixed once you publish."])];
+}
+
+/** Everything a template at this step can use, for autocomplete. */
+function referencesFor(phase, index) {
+    const items = [];
+    payload.inputs.forEach((input) => {
+        if (!input.key) return;
+        const label = input.label || input.key;
+        items.push({ path: `inputs.${input.key}`, detail: label, group: "Inputs" });
+        if (input.type === "object") {
+            items.push({ path: `inputs.${input.key}.id`, detail: `${label} › id`, group: "Inputs" });
+            items.push({ path: `inputs.${input.key}.name`, detail: `${label} › name`, group: "Inputs" });
+        }
+    });
+    earlierSteps(phase, index).forEach((action) => {
+        items.push({ path: `results.${action.name}`, detail: action.label || action.name, group: "Earlier steps" });
+        items.push({ path: `results.${action.name}.status`, detail: "succeeded / failed", group: "Earlier steps" });
+    });
+    [["user.username", "who started the run"], ["user.email", "their email"]].forEach(([path, detail]) => items.push({ path, detail, group: "Run" }));
+    return items;
+}
+
+function earlierSteps(phase, index) {
+    const order = PHASES.map(([name]) => name);
+    const stop = order.indexOf(phase);
+    const found = [];
+    order.forEach((name, phaseIndex) => {
+        (payload.actions[name] || []).forEach((action, actionIndex) => {
+            if (!action.name) return;
+            if (phaseIndex < stop || (phaseIndex === stop && actionIndex < index)) found.push(action);
+        });
+    });
+    return found;
+}
+
+/** Sample values for the live preview: what's in the Launch form preview, else a plausible example. */
+function sampleInputs() {
+    const out = {};
+    payload.inputs.forEach((input, inputIndex) => {
+        if (!input.key) return;
+        const filled = Object.prototype.hasOwnProperty.call(state.preview, input.key) ? state.preview[input.key] : previewDefault(input);
+        const empty = filled === undefined || filled === null || filled === "" || (Array.isArray(filled) && !filled.length);
+        const examples = (((state.match || {})[inputIndex] || {}).examples || (state.modelExamples || {})[input.model] || []);
+        const objectFor = (id) => {
+            const hit = examples.find((item) => String(item.id) === String(id));
+            return { id: String(id), name: hit ? hit.label : String(id) };
+        };
+        const firstObject = () => (examples[0] ? { id: String(examples[0].id), name: examples[0].label } : { id: "00000000-0000-0000-0000-000000000000", name: `example ${modelNouns(input.model)[0]}` });
+        const firstChoice = ((input.choices || [])[0] || {}).value ?? "";
+        switch (input.type) {
+            case "object": out[input.key] = empty ? firstObject() : objectFor(filled); break;
+            case "multiobject": out[input.key] = empty ? [firstObject()] : filled.map(objectFor); break;
+            case "boolean": out[input.key] = empty ? false : filled === true || filled === "true"; break;
+            case "integer": out[input.key] = empty ? Number(input.min_value || 1) : Number(filled); break;
+            case "list": out[input.key] = empty ? ["example"] : filled; break;
+            case "multichoice": out[input.key] = empty ? (firstChoice !== "" ? [firstChoice] : []) : filled; break;
+            case "choice": out[input.key] = empty ? firstChoice : filled; break;
+            case "listdict": out[input.key] = empty ? [Object.fromEntries((input.columns || []).map((column) => [column.key, column.type === "integer" ? 1 : column.type === "boolean" ? false : "example"]))] : filled; break;
+            default: out[input.key] = empty ? input.placeholder || "example" : filled;
+        }
+    });
+    return out;
+}
+
+function previewFilled() {
+    return Object.values(state.preview || {}).some((value) => value !== "" && value != null && !(Array.isArray(value) && !value.length));
+}
+
+async function renderTemplate(template, phase, index) {
+    if (!config.render_url) return { error: "" };
+    const results = Object.fromEntries(earlierSteps(phase, index).map((action) => [action.name, { status: "successful", output: "", result: {} }]));
+    const result = await api(config.render_url, { template, inputs: sampleInputs(), results });
+    if (!result.ok) return { error: (result.data && result.data.detail) || "The preview couldn’t be rendered." };
+    const error = result.data.error || "";
+    if (error && /results/.test(template) && /undefined/i.test(error)) return { error: "Uses a result field the preview can’t know yet. It’s filled in when the step runs." };
+    return { rendered: result.data.rendered, error, note: previewFilled() ? "with your Launch form preview values" : "with sample values" };
+}
+
+function templateEditor({ value, onChange, phase, index, rows, placeholder, label, preview }) {
+    return jinjaEditor({
+        value,
+        rows: rows || 1,
+        placeholder: placeholder || "{{ inputs.device.name }}",
+        label,
+        references: () => referencesFor(phase, index),
+        known: () => ({ inputs: payload.inputs.map((input) => input.key).filter(Boolean), results: earlierSteps(phase, index).map((action) => action.name) }),
+        render: preview === false ? null : (template) => renderTemplate(template, phase, index),
+        onChange,
+    }).el;
+}
+
+function paramsEditor(phase, action, index) {
+    const awx = action.type === "awx";
+    const field = awx ? "extra_vars" : "with";
+    const raw = action[field];
+    const title = awx ? "Extra variables" : "Parameters";
+    if (typeof raw === "string" && raw.trim()) {
+        return h("div", { class: "nwe-params" }, [
+            h("div", { class: "nwe-params-head" }, [h("label", { class: "form-label mb-0", text: title })]),
+            h("p", { class: "nwe-muted small mb-2", text: "These come from one template that renders to a mapping of names to values." }),
+            templateEditor({
+                value: raw,
+                rows: 3,
+                phase,
+                index,
+                label: title,
+                onChange: (value) => {
+                    action[field] = value;
+                    touch();
+                    paintStepSummary(phase, index);
+                },
+            }),
+        ]);
+    }
+    const meta = awx ? null : scriptMeta(action);
+    const declared = meta ? meta.params || [] : [];
+    const map = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const order = [...declared.map((param) => param.name).filter((name) => name in map), ...Object.keys(map).filter((name) => !declared.some((param) => param.name === name))];
+    const asks = declared.length ? h("div", { class: "nwe-asks" }, [
+        h("span", { class: "nwe-muted", text: meta.declared ? (awx ? "This template asks for:" : "This script asks for:") : "This script reads:" }),
+        ...declared.map((param) => {
+            const set = param.name in map;
+            if (set) return h("span", { class: "nwe-tag green" }, [icon("check"), param.name]);
+            return h("button", { type: "button", class: `nwe-tag ${param.required ? "red" : ""} nwe-tag-btn`, "data-action": "add-param", "data-key": param.name, "data-phase": phase, "data-index": String(index), title: param.required ? "Required. Click to add it." : "Optional. Click to add it." }, [icon(param.required ? "alert-circle-outline" : "plus"), param.name]);
+        }),
+    ]) : null;
+    return h("div", { class: "nwe-params" }, [
+        h("div", { class: "nwe-params-head" }, [
+            h("label", { class: "form-label mb-0", text: title }),
+            !meta && !awx && action.script ? h("span", { class: "nwe-muted small", text: "This script doesn’t list its parameters." }) : null,
+        ]),
+        asks,
+        order.length ? h("div", { class: "nwe-param-list" }, order.map((key) => paramRow(phase, action, index, key, map[key], declared.find((param) => param.name === key)))) : h("p", { class: "nwe-muted small mb-1", text: awx ? "No extra variables. The template runs with its own defaults." : "No parameters yet." }),
+        h("button", { type: "button", class: "nwe-link", "data-action": "add-var", "data-phase": phase, "data-index": String(index) }, [icon("plus"), awx ? "Add variable" : "Add parameter"]),
     ]);
+}
+
+function paramRow(phase, action, index, key, value, decl) {
+    const id = `${phase}:${index}`;
+    const mode = (action._modes || {})[key] || paramMode(value).mode;
+    const rowId = `nwe-p-${phase}-${index}-${key}`;
+    const name = decl
+        ? h("div", { class: "nwe-param-name" }, [
+            h("code", { text: key }),
+            decl.required ? h("span", { class: "nwe-req", title: "Required", text: "*" }) : null,
+            decl.type ? h("small", { text: PARAM_TYPE_LABEL[decl.type] || decl.type }) : null,
+        ])
+        : h("input", { class: "form-control form-control-sm nwe-code nwe-param-key", "data-var-key": id, "data-old": key, value: key, "aria-label": "Parameter name", spellcheck: "false" });
+    return h("div", { class: `nwe-param m-${mode}`, "data-param": key }, [
+        h("div", { class: "nwe-param-top" }, [
+            name,
+            h("div", { class: "nwe-seg nwe-seg-sm", role: "radiogroup", "aria-label": `Where ${key} comes from` }, PARAM_MODES.map(([value_, label, glyph]) => h("button", {
+                type: "button",
+                role: "radio",
+                "aria-checked": mode === value_ ? "true" : "false",
+                class: mode === value_ ? "on" : "",
+                "data-action": "param-mode",
+                "data-mode": value_,
+                "data-key": key,
+                "data-phase": phase,
+                "data-index": String(index),
+            }, [icon(glyph), label]))),
+            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "rm-var", "data-phase": phase, "data-index": String(index), "data-key": key, title: "Remove", "aria-label": `Remove ${key}` }, [icon("close")]),
+        ]),
+        h("div", { class: "nwe-param-value", id: rowId }, [paramValue(phase, action, index, key, value, decl, mode)]),
+        decl && decl.help ? h("div", { class: "nwe-param-help", text: decl.help }) : null,
+    ]);
+}
+
+function paramValue(phase, action, index, key, value, decl, mode) {
+    const data = { "data-param-key": key, "data-phase": phase, "data-index": String(index) };
+    if (mode === "input") {
+        const read = paramMode(value);
+        const current = read.mode === "input" ? read.input : "";
+        const input = inputByKey(current);
+        const usable = payload.inputs.filter((item) => item.key);
+        const select = h("select", { class: `form-select form-select-sm ${current && !input ? "is-invalid" : ""}`, "data-param-input": "1", ...data, "aria-label": `Input for ${key}` }, [
+            !current ? h("option", { value: "", text: "Choose an input…", selected: true }) : null,
+            current && !input ? h("option", { value: current, text: `Missing: ${current}`, selected: true }) : null,
+            ...usable.map((item) => h("option", { value: item.key, text: `${item.label || item.key} · ${TYPE_LABEL[item.type] || item.type}`, selected: item.key === current })),
+        ]);
+        const attrs = input && input.type === "object"
+            ? h("select", { class: "form-select form-select-sm nwe-param-attr", "data-param-attr": "1", ...data, "aria-label": `Which part of ${input.label || input.key}` }, [
+                ["id", "its ID"],
+                ["name", "its name"],
+                ["", "the whole object"],
+            ].map(([attr, label]) => h("option", { value: attr, text: label, selected: read.attr === attr })))
+            : null;
+        return h("div", { class: "nwe-param-input" }, [select, attrs]);
+    }
+    if (mode === "expr") {
+        return templateEditor({
+            value: typeof value === "string" ? value : fixedText(value),
+            phase,
+            index,
+            label: `Expression for ${key}`,
+            onChange: (next) => {
+                varBucket(action)[key] = next;
+                touch();
+                paintStepSummary(phase, index);
+            },
+        });
+    }
+    const kind = (decl && decl.type) || (typeof value === "boolean" ? "boolean" : typeof value === "number" ? "integer" : "");
+    if (kind === "boolean") {
+        return h("select", { class: "form-select form-select-sm nwe-param-fixed", "data-param-fixed": "1", ...data, "aria-label": `Value for ${key}` }, [
+            ["true", "Yes"],
+            ["false", "No"],
+        ].map(([raw, label]) => h("option", { value: raw, text: label, selected: String(value === true || value === "true") === raw })));
+    }
+    const hint = decl && decl.default !== undefined ? `Default: ${decl.default}` : "";
+    return h("input", {
+        class: "form-control form-control-sm nwe-param-fixed",
+        type: kind === "integer" ? "number" : "text",
+        "data-param-fixed": "1",
+        ...data,
+        value: fixedText(value),
+        placeholder: hint,
+        "aria-label": `Value for ${key}`,
+    });
+}
+
+/** Best guess when a parameter switches to "From an input": same key, then same model, then the first input. */
+function guessInput(key, decl) {
+    const byKey = inputByKey(key);
+    if (byKey) return byKey;
+    if (decl && decl.model) {
+        const byModel = payload.inputs.find((item) => item.model && item.model.toLowerCase() === decl.model.toLowerCase());
+        if (byModel) return byModel;
+    }
+    return payload.inputs.find((item) => item.key) || null;
+}
+
+function refFor(input, decl) {
+    if (!input) return "";
+    const wantsId = input.type === "object" && (!decl || !decl.type || decl.type === "object" || decl.type === "string");
+    return inputRef(input.key, wantsId ? "id" : "");
+}
+
+function declFor(action, key) {
+    const meta = scriptMeta(action);
+    return meta ? (meta.params || []).find((param) => param.name === key) || null : null;
+}
+
+function setParamMode(phase, index, key, mode) {
+    const action = payload.actions[phase][index];
+    const map = varBucket(action);
+    const decl = declFor(action, key);
+    const value = map[key];
+    const from = (action._modes || {})[key] || paramMode(value).mode;
+    if (from === mode) return;
+    if (mode === "input") map[key] = refFor(guessInput(key, decl), decl);
+    else if (mode === "fixed") map[key] = from === "expr" && !isTemplate(value) ? value : decl && decl.default !== undefined ? decl.default : "";
+    else map[key] = value === undefined || value === null ? "" : typeof value === "string" ? value : fixedText(value);
+    action._modes = { ...(action._modes || {}), [key]: mode };
+    renderEditor();
+    paintStepSummary(phase, index);
+    touch();
+    const host = document.getElementById(`nwe-p-${phase}-${index}-${key}`);
+    const target = host && host.querySelector("select, input, textarea");
+    if (target) target.focus();
 }
 
 function whenEditor(phase, action, index) {
     const advanced = action._whenMode === "jinja" || (action.when && !parseShow(action.when));
     if (advanced) {
         return h("div", {}, [
-            h("label", { class: "form-label", text: "Condition" }),
-            h("textarea", { class: "form-control font-monospace", rows: "2", "data-bind": `actions.${phase}.${index}.when`, value: action.when || "" }),
-            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "when-visual", "data-phase": phase, "data-index": String(index), text: "Back to the condition builder" }),
+            h("div", { class: "nwe-params-head" }, [
+                h("label", { class: "form-label mb-0", text: "Run only if" }),
+                h("button", { type: "button", class: "nwe-link muted", "data-action": "when-visual", "data-phase": phase, "data-index": String(index) }, [icon("filter-variant"), "Back to the condition builder"]),
+            ]),
+            templateEditor({
+                value: action.when || "",
+                phase,
+                index,
+                placeholder: "{{ inputs.wait_for_device }}",
+                label: "Condition",
+                onChange: (next) => {
+                    action.when = next;
+                    touch();
+                },
+            }),
+            h("div", { class: "nwe-param-help", text: "The step runs when this renders to true, yes, on, y or 1. Anything else skips it." }),
         ]);
     }
     const row = parseShow(action.when);
     if (!row) {
         return h("div", {}, [
             h("label", { class: "form-label", text: "Condition" }),
-            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-when", "data-phase": phase, "data-index": String(index), text: "+ Run only if…" }),
-            h("span", { class: "text-secondary small", text: " Always runs" }),
+            h("div", { class: "nwe-inline" }, [
+                h("button", { type: "button", class: "nwe-link", "data-action": "add-when", "data-phase": phase, "data-index": String(index) }, [icon("plus"), "Run only if…"]),
+                h("span", { class: "nwe-muted", text: "Always runs" }),
+            ]),
         ]);
     }
     const others = payload.inputs.filter((item) => ["boolean", "choice", "string"].includes(item.type) && item.key);
@@ -1268,8 +1719,8 @@ function whenEditor(phase, action, index) {
             h("select", { class: "form-select form-select-sm", "data-when": "input", "data-phase": phase, "data-index": String(index) }, others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key }))),
             h("select", { class: "form-select form-select-sm", "data-when": "op", "data-phase": phase, "data-index": String(index) }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
             whenValue(source, row, phase, index),
-            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "when-jinja", "data-phase": phase, "data-index": String(index), text: "Switch to advanced (Jinja)" }),
-            h("button", { type: "button", class: "nwe-icon", "data-action": "clear-when", "data-phase": phase, "data-index": String(index), text: "×" }),
+            h("button", { type: "button", class: "nwe-link muted", "data-action": "when-jinja", "data-phase": phase, "data-index": String(index) }, [icon("code-braces"), "Advanced (Jinja)"]),
+            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "clear-when", "data-phase": phase, "data-index": String(index), title: "Always run", "aria-label": "Remove the condition" }, [icon("close")]),
         ]),
     ]);
 }
@@ -1642,12 +2093,15 @@ function assign(path, value) {
     if (path.endsWith(".key") && path.startsWith("inputs.")) payload.inputs[Number(path.split(".")[1])]._keyTouched = true;
     if (path.endsWith(".label") && path.startsWith("actions.")) {
         const [, phase, index] = path.split(".");
-        const action = payload.actions[phase][Number(index)];
-        if (action && !action._nameTouched && !stepLocked(action)) action.name = keyFrom(action.label);
+        followLabel(phase, Number(index));
+        const title = app.querySelector(`[data-step-title="${phase}:${index}"]`);
+        if (title) title.textContent = value || "Untitled step";
     }
     if (path.endsWith(".name") && path.startsWith("actions.")) {
         const [, phase, index] = path.split(".");
-        payload.actions[phase][Number(index)]._nameTouched = true;
+        const action = payload.actions[phase][Number(index)];
+        action._nameTouched = true;
+        paintKey(phase, Number(index));
     }
     if (path === "name") {
         const title = document.getElementById("nwe-title");
@@ -1760,6 +2214,17 @@ app.addEventListener("input", (event) => {
         applyWhenPart(target.dataset.phase, Number(target.dataset.index), target.dataset.when, target.value, target.tagName === "SELECT");
         return;
     }
+    if (target.dataset.paramFixed && target.tagName === "INPUT") {
+        const action = payload.actions[target.dataset.phase][Number(target.dataset.index)];
+        const key = target.dataset.paramKey;
+        const map = varBucket(action);
+        const decl = declFor(action, key);
+        map[key] = fixedValue(target.value, decl && decl.type, map[key]);
+        action._modes = { ...(action._modes || {}), [key]: "fixed" };
+        touch();
+        paintStepSummary(target.dataset.phase, Number(target.dataset.index));
+        return;
+    }
     if (target.dataset.varVal) {
         const [phase, index] = target.dataset.varVal.split(":");
         varBucket(payload.actions[phase][Number(index)])[target.dataset.old] = target.value;
@@ -1814,12 +2279,40 @@ app.addEventListener("change", (event) => {
         applyWhenPart(target.dataset.phase, Number(target.dataset.index), target.dataset.when, target.value, true);
         return;
     }
+    if (target.dataset.paramInput || target.dataset.paramAttr || (target.dataset.paramFixed && target.tagName === "SELECT")) {
+        const phase = target.dataset.phase;
+        const index = Number(target.dataset.index);
+        const action = payload.actions[phase][index];
+        const key = target.dataset.paramKey;
+        const map = varBucket(action);
+        if (target.dataset.paramFixed) map[key] = target.value === "true";
+        else if (target.dataset.paramInput) map[key] = refFor(inputByKey(target.value), declFor(action, key));
+        else {
+            const read = paramMode(map[key]);
+            map[key] = inputRef(read.input, target.value);
+        }
+        renderEditor();
+        paintStepSummary(phase, index);
+        touch();
+        return;
+    }
     if (target.dataset.varKey) {
         const [phase, index] = target.dataset.varKey.split(":");
-        const map = varBucket(payload.actions[phase][Number(index)]);
+        const action = payload.actions[phase][Number(index)];
+        const map = varBucket(action);
         const value = map[target.dataset.old];
+        const next = target.value.trim();
+        if (next && next !== target.dataset.old && next in map) {
+            target.value = target.dataset.old;
+            toast(`There’s already a parameter called “${next}”.`);
+            return;
+        }
         delete map[target.dataset.old];
-        if (target.value) map[target.value] = value ?? "";
+        if (next) map[next] = value ?? "";
+        if (action._modes && target.dataset.old in action._modes) {
+            if (next) action._modes[next] = action._modes[target.dataset.old];
+            delete action._modes[target.dataset.old];
+        }
         renderEditor();
         touch();
         return;
@@ -2031,13 +2524,40 @@ app.addEventListener("click", (event) => {
     } else if (action === "add-var") {
         const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
         const map = varBucket(actionRow);
-        const key = `param_${Object.keys(map).length + 1}`;
-        map[key] = "";
+        const missing = ((scriptMeta(actionRow) || {}).params || []).find((param) => !(param.name in map));
+        const key = missing ? missing.name : uniqueKey(actionRow.type === "awx" ? "variable" : "param", Object.keys(map));
+        const input = missing ? inputByKey(missing.name) : null;
+        map[key] = input ? refFor(input, missing) : missing && missing.default !== undefined ? missing.default : "";
         renderAll();
         touch();
+        const added = app.querySelector(missing ? `#nwe-p-${node.dataset.phase}-${node.dataset.index}-${key} select, #nwe-p-${node.dataset.phase}-${node.dataset.index}-${key} input` : `[data-var-key="${node.dataset.phase}:${node.dataset.index}"][data-old="${key}"]`);
+        if (added) {
+            added.focus();
+            if (added.select) added.select();
+        }
+    } else if (action === "add-param") {
+        const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        const key = node.dataset.key;
+        const decl = declFor(actionRow, key);
+        const input = inputByKey(key);
+        varBucket(actionRow)[key] = input ? refFor(input, decl) : decl && decl.default !== undefined ? decl.default : "";
+        renderAll();
+        touch();
+        const added = app.querySelector(`#nwe-p-${node.dataset.phase}-${node.dataset.index}-${key} select, #nwe-p-${node.dataset.phase}-${node.dataset.index}-${key} input, #nwe-p-${node.dataset.phase}-${node.dataset.index}-${key} textarea`);
+        if (added) added.focus();
+    } else if (action === "param-mode") {
+        setParamMode(node.dataset.phase, Number(node.dataset.index), node.dataset.key, node.dataset.mode);
+    } else if (action === "step-type") {
+        changeStepType(node.dataset.phase, Number(node.dataset.index), node.dataset.type);
+    } else if (action === "key-from-label") {
+        const row = payload.actions[node.dataset.phase][Number(node.dataset.index)];
+        row._nameTouched = false;
+        followLabel(node.dataset.phase, Number(node.dataset.index));
+        renderEditor();
     } else if (action === "rm-var") {
         const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
         delete varBucket(actionRow)[node.dataset.key];
+        if (actionRow._modes) delete actionRow._modes[node.dataset.key];
         renderAll();
         touch();
     } else if (action === "open-step") {
@@ -2097,6 +2617,13 @@ app.addEventListener("click", (event) => {
 });
 
 let drag = null;
+app.addEventListener("toggle", (event) => {
+    const node = event.target;
+    if (!node.dataset || !node.dataset.adv) return;
+    if (node.open) state.openAdvanced = node.dataset.adv;
+    else if (state.openAdvanced === node.dataset.adv) state.openAdvanced = "";
+}, true);
+
 app.addEventListener("dragstart", (event) => {
     const node = event.target.closest("[data-drag]");
     if (!node) return;

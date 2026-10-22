@@ -78,10 +78,11 @@
     --bs-btn-active-color: var(--nwe-on-accent);
     --bs-btn-active-bg: rgba(var(--nwe-accent-rgb), 0.8);
     --bs-btn-active-border-color: rgba(var(--nwe-accent-rgb), 0.8);
-    --bs-btn-disabled-color: var(--nwe-on-accent);
-    --bs-btn-disabled-bg: rgba(var(--nwe-accent-rgb), 0.45);
+    /* Disabled reads as disabled in both themes: a tint of the accent, not a dimmer button. */
+    --bs-btn-disabled-color: var(--nwe-accent-text);
+    --bs-btn-disabled-bg: rgba(var(--nwe-accent-rgb), 0.14);
     --bs-btn-disabled-border-color: transparent;
-    --bs-btn-disabled-opacity: 1;
+    --bs-btn-disabled-opacity: 0.7;
     --bs-btn-focus-shadow-rgb: var(--nwe-accent-rgb);
     font-weight: 600;
 }

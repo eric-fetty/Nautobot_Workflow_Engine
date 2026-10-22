@@ -1105,3 +1105,217 @@ body.nwe-studio-body #header > .container-fluid {
     display: flex;
     align-items: center;
 }
+
+/* ---------- step editor ---------- */
+.nwe-step-summary,
+.nwe-step-sum {
+    overflow-wrap: anywhere;
+}
+
+.nwe-pkey {
+    font-family: var(--nwe-mono);
+    font-size: 0.8rem;
+    color: var(--bs-body-color);
+}
+
+.nwe-step-type {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.nwe-step-type-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.nwe-step-type .nwe-seg > button {
+    padding: 0.3rem 0.85rem;
+}
+
+.nwe-params-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.nwe-asks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.82rem;
+}
+
+.nwe-tag-btn {
+    border: 0;
+    cursor: pointer;
+}
+
+.nwe-tag-btn:hover {
+    filter: brightness(0.96);
+    text-decoration: underline;
+}
+
+.nwe-tag-btn:focus-visible {
+    outline: 0;
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-param-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.nwe-param {
+    border: 1px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-fill);
+    padding: 0.55rem 0.6rem 0.6rem;
+}
+
+.nwe-param-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.45rem;
+}
+
+.nwe-param-top > .nwe-iconbtn {
+    margin-left: auto;
+}
+
+.nwe-param-name {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    min-width: 8rem;
+}
+
+.nwe-param-name code {
+    color: var(--bs-emphasis-color);
+    font-family: var(--nwe-mono);
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.nwe-param-name small {
+    color: var(--nwe-muted);
+    font-size: 0.74rem;
+}
+
+.nwe-param-key {
+    width: 11rem;
+    flex: none;
+}
+
+.nwe-seg.nwe-seg-sm > button {
+    padding: 0.12rem 0.55rem;
+    font-size: 0.78rem;
+}
+
+.nwe-seg.nwe-seg-sm .mdi {
+    font-size: 0.9rem;
+}
+
+.nwe-param-input {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.nwe-param-input > .form-select {
+    flex: 1 1 14rem;
+    width: auto;
+}
+
+.nwe-param-input > .nwe-param-attr {
+    flex: 0 1 11rem;
+}
+
+.nwe-param .form-control,
+.nwe-param .form-select,
+.nwe-param .nwe-jinja-box {
+    background-color: var(--nwe-surface);
+}
+
+.nwe-param-help {
+    margin-top: 0.3rem;
+    color: var(--nwe-muted);
+    font-size: 0.78rem;
+}
+
+.nwe-keybox {
+    position: relative;
+}
+
+.nwe-keybox.locked .form-control {
+    padding-right: 2.2rem;
+    background: var(--nwe-fill);
+    color: var(--nwe-muted);
+    cursor: not-allowed;
+}
+
+.nwe-keylock {
+    position: absolute;
+    right: 0.7rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--nwe-muted);
+}
+
+.nwe-key-help {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin-top: -0.4rem;
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+}
+
+.nwe-key-help code {
+    color: var(--bs-primary-text-emphasis);
+}
+
+.nwe-adv-key code {
+    font-family: var(--nwe-mono);
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--nwe-muted);
+}
+
+.nwe-code {
+    font-family: var(--nwe-mono);
+}
+
+.nwe-key-help > .mdi {
+    flex: none;
+    margin-top: 0.15rem;
+}
+
+.nwe-key-help > span {
+    min-width: 0;
+}
+
+.nwe-key-help > .nwe-link {
+    flex: none;
+}
+
+.nwe-template-pick {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.nwe-template-pick .nwe-template-id {
+    flex: 0 0 5.5rem;
+}
