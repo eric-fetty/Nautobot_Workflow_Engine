@@ -866,76 +866,6 @@ body.nwe-studio-body #header > .container-fluid {
     text-transform: uppercase;
 }
 
-.nwe-plan {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.nwe-plan li {
-    position: relative;
-    display: flex;
-    gap: 0.6rem;
-    padding-bottom: 0.8rem;
-}
-
-.nwe-plan li.step:not(:last-child)::before {
-    content: "";
-    position: absolute;
-    left: 0.75rem;
-    top: 1.6rem;
-    bottom: 0.1rem;
-    width: 1px;
-    background: var(--nwe-line);
-}
-
-.nwe-plan .ic {
-    position: relative;
-    z-index: 1;
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
-    background: var(--nwe-fill-2);
-    color: var(--bs-secondary-color);
-    font-size: 0.9rem;
-}
-
-.nwe-plan .done .ic {
-    background: var(--nwe-ok-soft);
-    color: var(--nwe-ok);
-}
-
-.nwe-plan .tx {
-    min-width: 0;
-    padding-top: 0.1rem;
-}
-
-.nwe-plan b {
-    display: block;
-    font-size: 0.82rem;
-    font-weight: 600;
-    line-height: 1.3;
-}
-
-.nwe-plan small {
-    display: block;
-    color: var(--nwe-muted);
-    font-size: 0.74rem;
-    line-height: 1.35;
-}
-
-.nwe-plan li.phase {
-    padding: 0 0 0.55rem 2.1rem;
-    color: var(--nwe-faint);
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-
 /* ---------- toast ---------- */
 .nwe-studio-toast {
     bottom: 1rem;
@@ -949,12 +879,151 @@ body.nwe-studio-body #header > .container-fluid {
     box-shadow: var(--nwe-shadow-pop);
 }
 
-/* ---------- steps ---------- */
+/* ---------- steps: a pipeline on one rail ----------
+ * One continuous line runs down the rail. Phase icons and "+" buttons sit on it
+ * with a ring in the page colour, so the line stops short of every circle instead
+ * of running through it. Cards sit to the right of the rail, never on it.
+ */
+.nwe-pipe {
+    --rail: 2.25rem;
+    --rail-gap: 0.75rem;
+    position: relative;
+    margin-top: 0.5rem;
+}
+
+.nwe-pipe::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--rail) / 2 - 1px);
+    top: 1.1rem;
+    bottom: 0.9rem;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--nwe-line);
+}
+
+.nwe-node {
+    position: relative;
+    z-index: 1;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px var(--bs-body-bg);
+}
+
+.nwe-phase + .nwe-phase {
+    margin-top: 0.85rem;
+}
+
+.nwe-phase-head {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: var(--rail-gap);
+    align-items: start;
+}
+
+.nwe-phase-ico {
+    width: 2.2rem;
+    height: 2.2rem;
+    border: 1.5px solid var(--nwe-line);
+    background: var(--nwe-surface);
+    color: var(--nwe-muted);
+    font-size: 1.05rem;
+}
+
+.ph-pre .nwe-phase-ico {
+    border-color: var(--bs-info-border-subtle);
+    background: var(--nwe-info-soft);
+    color: var(--nwe-info);
+}
+
+.ph-main .nwe-phase-ico {
+    border-color: var(--nwe-accent-line);
+    background: var(--nwe-accent-soft);
+    color: var(--nwe-accent-text);
+}
+
+.ph-post .nwe-phase-ico {
+    background: var(--nwe-fill-2);
+    color: var(--bs-body-color);
+}
+
+.nwe-phase-copy {
+    padding-top: 0.2rem;
+}
+
+.nwe-phase-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-phase-count {
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+}
+
+.nwe-phase-help {
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+
+.nwe-insert {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    height: 1.9rem;
+}
+
+.nwe-insert-btn {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-left: calc((var(--rail) - 1.5rem) / 2);
+    border: 1.5px solid var(--nwe-line);
+    background: var(--nwe-surface);
+    color: var(--nwe-muted);
+    font-size: 0.85rem;
+    padding: 0;
+    transition: border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+
+.nwe-insert-btn:hover,
+.nwe-insert-btn:focus-visible {
+    border-color: var(--nwe-accent);
+    background: var(--nwe-accent-soft);
+    color: var(--nwe-accent-text);
+    outline: 0;
+}
+
+.nwe-insert-btn:focus-visible {
+    box-shadow: 0 0 0 4px var(--bs-body-bg), var(--nwe-ring);
+}
+
+.nwe-insert-label {
+    margin-left: calc(var(--rail-gap) - 0.6rem + (var(--rail) - 1.5rem) / 2);
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+}
+
+.nwe-insert-label:hover {
+    color: var(--nwe-accent-text);
+    text-decoration: underline;
+}
+
 .nwe-stepcard {
+    margin-left: calc(var(--rail) + var(--rail-gap));
     border: 1px solid var(--nwe-line);
     border-radius: var(--nwe-radius-lg);
     background: var(--nwe-surface);
-    padding: 0.75rem 0.8rem;
+    padding: 0.7rem 0.8rem;
     box-shadow: var(--nwe-shadow);
 }
 
@@ -962,7 +1031,26 @@ body.nwe-studio-body #header > .container-fluid {
     border-color: var(--bs-danger-border-subtle);
 }
 
-.nwe-step-head > .nwe-step-main {
+.nwe-stepcard.dragging,
+.nwe-in.dragging {
+    opacity: 0.5;
+}
+
+.nwe-step-main {
     flex: 1;
     min-width: 0;
+}
+
+.nwe-step-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+}
+
+/* ---------- "What runs" preview timeline ---------- */
+.nwe-plan-note {
+    margin: 0.75rem 0 0;
+    color: var(--nwe-muted);
+    font-size: 0.76rem;
 }

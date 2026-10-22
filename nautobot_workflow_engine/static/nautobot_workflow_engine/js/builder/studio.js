@@ -1034,40 +1034,42 @@ function tableEditor(input, index) {
     ]);
 }
 
+const PHASE_META = {
+    pre: { label: "Before", icon: "shield-check-outline", help: "Runs first, and again when a scheduled run is booked. If a step fails, the run stops here." },
+    main: { label: "Main", icon: "play", help: "Runs in order. If a step fails, it’s recorded and the remaining main steps still run." },
+    post: { label: "Always run at the end", icon: "flag-checkered", help: "Runs last, even after failures. Use it for cleanup and notes. A failure here doesn’t fail the run." },
+};
+
 function stepsView() {
-    const phases = [
-        ["pre", "Before", "bi", "Runs first, and again when a scheduled run is booked. If a step fails, the run stops here."],
-        ["main", "Main", "play", "Runs in order. If a step fails, it’s recorded and the remaining main steps still run."],
-        ["post", "Always run at the end", "flag", "Runs last, even after failures. Use it for cleanup and notes. A failure here doesn’t fail the run."],
-    ];
     return h("div", { class: "nwe-section" }, [
         h("div", { class: "nwe-kicker", text: "Step 3 of 5" }),
         h("h2", { text: "Steps" }),
         h("p", { class: "nwe-sub", text: "What happens when someone runs this workflow, from top to bottom." }),
-        ...phases.map(([phase, label, icon, help]) => phaseBlock(phase, label, icon, help)),
+        h("div", { class: "nwe-pipe" }, PHASES.map(([phase]) => phaseBlock(phase))),
     ]);
 }
 
-function phaseBlock(phase, label, icon, help) {
+function phaseBlock(phase) {
+    const meta = PHASE_META[phase];
     const list = payload.actions[phase] || [];
-    return h("div", { class: `nwe-phase ph-${phase}` }, [
+    return h("section", { class: `nwe-phase ph-${phase}`, "aria-label": meta.label }, [
         h("div", { class: "nwe-phase-head" }, [
-            h("span", { class: `nwe-phase-ico ${icon}`, text: icon === "play" ? "▶" : icon === "flag" ? "⚑" : "🛡" }),
-            h("div", {}, [
-                h("div", { class: "fw-semibold", text: `${label}  ${list.length} step${list.length === 1 ? "" : "s"}` }),
-                h("div", { class: "small text-secondary", text: help }),
+            h("span", { class: "nwe-node nwe-phase-ico", "aria-hidden": "true" }, [icon(meta.icon)]),
+            h("div", { class: "nwe-phase-copy" }, [
+                h("div", { class: "nwe-phase-title" }, [meta.label, h("span", { class: "nwe-phase-count", text: list.length === 1 ? "1 step" : `${list.length} steps` })]),
+                h("div", { class: "nwe-phase-help", text: meta.help }),
             ]),
         ]),
-        h("div", { class: "nwe-phase-body" }, [
-            insertPoint(phase, 0),
-            ...list.flatMap((action, index) => [stepCard(phase, action, index), insertPoint(phase, index + 1)]),
-        ]),
+        insertPoint(phase, 0, list.length === 0),
+        ...list.flatMap((action, index) => [stepCard(phase, action, index), insertPoint(phase, index + 1, false)]),
     ]);
 }
 
-function insertPoint(phase, index) {
-    return h("div", { class: "nwe-insert" }, [
-        h("button", { type: "button", "data-action": "add-step", "data-phase": phase, "data-at": String(index), title: "Add a step here", text: "+" }),
+function insertPoint(phase, index, empty) {
+    const where = empty ? `Add a step to ${PHASE_META[phase].label}` : "Add a step here";
+    return h("div", { class: `nwe-insert${empty ? " empty" : ""}` }, [
+        h("button", { type: "button", class: "nwe-node nwe-insert-btn", "data-action": "add-step", "data-phase": phase, "data-at": String(index), title: where, "aria-label": where }, [icon("plus")]),
+        empty ? h("button", { type: "button", class: "nwe-insert-label", "data-action": "add-step", "data-phase": phase, "data-at": String(index), text: "Add a step" }) : null,
     ]);
 }
 
@@ -1523,13 +1525,46 @@ function previewForm() {
     }));
 }
 
+function stepEffect(phase, action) {
+    if (phase === "pre") return "stops the run if it fails";
+    if (phase === "post") return "runs even after a failure";
+    if (action.type === "awx" && action.monitor !== false) return "waits for the job to finish";
+    return "continues on failure";
+}
+
+/** The same rows as the launch page's "What happens" panel, built from the draft. */
+function planRows() {
+    const rows = [{ icon: "form-textbox", title: "Someone fills in the form", sub: payload.inputs.length === 1 ? "1 field" : `${payload.inputs.length} fields` }];
+    if (payload.approval_required) rows.push({ icon: "account-check-outline", title: "Waits for approval", sub: "Each run waits until it’s approved" });
+    const schedule = payload.schedule || {};
+    if (schedule.enabled) {
+        const states = schedule.allowed_states || [];
+        rows.push({ icon: "calendar-clock", title: "Waits for the change window", sub: states.length ? `Change must be ${states.join(" or ")}` : "Runs inside the change’s window" });
+    }
+    PHASES.forEach(([phase]) => {
+        const list = payload.actions[phase] || [];
+        if (!list.length) return;
+        rows.push({ phase: PHASE_META[phase].label });
+        list.forEach((action) => {
+            const when = action.when ? `Only if ${whenPlain(action)}` : "";
+            const effect = stepEffect(phase, action);
+            rows.push({ icon: action.type === "awx" ? "ansible" : "script-text-outline", title: action.label || action.name || "Untitled step", sub: when ? `${when} · ${effect}` : effect });
+        });
+    });
+    const minutes = Number(payload.manual_duration_minutes) || 0;
+    rows.push({ icon: "check", title: "Done", sub: minutes ? `Dashboard records ~${minutes} min of manual effort, minus the run time` : "Run history records who ran it and what happened", done: true });
+    return rows;
+}
+
 function previewPlan() {
     return h("div", {}, [
-        ...PHASES.map(([phase, label]) => h("div", { class: "mb-2" }, [
-            h("div", { class: "small fw-semibold", text: label }),
-            ...(payload.actions[phase] || []).map((action) => h("div", { class: "small", text: action.label || action.name || "Step" })),
-        ])),
-        h("button", { type: "button", class: "btn btn-success w-100", "data-action": "test", text: "Test run this draft" }),
+        h("ol", { class: "nwe-wh" }, planRows().map((row) => row.phase
+            ? h("li", { class: "phase", text: row.phase })
+            : h("li", { class: `step${row.done ? " done" : ""}` }, [
+                h("span", { class: "ic", "aria-hidden": "true" }, [icon(row.icon)]),
+                h("span", { class: "tx" }, [h("b", { text: row.title }), row.sub ? h("small", { text: row.sub }) : null]),
+            ]))),
+        h("button", { type: "button", class: "btn nwe-btn-accent w-100 mt-3", "data-action": "test" }, [icon("play-circle-outline"), "Test run this draft"]),
     ]);
 }
 
