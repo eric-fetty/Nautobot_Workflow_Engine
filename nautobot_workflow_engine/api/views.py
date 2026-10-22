@@ -604,7 +604,9 @@ class BuilderRenderView(APIView):
         data, failure = _load_body(request)
         if failure is not None:
             return failure
-        return Response(render_sample(data.get("template") or "", data.get("inputs") or {}, user))
+        return Response(
+            render_sample(data.get("template") or "", data.get("inputs") or {}, user, results=data.get("results") or {})
+        )
 
 
 class BuilderYamlApplyView(APIView):

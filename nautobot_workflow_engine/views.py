@@ -38,6 +38,7 @@ from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_wo
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
 from .launch_ui import launch_context, option_meta, related_for_meta
+from .script_params import script_parameters
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -1716,8 +1717,8 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
     """Return JSON-serializable data for the builder page.
 
     Repositories, integrations, scripts, and models are limited to what this user
-    is allowed to see. Script rows are read with ``values_list`` so helper source
-    is not loaded into the page.
+    is allowed to see. Helper source is parsed here for parameter names; only those
+    names and hints reach the page.
     """
     user = request.user
     repositories = [
@@ -1726,17 +1727,29 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
     ]
     visible_repo_ids = [repo["id"] for repo in repositories]
     scripts_by_repo = {}
+    script_params = {}
     helper_rows = WorkflowHelper.objects.filter(source_repo_id__in=visible_repo_ids).values_list(
-        "source_repo_id", "file_path"
+        "source_repo_id", "file_path", "content"
     )
-    for repo_id, file_path in helper_rows:
+    for repo_id, file_path, content in helper_rows:
         if not script_path_allowed(file_path):
             continue
         scripts_by_repo.setdefault(str(repo_id), []).append(file_path)
+        # Only parameter names and hints are sent to the page, never the source.
+        script_params[(str(repo_id), file_path)] = script_parameters(content)
     scripts = []
     for repo_id, paths in scripts_by_repo.items():
         for file_path in paths:
-            scripts.append({"repo": repo_id, "path": file_path, "name": _script_label(file_path)})
+            meta = script_params.get((repo_id, file_path)) or {"declared": False, "params": []}
+            scripts.append(
+                {
+                    "repo": repo_id,
+                    "path": file_path,
+                    "name": _script_label(file_path),
+                    "params": meta["params"],
+                    "declared": meta["declared"],
+                }
+            )
     content_types = []
     for content_type in ContentType.objects.order_by("app_label", "model"):
         model = content_type.model_class()

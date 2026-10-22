@@ -59,10 +59,17 @@ def dry_run(
     return {"form_errors": [], "phases": phases, "error": ""}
 
 
-def render_sample(template, inputs, user, *, max_output=100_000):
-    """Render one template with sample inputs. Used to preview computed options."""
+def render_sample(template, inputs, user, *, results=None, max_output=100_000):
+    """Render one template with sample inputs and results. Nothing is executed.
+
+    The builder uses it for the live preview under a Jinja field and for computed options.
+    """
     env = get_jinja_environment(strict=True)
-    context = {"inputs": inputs if isinstance(inputs, dict) else {}, "results": {}, "user": user}
+    context = {
+        "inputs": inputs if isinstance(inputs, dict) else {},
+        "results": results if isinstance(results, dict) else {},
+        "user": user,
+    }
     try:
         rendered = _render(template, context, env=env)
     except (TemplateError, ValueError) as exc:
