@@ -1229,17 +1229,10 @@ function scheduleView() {
         h("h2", { text: "Schedule & approval" }),
         h("p", { class: "text-secondary", text: "Optional guard rails: who has to approve a run, and when it’s allowed to run." }),
         h("div", { class: "nwe-card" }, [
-            h("div", { class: "form-check form-switch" }, [
-                h("input", { class: "form-check-input", type: "checkbox", id: "nwe-approval", "data-bind": "approval_required", "data-check": "1", checked: payload.approval_required }),
-                h("label", { class: "form-check-label", for: "nwe-approval", text: "Require approval before it runs" }),
-            ]),
-            h("div", { class: "form-text", text: "Uses Nautobot Approval Workflows. Each run waits until it’s approved." }),
+            switchRow({ id: "nwe-approval", "data-bind": "approval_required", "data-check": "1", checked: payload.approval_required }, "Require approval before it runs", "Uses Nautobot Approval Workflows. Each run waits until it’s approved."),
         ]),
         h("div", { class: "nwe-card" }, [
-            h("div", { class: "form-check form-switch" }, [
-                h("input", { class: "form-check-input", type: "checkbox", id: "nwe-window", "data-bind": "schedule.enabled", "data-check": "1", checked: schedule.enabled }),
-                h("label", { class: "form-check-label", for: "nwe-window", text: "Only run inside an approved ServiceNow change window" }),
-            ]),
+            switchRow({ id: "nwe-window", "data-bind": "schedule.enabled", "data-check": "1", checked: schedule.enabled }, "Only run inside an approved ServiceNow change window", "Runs wait for the change window and are skipped if the change isn’t approved."),
             schedule.enabled ? h("div", { class: "mt-3" }, [
                 field("ServiceNow connection", h("select", { class: "form-select", "data-bind": "schedule.integration_name" }, [
                     h("option", { value: "", text: "Choose a connection…" }),
@@ -1289,10 +1282,7 @@ function reviewView() {
                     ]),
                     field("Note · optional", h("input", { class: "form-control", id: "nwe-note", "data-note": "1", value: state.note, placeholder: "Shown in Versions and used as the Git commit message." })),
                     !config.published_number
-                        ? h("div", { class: "form-check form-switch" }, [
-                            h("input", { class: "form-check-input", type: "checkbox", id: "nwe-enable-pub", "data-action": "enable-on-publish", checked: state.enableOnPublish }),
-                            h("label", { class: "form-check-label", for: "nwe-enable-pub", text: "Turn it on when it’s published" }),
-                        ])
+                        ? switchRow({ id: "nwe-enable-pub", "data-action": "enable-on-publish", checked: state.enableOnPublish }, "Turn it on when it’s published", "Off means it’s published but nobody can run it yet.")
                         : null,
                     h("div", { class: "d-flex align-items-center gap-2 mt-3" }, [
                         block ? h("span", { class: "text-danger small", text: block.message }) : h("span", { class: "text-success small", text: "Ready to publish" }),
