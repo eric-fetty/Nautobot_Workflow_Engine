@@ -55,7 +55,6 @@ const TYPE_LABEL = Object.fromEntries(TYPES);
 const state = {
     section: "details",
     yaml: false,
-    how: false,
     menu: false,
     addType: false,
     openInput: 0,
@@ -460,7 +459,6 @@ function paintChrome() {
 
 function renderAll() {
     renderHeader();
-    renderHint();
     renderBanner();
     renderStepper();
     renderEditor();
@@ -552,11 +550,14 @@ function renderHeader() {
             h("div", {}, [
                 h("h1", { class: "nwe-title", id: "nwe-title", text: payload.name || "Untitled workflow" }),
                 h("div", { class: "nwe-state" }, [
-                    h("span", { class: `nwe-pill ${kind === "ok" ? "nwe-pill-ok" : "nwe-pill-draft"}` }, [
+                    h("span", { class: `nwe-pill nwe-status ${kind === "ok" ? "nwe-pill-ok" : kind === "new" ? "nwe-pill-new" : "nwe-pill-draft"}`, tabindex: "0", "aria-describedby": "nwe-status-tip" }, [
                         h("span", { class: "dot" }),
                         text,
                     ]),
-                    h("button", { type: "button", class: "nwe-info", "data-action": "how", title: "How editing works", text: "ⓘ" }),
+                    h("span", { class: "nwe-tip", id: "nwe-status-tip", role: "tooltip" }, [
+                        statusHelp(kind),
+                        h("span", { class: "nwe-tip-sub", text: kind === "new" ? "Once it’s published, every version is kept in Versions (⋯ menu)." : "Every published version is kept in Versions (⋯ menu)." }),
+                    ]),
                     h("span", { class: "nwe-saved", id: "nwe-save" }),
                 ]),
             ]),
@@ -583,7 +584,6 @@ function renderHeader() {
             }, [icon("rocket-launch-outline"), config.can_publish ? publishText() : "Request publish"]),
         ]),
     );
-    if (state.how) header.querySelector(".nwe-state")?.append(howPop());
     paintSave();
 }
 
@@ -594,30 +594,6 @@ function gitIndicator() {
     if (!config.published_number) return { text: "Not in Git yet", bad: false, icon: "cloud-outline" };
     if (state.gitStatus === "pending") return { text: "Syncing…", bad: false, icon: "cloud-sync-outline" };
     return { text: "Synced", bad: false };
-}
-
-function howPop() {
-    const version = config.published_number ? `v${config.published_number}` : "nothing (it isn’t published yet)";
-    const next = `v${(config.published_number || 0) + 1}`;
-    return h("div", { class: "nwe-pop nwe-how", id: "nwe-how" }, [
-        h("div", { class: "fw-semibold mb-2", text: "How editing works" }),
-        h("ol", {}, [
-            h("li", {}, [h("b", { text: "Edit. " }), "Every change saves automatically within a second into one shared draft in Nautobot. There's no Save button."]),
-            h("li", {}, [h("b", { text: "Only editors see the draft" }), `, and only here in the builder. People running it keep getting ${version}, unchanged. Other editors see the same draft.`]),
-            h("li", {}, [h("b", { text: "Try it" }), " with Preview run. It fills in the form, checks conditions and renders parameters. Nothing is executed."]),
-            h("li", {}, [h("b", { text: "Publish changes" }), ` saves ${next}, commits it to Git, and makes it the version everyone runs. Runs in progress finish on the version they started with.`]),
-        ]),
-        h("table", { class: "table table-sm mt-2 mb-2" }, [
-            h("thead", {}, [h("tr", {}, [h("th", { text: "" }), h("th", { text: "Sees the draft" }), h("th", { text: "Runs" })])]),
-            h("tbody", {}, [
-                h("tr", {}, [h("td", { text: "Editors" }), h("td", { text: "✓ in the builder" }), h("td", { text: config.published_number ? `v${config.published_number}` : "—" })]),
-                h("tr", {}, [h("td", { text: "People running it" }), h("td", { text: "✗" }), h("td", { text: config.published_number ? `v${config.published_number}` : "can’t yet" })]),
-                h("tr", {}, [h("td", { text: "Git" }), h("td", { text: "✗ never" }), h("td", { text: config.published_number ? `has v${config.published_number}` : "nothing yet" })]),
-            ]),
-        ]),
-        h("div", { class: "small text-secondary", text: "Versions keeps every published version. Restoring one copies it into the draft; it never goes live by itself." }),
-        h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "versions", text: "Versions" }),
-    ]);
 }
 
 function menu() {
@@ -635,22 +611,6 @@ function menu() {
 
 function item(action, text, glyph, danger) {
     return h("button", { type: "button", role: "menuitem", class: `nwe-pop-item${danger ? " danger" : ""}`, "data-action": action }, [glyph ? icon(glyph) : null, text]);
-}
-
-function renderHint() {
-    const host = document.getElementById("studio-hint");
-    const seen = window.localStorage.getItem("nwe-how-hint") === "1";
-    if (seen) {
-        host.replaceChildren();
-        return;
-    }
-    host.replaceChildren(
-        h("div", { class: "nwe-hint" }, [
-            h("span", {}, [h("b", { text: "Changes save automatically as a draft that only editors see. " }), "Publish makes them live for everyone and syncs them to Git."]),
-            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "how", text: "How editing works" }),
-            h("button", { type: "button", class: "btn btn-sm btn-light ms-auto", "data-action": "hint", text: "Got it" }),
-        ]),
-    );
 }
 
 function renderBanner() {
@@ -2351,15 +2311,8 @@ app.addEventListener("click", (event) => {
         event.preventDefault();
         state.section = node.dataset.section;
         state.yaml = false;
-        state.how = false;
         state.menu = false;
         renderAll();
-    } else if (action === "how") {
-        state.how = !state.how;
-        renderHeader();
-    } else if (action === "hint") {
-        window.localStorage.setItem("nwe-how-hint", "1");
-        renderHint();
     } else if (action === "menu") {
         state.menu = !state.menu;
         renderHeader();
@@ -2603,7 +2556,6 @@ app.addEventListener("click", (event) => {
         doPublish();
     } else if (action === "versions") {
         state.menu = false;
-        state.how = false;
         renderHeader();
         openVersions();
     } else if (action === "discard") {

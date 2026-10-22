@@ -115,6 +115,54 @@ body.nwe-studio-body #header > .container-fluid {
     margin-top: 0.2rem;
 }
 
+/* Status pill tooltip: what the state means for people running the workflow. */
+.nwe-status {
+    cursor: help;
+}
+
+.nwe-status:focus-visible {
+    outline: 0;
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-tip {
+    position: absolute;
+    top: calc(100% + 0.45rem);
+    left: 0;
+    z-index: 1080;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    width: 20rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-surface);
+    box-shadow: var(--nwe-shadow-pop);
+    color: var(--bs-body-color);
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.45;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-2px);
+    transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+    pointer-events: none;
+}
+
+.nwe-tip-sub {
+    color: var(--nwe-muted);
+    font-size: 0.75rem;
+}
+
+.nwe-status:hover + .nwe-tip,
+.nwe-status:focus-visible + .nwe-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0.15s, 0.15s, 0s;
+}
+
 .nwe-saved {
     display: inline-flex;
     align-items: center;
