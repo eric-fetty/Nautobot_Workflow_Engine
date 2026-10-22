@@ -1,4 +1,4 @@
-"""Test run renders conditions and parameters and does not execute anything."""
+"""Preview run renders conditions and parameters and does not execute anything."""
 
 import json
 import time
@@ -75,6 +75,47 @@ class DryRunTestCase(TestCase):
         self.assertEqual(WorkflowRun.objects.count(), runs)
         self.assertEqual(ScheduledJob.objects.count(), jobs)
         self.assertEqual(ObjectChange.objects.count(), changes)
+
+    def test_preview_run_api_never_executes_scripts_or_awx(self):
+        """The builder's Preview run: resolves inputs, evaluates conditions, renders parameters. Nothing runs."""
+        definition = json.loads(json.dumps(DEFINITION))
+        definition["pre_actions"] = [
+            {"type": "nautobot", "name": "check", "script": "scripts/check.py", "with": {"device": "{{ inputs.device }}"}}
+        ]
+        definition["post_actions"] = [
+            {"type": "nautobot", "name": "note", "script": "scripts/note.py", "when": "{{ not inputs.confirm }}"}
+        ]
+        client = APIClient()
+        client.force_authenticate(self.user)
+        runs = WorkflowRun.objects.count()
+        jobs = ScheduledJob.objects.count()
+        with (
+            patch("nautobot_workflow_engine.executors.run_workflow") as run_workflow,
+            patch("nautobot_workflow_engine.executors._run_nautobot_script") as run_script,
+            patch("nautobot_workflow_engine.executors._run_awx_action") as run_awx,
+            patch("nautobot_workflow_engine.executors.requests.post") as post,
+        ):
+            response = client.post(
+                reverse("plugins-api:nautobot_workflow_engine-api:builder-dry-run"),
+                data=json.dumps({"definition": definition, "inputs": {"confirm": True, "device": "edge-01"}}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        for mocked in (run_workflow, run_script, run_awx, post):
+            mocked.assert_not_called()
+        self.assertEqual(WorkflowRun.objects.count(), runs)
+        self.assertEqual(ScheduledJob.objects.count(), jobs)
+        phases = {block["phase"]: block["steps"] for block in response.data["phases"]}
+        self.assertEqual(phases["pre"][0]["params"], {"device": "edge-01"})
+        self.assertTrue(phases["main"][0]["will_run"])
+        self.assertEqual(phases["main"][0]["params"], {"device": "edge-01"})
+        self.assertFalse(phases["post"][0]["will_run"])
+        self.assertIn("skipped", phases["post"][0]["skip_reason"])
+
+    def test_preview_run_reports_missing_inputs_before_any_step(self):
+        result = dry_run(DEFINITION, {"device": "edge-01"}, {}, self.user)
+        self.assertEqual(result["phases"], [])
+        self.assertEqual([error["key"] for error in result["form_errors"]], ["confirm"])
 
     def test_timeout_and_output_cap(self):
         def slow(*_args, **_kwargs):

@@ -556,7 +556,7 @@ def _preview_field(item):
 
 
 class BuilderDryRunView(APIView):
-    """Test run for a definition that may not be saved yet."""
+    """Preview run for a definition that may not be saved yet. Nothing is executed."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [BodyParser]
@@ -966,7 +966,7 @@ class WorkflowViewSet(ViewSet):
         return Response(body, status=202)
 
     def dry_run(self, request, key=None):
-        """Test run against a saved workflow. A body definition overrides the stored one."""
+        """Preview run against a saved workflow. A body definition overrides the stored one. Nothing is executed."""
         _require(request.user, "nautobot_workflow_engine.change_workflow")
         workflow = _visible(request.user, key, "change")
         data, failure = _load_body(request)

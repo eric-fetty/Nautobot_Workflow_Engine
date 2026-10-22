@@ -20,7 +20,7 @@ PHASES = (("pre", "pre_actions"), ("main", "actions"), ("post", "post_actions"))
 
 
 class DryRunTimeout(Exception):
-    """The test run exceeded its wall-clock limit."""
+    """The preview run exceeded its wall-clock limit."""
 
 
 def dry_run(
@@ -53,7 +53,7 @@ def dry_run(
         return {
             "form_errors": [],
             "phases": [],
-            "error": f"Test run stopped after {timeout:g} seconds.",
+            "error": f"Preview run stopped after {timeout:g} seconds.",
         }
     _log(definition, user)
     return {"form_errors": [], "phases": phases, "error": ""}
@@ -253,7 +253,7 @@ def _content_type(label):
 
 def _log(definition, user):
     logger.info(
-        "Test run for %s by user %s. No scripts or AWX jobs were started.",
+        "Preview run for %s by user %s. No scripts or AWX jobs were started.",
         definition.get("key") or "",
         getattr(user, "pk", ""),
     )

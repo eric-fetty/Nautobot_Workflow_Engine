@@ -6,8 +6,8 @@
 {% block breadcrumbs_wrapper %}{% endblock breadcrumbs_wrapper %}
 
 {% block content %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v8">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v21">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v10">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v23">
     <div id="builder-app" class="nwe-studio nwe-ui">
         {% if errors %}
             <div class="alert alert-danger" role="alert">
@@ -53,14 +53,16 @@
         </div>
     </div>
 
-    <div class="offcanvas offcanvas-end" tabindex="-1" id="builder-test-run-panel" aria-labelledby="builder-test-run-title" style="width: min(36rem, 100vw);">
+    <div class="offcanvas offcanvas-end nwe-ui nwe-preview-run" tabindex="-1" id="builder-test-run-panel" aria-labelledby="builder-test-run-title">
         <div class="offcanvas-header">
-            <h2 class="offcanvas-title h5" id="builder-test-run-title">Test run</h2>
+            <div>
+                <h2 class="offcanvas-title h5" id="builder-test-run-title">Preview run</h2>
+                <div class="nwe-muted small">Nothing is executed. No scripts or AWX jobs start and no run is recorded.</div>
+            </div>
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-            <div class="alert alert-info" role="status">Test run only. No scripts or AWX jobs were started.</div>
-            <div id="test-run-results"></div>
+            <div id="test-run-results" aria-live="polite"></div>
         </div>
     </div>
 
@@ -74,5 +76,5 @@
 
 {% block javascript %}
     {{ block.super }}
-    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v21"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v23"></script>
 {% endblock javascript %}

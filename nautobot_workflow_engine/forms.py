@@ -148,7 +148,7 @@ class DynamicWorkflowForm(forms.Form):
     def __init__(self, workflow: Workflow, *args, inputs=None, **kwargs):
         """Initialize dynamic form with fields based on workflow inputs.
 
-        ``inputs`` supplies unsaved rows for a test run so nothing is written.
+        ``inputs`` supplies unsaved rows for a preview run so nothing is written.
         """
         self._input_rows = inputs
         super().__init__(*args, **kwargs)

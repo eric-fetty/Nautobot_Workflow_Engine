@@ -1319,3 +1319,87 @@ body.nwe-studio-body #header > .container-fluid {
 .nwe-template-pick .nwe-template-id {
     flex: 0 0 5.5rem;
 }
+
+/* ---------- Preview run panel ---------- */
+.nwe-preview-run {
+    --bs-offcanvas-width: min(34rem, 100vw);
+    --bs-offcanvas-bg: var(--nwe-surface);
+    --bs-offcanvas-color: var(--bs-body-color);
+}
+
+.nwe-preview-run .offcanvas-header {
+    align-items: flex-start;
+    border-bottom: 1px solid var(--nwe-line);
+}
+
+.nwe-run-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--nwe-radius);
+    padding: 0.6rem 0.75rem;
+    font-weight: 500;
+}
+
+.nwe-run-banner.ok {
+    background: var(--nwe-ok-soft);
+    color: var(--nwe-ok);
+}
+
+.nwe-run-banner.bad {
+    background: var(--nwe-danger-soft);
+    color: var(--nwe-danger);
+}
+
+.nwe-run-banner.warn {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.nwe-run-errors {
+    margin: 0 0 1rem;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+}
+
+.nwe-run-steps .tx {
+    flex: 1;
+}
+
+.nwe-run-params {
+    margin-top: 0.35rem;
+    border: 1px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-fill);
+    padding: 0.35rem 0.55rem;
+}
+
+.nwe-run-param {
+    display: flex;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.nwe-run-param code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: inherit;
+}
+
+.nwe-run-param .k {
+    flex: none;
+    color: var(--nwe-muted);
+}
+
+.nwe-run-param .eq {
+    color: var(--nwe-faint);
+}
+
+.nwe-run-param .v {
+    color: var(--bs-emphasis-color);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}

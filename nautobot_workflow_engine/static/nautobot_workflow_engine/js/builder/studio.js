@@ -588,7 +588,7 @@ function howPop() {
         h("ol", {}, [
             h("li", {}, [h("b", { text: "Edit. " }), "Every change saves automatically within a second into one shared draft in Nautobot. There's no Save button."]),
             h("li", {}, [h("b", { text: "Only editors see the draft" }), `, and only here in the builder. People running it keep getting ${version}, unchanged. Other editors see the same draft.`]),
-            h("li", {}, [h("b", { text: "Try it" }), " with Test run in the preview. It's a dry run only you can see; nothing real happens."]),
+            h("li", {}, [h("b", { text: "Try it" }), " with Preview run. It fills in the form, checks conditions and renders parameters. Nothing is executed."]),
             h("li", {}, [h("b", { text: "Publish changes" }), ` saves ${next}, commits it to Git, and makes it the version everyone runs. Runs in progress finish on the version they started with.`]),
         ]),
         h("table", { class: "table table-sm mt-2 mb-2" }, [
@@ -607,7 +607,7 @@ function howPop() {
 function menu() {
     return h("div", { class: "nwe-pop nwe-menu", role: "menu" }, [
         item("versions", "Versions", "history"),
-        item("test", "Test run the draft", "play-circle-outline"),
+        item("test", "Preview run", "play-circle-outline"),
         item("download", "Download draft YAML", "download"),
         item("duplicate", "Duplicate", "content-copy"),
         h("hr"),
@@ -1790,7 +1790,7 @@ function reviewView() {
                         : null,
                     h("div", { class: "d-flex align-items-center gap-2 mt-3" }, [
                         block ? h("span", { class: "text-danger small", text: block.message }) : h("span", { class: "text-success small", text: "Ready to publish" }),
-                        h("button", { type: "button", class: "btn btn-light ms-auto", "data-action": "test", text: "Test run" }),
+                        h("button", { type: "button", class: "btn nwe-btn ms-auto", "data-action": "test" }, [icon("play-circle-outline"), "Preview run"]),
                         h("button", { type: "button", class: "btn nwe-publish", "data-action": "publish", disabled: Boolean(block), text: `Publish v${next}` }),
                     ]),
                 ])
@@ -2066,7 +2066,8 @@ function previewPlan() {
                 h("span", { class: "ic", "aria-hidden": "true" }, [icon(row.icon)]),
                 h("span", { class: "tx" }, [h("b", { text: row.title }), row.sub ? h("small", { text: row.sub }) : null]),
             ]))),
-        h("button", { type: "button", class: "btn nwe-btn-accent w-100 mt-3", "data-action": "test" }, [icon("play-circle-outline"), "Test run this draft"]),
+        h("button", { type: "button", class: "btn nwe-btn w-100 mt-3", "data-action": "test" }, [icon("play-circle-outline"), "Preview run"]),
+        h("p", { class: "nwe-plan-note", text: "Uses the values in the Launch form tab. Nothing is executed." }),
     ]);
 }
 
@@ -2764,27 +2765,101 @@ async function openVersions() {
     });
 }
 
+/** The Launch form preview's values, in the shape the launch page posts. */
+function previewValues() {
+    const values = {};
+    payload.inputs.forEach((input) => {
+        if (!input.key) return;
+        const has = Object.prototype.hasOwnProperty.call(state.preview, input.key);
+        const value = has ? state.preview[input.key] : previewDefault(input);
+        if (value === undefined) return;
+        values[input.key] = value;
+    });
+    return values;
+}
+
+function skipText(step) {
+    const shown = step.when_rendered === "" ? "empty" : `“${step.when_rendered}”`;
+    return `Skipped: the condition came out ${shown}. Only true, yes, on, y or 1 run it.`;
+}
+
+function paramLine(key, value) {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return h("div", { class: "nwe-run-param" }, [h("code", { class: "k", text: key }), h("span", { class: "eq", text: "=" }), h("code", { class: "v", text: text === "" ? "(empty)" : text })]);
+}
+
+/**
+ * Preview run: resolve the Launch form preview's values, evaluate each condition
+ * and render each step's parameters on the server, in the sandbox. It never runs a
+ * script, calls AWX, records a run or schedules a job.
+ */
 async function runTest() {
     const panel = window.bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("builder-test-run-panel"));
     const host = document.getElementById("test-run-results");
-    host.textContent = "Running…";
+    host.replaceChildren(h("div", { class: "nwe-muted" }, [icon("loading", "nwe-spin"), " Rendering the steps…"]));
     panel.show();
-    const result = await api(config.dry_run_url, { payload, inputs: state.preview });
-    host.replaceChildren();
+    const result = await api(config.dry_run_url, { payload, inputs: previewValues() });
     if (!result.ok) {
-        host.textContent = result.data.detail || "The test run did not start.";
+        host.replaceChildren(h("div", { class: "nwe-run-banner bad" }, [icon("alert-circle-outline"), h("span", { text: result.data.detail || "The preview run couldn’t start. Fix the issues in the draft and try again." })]));
         return;
     }
-    const phases = result.data.phases || {};
-    ["pre", "main", "post"].forEach((phase) => {
-        (phases[phase] || []).forEach((step) => {
-            host.append(h("div", { class: "mb-2" }, [
-                h("div", { class: "fw-semibold", text: step.name || "Step" }),
-                h("div", { class: "small", text: step.skip_reason || step.error || (step.will_run ? "Would run" : "Skipped") }),
-            ]));
+    const data = result.data || {};
+    if (data.error) {
+        host.replaceChildren(h("div", { class: "nwe-run-banner bad" }, [icon("timer-alert-outline"), h("span", { text: data.error.replace("Test run", "Preview run") })]));
+        return;
+    }
+    const errors = data.form_errors || [];
+    if (errors.length) {
+        const label = (key) => (inputByKey(key) || {}).label || key;
+        host.replaceChildren(
+            h("div", { class: "nwe-run-banner warn" }, [icon("form-textbox"), h("span", { text: "Fill in the Launch form preview first. These fields stop the run before any step:" })]),
+            h("ul", { class: "nwe-run-errors" }, errors.map((error) => h("li", {}, [h("b", { text: label(error.key) }), ` — ${error.message}`]))),
+            h("button", { type: "button", class: "btn nwe-btn", "data-bs-dismiss": "offcanvas", onclick: () => { state.previewTab = "form"; renderPreview(); } }, [icon("arrow-left"), "Back to the form"]),
+        );
+        return;
+    }
+    const phases = Array.isArray(data.phases) ? data.phases : [];
+    let ran = 0;
+    let skipped = 0;
+    let failed = 0;
+    const rows = [];
+    phases.forEach((block) => {
+        const actions = payload.actions[block.phase] || [];
+        if (!(block.steps || []).length) return;
+        rows.push(h("li", { class: "phase", text: (PHASE_META[block.phase] || {}).label || block.phase }));
+        block.steps.forEach((step, index) => {
+            const action = actions[index] || {};
+            const title = action.label || step.name || "Step";
+            let cls = "step";
+            let glyph = action.type === "awx" ? "ansible" : "script-text-outline";
+            let sub;
+            if (step.error) {
+                failed += 1;
+                cls += " bad";
+                glyph = "alert-circle-outline";
+                sub = h("small", { class: "text-danger", text: step.error });
+            } else if (!step.will_run) {
+                skipped += 1;
+                cls += " skip";
+                glyph = "debug-step-over";
+                sub = h("small", { text: skipText(step) });
+            } else {
+                ran += 1;
+                const params = step.params && typeof step.params === "object" && !Array.isArray(step.params) ? Object.entries(step.params) : [];
+                sub = h("div", {}, [
+                    h("small", { text: `Would run ${action.type === "awx" ? `AWX template ${action.template_name || `#${action.template_id || "?"}`}` : scriptName(action.script) || "the script"}${step.when_rendered ? " · condition is true" : ""}` }),
+                    params.length ? h("div", { class: "nwe-run-params" }, params.map(([key, value]) => paramLine(key, value))) : null,
+                ]);
+            }
+            rows.push(h("li", { class: cls }, [h("span", { class: "ic", "aria-hidden": "true" }, [icon(glyph)]), h("span", { class: "tx" }, [h("b", { text: title }), sub])]));
         });
     });
-    if (!host.childNodes.length) host.textContent = "Nothing to run yet.";
+    const parts = [`${ran} would run`, skipped ? `${skipped} skipped` : "", failed ? `${failed} with errors` : ""].filter(Boolean).join(" · ");
+    host.replaceChildren(
+        h("div", { class: `nwe-run-banner ${failed ? "bad" : "ok"}` }, [icon(failed ? "alert-circle-outline" : "check-circle-outline"), h("span", { text: rows.length ? parts : "There are no steps yet." })]),
+        h("div", { class: "nwe-muted small mb-3", text: previewFilled() ? "Using the values in the Launch form preview." : "Using the Launch form’s defaults. Fill in the preview to try other values." }),
+        rows.length ? h("ol", { class: "nwe-wh nwe-run-steps" }, rows) : null,
+    );
 }
 
 function downloadYaml() {
