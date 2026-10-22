@@ -336,21 +336,44 @@ function scriptName(path) {
     return stem.charAt(0).toUpperCase() + stem.slice(1);
 }
 
-function tile(type) {
-    const icons = {
-        string: "T",
-        integer: "#",
-        boolean: "◐",
-        choice: "◉",
-        multichoice: "☑",
-        object: "▣",
-        multiobject: "▣",
-        list: "≡",
-        listdict: "▦",
-        nautobot: "{ }",
-        awx: "⚙",
-    };
-    return h("span", { class: `nwe-tile t-${type}`, text: icons[type] || "•" });
+function icon(name, extra) {
+    return h("i", { class: `mdi mdi-${name}${extra ? ` ${extra}` : ""}`, "aria-hidden": "true" });
+}
+
+const TYPE_ICONS = {
+    string: "form-textbox",
+    integer: "numeric",
+    boolean: "toggle-switch-outline",
+    choice: "radiobox-marked",
+    multichoice: "checkbox-marked-outline",
+    object: "cube-outline",
+    multiobject: "cube-outline",
+    list: "format-list-bulleted",
+    listdict: "table",
+    nautobot: "script-text-outline",
+    awx: "ansible",
+};
+
+function tile(type, small) {
+    return h("span", { class: `nwe-tile t-${type}${small ? " sm" : ""}`, "aria-hidden": "true" }, [icon(TYPE_ICONS[type] || "circle-small")]);
+}
+
+/** A checkbox chip, as on the launch form. */
+function checkChip(attrs, on, text) {
+    return h("label", { class: `nwe-ck${on ? " on" : ""}` }, [
+        h("input", { type: "checkbox", ...attrs, checked: on }),
+        h("span", { class: "bx", "aria-hidden": "true" }, [on ? icon("check-bold") : null]),
+        h("span", { text }),
+    ]);
+}
+
+/** The app's switch: accent when on, in both themes. */
+function switchRow(attrs, title, help) {
+    return h("label", { class: "nwe-switch" }, [
+        h("input", { type: "checkbox", role: "switch", ...attrs }),
+        h("span", { class: "nwe-switch-ui", "aria-hidden": "true" }),
+        h("span", { class: "nwe-switch-copy" }, [h("b", { text: title }), help ? h("small", { text: help }) : null]),
+    ]);
 }
 
 function modelMeta(model) {
@@ -384,9 +407,9 @@ function renderHeader() {
     const block = publishBlock();
     const git = gitIndicator();
     header.replaceChildren(
-        h("a", { class: "nwe-back", href: config.list_url, title: "Back to workflows", text: "←" }),
+        h("a", { class: "nwe-iconbtn nwe-back", href: config.list_url, title: "Back to workflows", "aria-label": "Back to workflows" }, [icon("arrow-left")]),
         h("div", { class: "nwe-ident" }, [
-            h("span", { class: "nwe-wf-icon", text: "↻" }),
+            h("span", { class: "nwe-tile t-workflow", "aria-hidden": "true" }, [icon("transit-connection-variant")]),
             h("div", {}, [
                 h("h1", { class: "nwe-title", id: "nwe-title", text: payload.name || "Untitled workflow" }),
                 h("div", { class: "nwe-state" }, [
@@ -401,34 +424,24 @@ function renderHeader() {
         ]),
         h("div", { class: "nwe-tools" }, [
             git.bad
-                ? h("button", { type: "button", class: "btn btn-sm btn-outline-danger", "data-action": "retry", text: git.text })
-                : h("span", { class: "nwe-synced", text: git.text }),
-            h("label", { class: "nwe-switch" }, [
-                h("input", {
-                    type: "checkbox",
-                    "data-action": "enabled",
-                    checked: payload.enabled,
-                    disabled: !config.published_number || config.read_only,
-                }),
-                h("span", { class: "nwe-switch-ui" }),
-                h("span", { text: "Enabled" }),
-            ]),
-            h("div", { class: "nwe-seg" }, [
-                h("button", { type: "button", class: state.yaml ? "" : "on", "data-action": "mode", "data-mode": "visual", text: "Visual" }),
-                h("button", { type: "button", class: state.yaml ? "on" : "", "data-action": "mode", "data-mode": "yaml", text: "YAML" }),
+                ? h("button", { type: "button", class: "btn btn-sm nwe-btn nwe-git-bad", "data-action": "retry" }, [icon("alert-circle-outline"), git.text])
+                : h("span", { class: "nwe-synced" }, [icon(git.icon || "cloud-check-outline"), git.text]),
+            switchRow({ "data-action": "enabled", checked: payload.enabled, disabled: !config.published_number || config.read_only }, "Enabled"),
+            h("div", { class: "nwe-seg", role: "group", "aria-label": "Editor" }, [
+                h("button", { type: "button", class: state.yaml ? "" : "on", "data-action": "mode", "data-mode": "visual" }, [icon("view-dashboard-outline"), "Visual"]),
+                h("button", { type: "button", class: state.yaml ? "on" : "", "data-action": "mode", "data-mode": "yaml" }, [icon("code-tags"), "YAML"]),
             ]),
             h("div", { class: "position-relative" }, [
-                h("button", { type: "button", class: "nwe-more", "data-action": "menu", text: "⋯" }),
+                h("button", { type: "button", class: "nwe-iconbtn", "data-action": "menu", title: "More", "aria-label": "More actions", "aria-expanded": state.menu ? "true" : "false" }, [icon("dots-horizontal")]),
                 state.menu ? menu() : null,
             ]),
-            block ? h("a", { href: "#", class: "nwe-why", "data-action": "goto", "data-section": block.section, text: block.message }) : null,
+            block ? h("a", { href: "#", class: "nwe-why", "data-action": "goto", "data-section": block.section }, [icon("alert-circle-outline"), block.message]) : null,
             h("button", {
                 type: "button",
-                class: "btn nwe-publish",
+                class: "btn nwe-btn-accent nwe-publish",
                 "data-action": "publish",
                 disabled: Boolean(block) || config.read_only,
-                text: config.can_publish ? "Publish changes" : "Request publish",
-            }),
+            }, [icon("rocket-launch-outline"), config.can_publish ? "Publish changes" : "Request publish"]),
         ]),
     );
     if (state.how) header.querySelector(".nwe-state")?.append(howPop());
@@ -439,8 +452,8 @@ function gitIndicator() {
     if (state.gitStatus === "not_synced" || state.gitStatus === "git_invalid") {
         return { text: "Not synced · Retry", bad: true };
     }
-    if (!config.published_number) return { text: "Not in Git yet", bad: false };
-    if (state.gitStatus === "pending") return { text: "Syncing…", bad: false };
+    if (!config.published_number) return { text: "Not in Git yet", bad: false, icon: "cloud-outline" };
+    if (state.gitStatus === "pending") return { text: "Syncing…", bad: false, icon: "cloud-sync-outline" };
     return { text: "Synced", bad: false };
 }
 
@@ -469,20 +482,20 @@ function howPop() {
 }
 
 function menu() {
-    return h("div", { class: "nwe-pop", style: "right:0;top:2.2rem;width:15rem" }, [
-        item("versions", "Versions"),
-        item("test", "Test run the draft"),
-        item("download", "Download draft YAML"),
-        item("duplicate", "Duplicate"),
-        h("hr", { class: "my-1" }),
+    return h("div", { class: "nwe-pop nwe-menu", role: "menu" }, [
+        item("versions", "Versions", "history"),
+        item("test", "Test run the draft", "play-circle-outline"),
+        item("download", "Download draft YAML", "download"),
+        item("duplicate", "Duplicate", "content-copy"),
+        h("hr"),
         config.published_number
-            ? item("discard", "Discard draft…")
-            : item("discard", "Delete this draft…"),
+            ? item("discard", "Discard draft…", "trash-can-outline", true)
+            : item("discard", "Delete this draft…", "trash-can-outline", true),
     ]);
 }
 
-function item(action, text) {
-    return h("button", { type: "button", class: "dropdown-item", "data-action": action, text });
+function item(action, text, glyph, danger) {
+    return h("button", { type: "button", role: "menuitem", class: `nwe-pop-item${danger ? " danger" : ""}`, "data-action": action }, [glyph ? icon(glyph) : null, text]);
 }
 
 function renderHint() {
@@ -515,8 +528,8 @@ function renderBanner() {
                 h("div", { class: "small", text: "That's now the live version. Your draft started earlier, so publishing it would undo that change. Publish is paused until you choose. Loading their version keeps your draft in Versions." }),
             ]),
             h("div", { class: "ms-auto d-flex gap-2" }, [
-                h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "compare", text: "Compare" }),
-                h("button", { type: "button", class: "btn btn-sm btn-primary", "data-action": "load-git", text: "Load their version" }),
+                h("button", { type: "button", class: "btn btn-sm nwe-btn", "data-action": "compare", text: "Compare" }),
+                h("button", { type: "button", class: "btn btn-sm nwe-btn-accent", "data-action": "load-git", text: "Load their version" }),
             ]),
         ]),
     );
@@ -536,24 +549,27 @@ function renderStepper() {
     const host = document.getElementById("studio-stepper");
     const buckets = localIssues();
     host.replaceChildren(
-        h("div", { class: "nwe-stepper p-2" }, [
-            h("div", { class: "small fw-semibold text-secondary px-2 py-1", text: "BUILD YOUR WORKFLOW" }),
+        h("div", { class: "nwe-stepper" }, [
+            h("div", { class: "nwe-kicker nwe-stepper-title", text: "Build your workflow" }),
             ...SECTIONS.map(([id, label], index) => {
                 const count = buckets[id].length;
                 const on = state.section === id && !state.yaml;
-                const cls = ["nwe-step", on ? "on" : "", count ? "err" : ""].filter(Boolean).join(" ");
-                return h("button", { type: "button", class: cls, "data-action": "goto", "data-section": id }, [
-                    h("span", { class: "nwe-num", text: count ? "!" : String(index + 1) }),
-                    h("span", {}, [
-                        h("span", { class: "fw-semibold d-block", text: label }),
-                        h("span", { class: `small ${count ? "text-danger" : "text-secondary"}`, text: count ? `${count} issue${count === 1 ? "" : "s"} to fix` : summary(id) }),
+                const cls = ["nwe-nav-item", on ? "on" : "", count ? "err" : ""].filter(Boolean).join(" ");
+                return h("button", { type: "button", class: cls, "data-action": "goto", "data-section": id, "aria-current": on ? "step" : null }, [
+                    h("span", { class: "nwe-num" }, [count ? icon("exclamation-thick") : String(index + 1)]),
+                    h("span", { class: "nwe-nav-copy" }, [
+                        h("b", { text: label }),
+                        h("small", { class: count ? "bad" : "", text: count ? `${count} issue${count === 1 ? "" : "s"} to fix` : summary(id) }),
                     ]),
                 ]);
             }),
-            h("div", { class: "small text-secondary p-2" }, [
-                "Tip: Prefer code? ",
-                h("button", { type: "button", class: "btn btn-link btn-sm p-0", "data-action": "mode", "data-mode": "yaml", text: "Edit as YAML" }),
-                ". Both views always show the same draft.",
+            h("div", { class: "nwe-stepper-tip" }, [
+                icon("lightbulb-outline"),
+                h("span", {}, [
+                    "Prefer code? ",
+                    h("button", { type: "button", class: "nwe-link", "data-action": "mode", "data-mode": "yaml", text: "Edit as YAML" }),
+                    ". Both views show the same draft.",
+                ]),
             ]),
         ]),
     );
@@ -577,9 +593,9 @@ function renderEditor() {
     host.replaceChildren(
         h("div", { class: "nwe-editor" }, [
             state.yaml ? yamlView() : sectionView(),
-            h("div", { class: "d-flex justify-content-between mt-3" }, [
-                index > 0 ? h("button", { type: "button", class: "btn btn-light", "data-action": "goto", "data-section": SECTIONS[index - 1][0], text: `← Back: ${SECTIONS[index - 1][1]}` }) : h("span"),
-                index < SECTIONS.length - 1 ? h("button", { type: "button", class: "btn nwe-publish", "data-action": "goto", "data-section": SECTIONS[index + 1][0], text: `Next: ${SECTIONS[index + 1][1]} →` }) : h("span"),
+            h("div", { class: "nwe-editor-nav" }, [
+                index > 0 ? h("button", { type: "button", class: "btn nwe-btn", "data-action": "goto", "data-section": SECTIONS[index - 1][0] }, [icon("arrow-left"), `Back: ${SECTIONS[index - 1][1]}`]) : h("span"),
+                index < SECTIONS.length - 1 ? h("button", { type: "button", class: "btn nwe-btn-accent", "data-action": "goto", "data-section": SECTIONS[index + 1][0] }, [`Next: ${SECTIONS[index + 1][1]}`, icon("arrow-right")]) : h("span"),
             ]),
         ]),
     );
@@ -656,12 +672,12 @@ function inputsView() {
                 h("h2", { text: "Inputs" }),
                 h("p", { class: "nwe-sub", text: "The fields people fill in when they run the workflow, in this order." }),
             ]),
-            h("button", { type: "button", class: "btn btn-light", "data-action": "add-type", text: "+ Add input" }),
+            h("button", { type: "button", class: "btn nwe-btn", "data-action": "add-type" }, [icon("plus"), "Add input"]),
         ]),
         state.addType ? typePicker() : null,
         h("div", { class: "nwe-in-list" }, payload.inputs.map((input, index) => inputRow(input, index))),
-        h("button", { type: "button", class: "nwe-add-row", "data-action": "add-type", text: "+ Add input" }),
-        h("div", { class: "nwe-hint", text: "Drag to reorder · click a row to edit" }),
+        h("button", { type: "button", class: "nwe-add-row", "data-action": "add-type" }, [icon("plus"), "Add input"]),
+        h("div", { class: "nwe-list-hint", text: "Drag to reorder · click a row to edit" }),
     ]);
 }
 
@@ -669,7 +685,7 @@ function typePicker() {
     return h("div", { class: "nwe-card nwe-typegrid" }, [
         h("div", { class: "nwe-kicker", text: "What should people enter?" }),
         h("div", { class: "nwe-typegrid-items" }, TYPES.map(([type, label]) => h("button", { type: "button", class: "nwe-type-item", "data-action": "add-input", "data-type": type }, [
-            tile(type),
+            tile(type, true),
             h("span", {}, [h("b", { text: label })]),
         ]))),
     ]);
@@ -700,15 +716,15 @@ function inputRow(input, index) {
     const open = state.openInput === index;
     return h("div", { class: `nwe-in ${open ? "open" : ""}`, draggable: "true", "data-drag": "input", "data-index": String(index) }, [
         h("div", { class: "nwe-in-head", "data-action": "open-input", "data-index": String(index) }, [
-            h("span", { class: "nwe-grip", text: "⋮⋮", title: "Drag to reorder" }),
+            h("span", { class: "nwe-grip", title: "Drag to reorder", "aria-hidden": "true" }, [icon("drag-vertical")]),
             tile(input.type),
             h("div", { class: "nwe-in-copy" }, [
                 h("div", { class: "nwe-in-name", "data-row-label": String(index), text: input.label || "Untitled" }),
                 h("div", { class: "nwe-in-meta", text: inputSubtitle(input) }),
             ]),
-            h("div", { class: "nwe-pills" }, inputPills(input).map(([text, tone]) => h("span", { class: `nwe-soft ${tone}`, text }))),
-            h("button", { type: "button", class: "nwe-icon", "data-action": "remove-input", "data-index": String(index), title: "Remove", text: "🗑" }),
-            h("span", { class: "nwe-chev", text: open ? "▴" : "▾" }),
+            h("div", { class: "nwe-pills" }, inputPills(input).map(([text, tone]) => h("span", { class: `nwe-tag ${tone}`, text }))),
+            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "remove-input", "data-index": String(index), title: "Remove input", "aria-label": `Remove ${input.label || "input"}` }, [icon("trash-can-outline")]),
+            h("span", { class: "nwe-chev", "aria-hidden": "true" }, [icon(open ? "chevron-up" : "chevron-down")]),
         ]),
         open ? inputEditor(input, index) : null,
     ]);
@@ -735,14 +751,7 @@ function inputEditor(input, index) {
             object ? h("div", { class: "nwe-span" }, [filterEditor(input, index)]) : null,
             input.type === "listdict" ? h("div", { class: "nwe-span" }, [tableEditor(input, index)]) : null,
             h("div", { class: "nwe-span nwe-behav" }, [
-                h("label", { class: "nwe-switch" }, [
-                    h("input", { type: "checkbox", "data-bind": `${base}.required`, checked: input.required }),
-                    h("span", { class: "nwe-switch-ui" }),
-                    h("span", {}, [
-                        h("b", { text: "Required" }),
-                        h("small", { text: object ? "People must pick one to run it" : "People must fill it in to run it" }),
-                    ]),
-                ]),
+                switchRow({ "data-bind": `${base}.required`, checked: input.required }, "Required", object ? "People must pick one to run it" : "People must fill it in to run it"),
                 visibilityEditor(input, index),
             ]),
         ]),
@@ -768,13 +777,17 @@ function modelPicker(input, index) {
         groups.get(item.app).push(item);
     });
     return h("div", { class: "nwe-model" }, [
-        h("button", { type: "button", class: "form-select text-start", "data-action": "model-open", "data-index": String(index), text: current ? current.label : "Choose…" }),
-        state.modelOpen === index ? h("div", { class: "nwe-model-pop" }, [
-            h("input", { class: "form-control form-control-sm", placeholder: "Search objects…", "data-model-search": String(index), value: state.modelQuery || "" }),
+        h("button", { type: "button", class: "form-select text-start", "data-action": "model-open", "data-index": String(index), "aria-expanded": state.modelOpen === index ? "true" : "false", text: current ? current.label : "Choose…" }),
+        state.modelOpen === index ? h("div", { class: "nwe-pop nwe-model-pop" }, [
+            h("div", { class: "nwe-picker-search" }, [
+                icon("magnify"),
+                h("input", { class: "form-control form-control-sm", placeholder: "Search objects…", "data-model-search": String(index), value: state.modelQuery || "" }),
+            ]),
             ...[...groups.entries()].map(([app, rows]) => h("div", {}, [
-                h("div", { class: "nwe-model-app", text: app }),
-                ...rows.map((item) => h("button", { type: "button", class: "nwe-model-item", "data-action": "pick-model", "data-index": String(index), "data-model": item.value, text: item.label })),
+                h("div", { class: "nwe-pop-sec", text: app }),
+                ...rows.map((item) => h("button", { type: "button", class: `nwe-pop-item${current && current.value === item.value ? " hl" : ""}`, "data-action": "pick-model", "data-index": String(index), "data-model": item.value, text: item.label })),
             ])),
+            !groups.size ? h("div", { class: "nwe-picker-empty", text: "No object types match." }) : null,
         ]) : null,
     ]);
 }
@@ -786,9 +799,9 @@ function choicesEditor(input, index) {
         ...input.choices.map((choice, choiceIndex) => h("div", { class: "d-flex gap-2 mb-1" }, [
             h("input", { class: "form-control", placeholder: "Value", "data-bind": `inputs.${index}.choices.${choiceIndex}.value`, value: choice.value || "" }),
             h("input", { class: "form-control", placeholder: "Label", "data-bind": `inputs.${index}.choices.${choiceIndex}.label`, value: choice.label || "" }),
-            h("button", { type: "button", class: "btn btn-light", "data-action": "remove-choice", "data-index": String(index), "data-choice": String(choiceIndex), text: "×" }),
+            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "remove-choice", "data-index": String(index), "data-choice": String(choiceIndex), title: "Remove option", "aria-label": "Remove option" }, [icon("close")]),
         ])),
-        h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "add-choice", "data-index": String(index), text: "+ Option" }),
+        h("button", { type: "button", class: "nwe-link", "data-action": "add-choice", "data-index": String(index) }, [icon("plus"), "Add option"]),
     ]);
 }
 
@@ -801,17 +814,17 @@ function filterEditor(input, index) {
     return h("div", { class: "nwe-filter" }, [
         h("div", { class: "d-flex align-items-center mb-2" }, [
             h("div", { class: "form-label m-0", text: `Only offer ${noun}s where…` }),
-            h("button", { type: "button", class: "btn btn-link btn-sm ms-auto", "data-action": "filter-mode", "data-index": String(index), text: input.filter_mode === "jinja" ? "Back to the filter builder" : "Switch to advanced (Jinja)" }),
+            h("button", { type: "button", class: "nwe-link muted ms-auto", "data-action": "filter-mode", "data-index": String(index) }, [icon(input.filter_mode === "jinja" ? "filter-variant" : "code-braces"), input.filter_mode === "jinja" ? "Back to the filter builder" : "Switch to advanced (Jinja)"]),
         ]),
         input.filter_mode === "jinja"
             ? h("textarea", { class: "form-control font-monospace", rows: "4", "data-bind": `inputs.${index}.filter_query`, value: input.filter_query || "" })
             : h("div", {}, [
                 ...(input.filter_rows || []).map((row, rowIndex) => filterRow(input, index, row, rowIndex)),
                 !(input.filter_rows || []).length ? h("div", { class: "form-text", text: `No conditions: every ${noun} is offered.` }) : null,
-                h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-filter", "data-index": String(index), text: "+ Add condition" }),
+                h("button", { type: "button", class: "nwe-link", "data-action": "add-filter", "data-index": String(index) }, [icon("plus"), "Add condition"]),
                 h("div", { class: "nwe-count", id: `nwe-count-${index}`, text: state.counts[index] || "The count updates as you edit the filter." }),
             ]),
-        waits.length ? h("div", { class: "nwe-dep", text: `${input.label || "This field"} appears on the form after ${waits.join(", ")} is filled in, because this filter uses it. This was set up for you.` }) : null,
+        waits.length ? h("div", { class: "nwe-dep" }, [icon("information-outline"), h("span", { text: `${input.label || "This field"} appears on the form after ${waits.join(", ")} is filled in, because this filter uses it. This was set up for you.` })]) : null,
     ]);
 }
 
@@ -835,7 +848,7 @@ function filterRow(input, index, row, rowIndex) {
             h("option", { value: "input", text: "From another input", selected: row.source === "input" }),
         ]),
         filterValueControl(input, row, base, meta, others),
-        h("button", { type: "button", class: "nwe-icon", "data-action": "remove-filter", "data-index": String(index), "data-row": String(rowIndex), text: "×" }),
+        h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "remove-filter", "data-index": String(index), "data-row": String(rowIndex), title: "Remove condition", "aria-label": "Remove condition" }, [icon("close")]),
     ]);
 }
 
@@ -850,10 +863,7 @@ function filterValueControl(input, row, base, meta, others) {
     const choices = meta?.choices || [];
     if ((meta?.kind === "choice" || meta?.kind === "object") && (row.op === "is one of" || row.op === "is not one of")) {
         const selected = new Set(String(row.value || "").split(",").map((part) => part.trim()).filter(Boolean));
-        return h("div", { class: "nwe-chips" }, choices.map((name) => h("label", { class: `nwe-check ${selected.has(name) ? "on" : ""}` }, [
-            h("input", { type: "checkbox", "data-chip": `${base}.value`, value: name, checked: selected.has(name) }),
-            h("span", { text: name }),
-        ])));
+        return h("div", { class: "nwe-checks" }, choices.map((name) => checkChip({ "data-chip": `${base}.value`, value: name }, selected.has(name), name)));
     }
     if (meta?.kind === "choice" || meta?.kind === "object") {
         return h("select", { class: "form-select form-select-sm", "data-bind": `${base}.value` }, [
@@ -942,15 +952,17 @@ function visibilityEditor(input, index) {
         return h("div", {}, [
             h("label", { class: "form-label", text: "Visibility" }),
             h("textarea", { class: "form-control font-monospace", rows: "2", "data-bind": `inputs.${index}.show_if`, value: typeof input.show_if === "string" ? input.show_if : "" }),
-            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "show-visual", "data-index": String(index), text: "Back to the condition builder" }),
+            h("button", { type: "button", class: "nwe-link muted", "data-action": "show-visual", "data-index": String(index) }, [icon("filter-variant"), "Back to the condition builder"]),
         ]);
     }
     const row = parseShow(input.show_if);
     if (!row) {
         return h("div", {}, [
             h("label", { class: "form-label", text: "Visibility" }),
-            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "add-show", "data-index": String(index), text: "+ Only show this field when…" }),
-            h("div", { class: "form-text", text: "Always shown" }),
+            h("div", { class: "nwe-inline" }, [
+                h("button", { type: "button", class: "nwe-link", "data-action": "add-show", "data-index": String(index) }, [icon("plus"), "Only show this field when…"]),
+                h("span", { class: "nwe-muted", text: "Always shown" }),
+            ]),
         ]);
     }
     const others = payload.inputs.filter((item, itemIndex) => itemIndex !== index && item.key);
@@ -964,8 +976,8 @@ function visibilityEditor(input, index) {
             ]),
             h("select", { class: "form-select form-select-sm", "data-show": "op", "data-index": String(index) }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
             showValue(source, row, index),
-            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "show-jinja", "data-index": String(index), text: "Switch to advanced (Jinja)" }),
-            h("button", { type: "button", class: "nwe-icon", "data-action": "clear-show", "data-index": String(index), text: "×" }),
+            h("button", { type: "button", class: "nwe-link muted", "data-action": "show-jinja", "data-index": String(index) }, [icon("code-braces"), "Advanced (Jinja)"]),
+            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "clear-show", "data-index": String(index), title: "Always show", "aria-label": "Remove the condition" }, [icon("close")]),
         ]),
     ]);
 }
@@ -1001,7 +1013,7 @@ function tableEditor(input, index) {
     input.columns = input.columns || [];
     return h("div", { class: "mb-3" }, [
         h("div", { class: "form-label", text: "Columns" }),
-        ...input.columns.map((column, columnIndex) => h("div", { class: "border rounded p-2 mb-2" }, [
+        ...input.columns.map((column, columnIndex) => h("div", { class: "nwe-colcard" }, [
             h("div", { class: "row g-2" }, [
                 h("div", { class: "col" }, [h("input", { class: "form-control", placeholder: "Label", "data-bind": `inputs.${index}.columns.${columnIndex}.label`, value: column.label || "" })]),
                 h("div", { class: "col" }, [h("input", { class: "form-control", placeholder: "Key", "data-bind": `inputs.${index}.columns.${columnIndex}.key`, value: column.key || "" })]),
@@ -1010,19 +1022,15 @@ function tableEditor(input, index) {
             h("div", { class: "row g-2 mt-1" }, [
                 h("div", { class: "col" }, [h("input", { class: "form-control", type: "number", placeholder: "Min", "data-bind": `inputs.${index}.columns.${columnIndex}.min_value`, value: column.min_value ?? "" })]),
                 h("div", { class: "col" }, [h("input", { class: "form-control", type: "number", placeholder: "Max", "data-bind": `inputs.${index}.columns.${columnIndex}.max_value`, value: column.max_value ?? "" })]),
-                h("div", { class: "col" }, [h("button", { type: "button", class: "btn btn-light", "data-action": "remove-column", "data-index": String(index), "data-column": String(columnIndex), text: "Remove column" })]),
+                h("div", { class: "col-auto" }, [h("button", { type: "button", class: "btn nwe-btn-ghost", "data-action": "remove-column", "data-index": String(index), "data-column": String(columnIndex) }, [icon("trash-can-outline"), "Remove column"])]),
             ]),
         ])),
-        h("button", { type: "button", class: "btn btn-sm btn-light", "data-action": "add-column", "data-index": String(index), text: "+ Column" }),
+        h("button", { type: "button", class: "nwe-link", "data-action": "add-column", "data-index": String(index) }, [icon("plus"), "Add column"]),
         h("div", { class: "row mt-2" }, [
             h("div", { class: "col" }, [field("At least rows", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `inputs.${index}.min_rows`, value: input.min_rows ?? "" }))]),
             h("div", { class: "col" }, [field("At most rows", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `inputs.${index}.max_rows`, value: input.max_rows ?? "" }))]),
         ]),
-        h("div", { class: "form-check form-switch" }, [
-            h("input", { class: "form-check-input", type: "checkbox", "data-bind": `inputs.${index}.csv_import`, "data-check": "1", checked: input.csv_import !== false, id: `csv-${index}` }),
-            h("label", { class: "form-check-label", for: `csv-${index}`, text: "Allow CSV import" }),
-        ]),
-        h("div", { class: "form-text", text: "Import CSV reads the file in the browser. It is not uploaded or stored." }),
+        switchRow({ "data-bind": `inputs.${index}.csv_import`, checked: input.csv_import !== false }, "Allow CSV import", "Import CSV reads the file in the browser. It is not uploaded or stored."),
     ]);
 }
 
@@ -1110,7 +1118,7 @@ function stepCard(phase, action, index) {
     const flags = [];
     if (action.when) flags.push(`Only if ${whenPlain(action)}`);
     if (action.monitor) flags.push("Waits for the job to finish");
-    return h("div", { class: `nwe-step ${open ? "open" : ""} ${missing ? "bad" : ""}`, draggable: "true", "data-drag": "step", "data-phase": phase, "data-index": String(index) }, [
+    return h("div", { class: `nwe-stepcard ${open ? "open" : ""} ${missing ? "bad" : ""}`, draggable: "true", "data-drag": "step", "data-phase": phase, "data-index": String(index) }, [
         h("div", { class: "nwe-step-head", "data-action": "open-step", "data-phase": phase, "data-index": String(index) }, [
             h("span", { class: "nwe-grip", text: "⋮⋮" }),
             tile(action.type === "awx" ? "awx" : "nautobot"),
@@ -1242,10 +1250,7 @@ function scheduleView() {
                     ...textInputs.map((input) => h("option", { value: input.key, text: input.label || input.key, selected: schedule.change_input_key === input.key })),
                 ])),
                 field("Window timezone", h("input", { class: "form-control", "data-bind": "schedule.timezone", value: schedule.timezone || "" })),
-                gridField("Allowed change states", h("div", { class: "nwe-chips" }, (config.snow_states || []).map((name) => h("label", { class: `nwe-check ${(schedule.allowed_states || []).includes(name) ? "on" : ""}` }, [
-                    h("input", { type: "checkbox", "data-action": "snow-state", "data-state": name, checked: (schedule.allowed_states || []).includes(name) }),
-                    h("span", { text: name }),
-                ]))), "The run is only allowed while the change is in one of these states."),
+                gridField("Allowed change states", h("div", { class: "nwe-checks" }, (config.snow_states || []).map((name) => checkChip({ "data-action": "snow-state", "data-state": name }, (schedule.allowed_states || []).includes(name), name))), "The run is only allowed while the change is in one of these states."),
                 h("details", {}, [
                     h("summary", { text: "Advanced · ServiceNow field names, ticket pattern" }),
                     field("Window start fields", h("input", { class: "form-control", "data-bind": "schedule.start_fields", value: (schedule.start_fields || []).join(", ") })),
@@ -1269,8 +1274,8 @@ function reviewView() {
         h("div", { class: "nwe-card", id: "nwe-review-diff" }, [
             h("div", { class: "fw-semibold", text: "What changes for people running it" }),
             h("div", { class: "small text-secondary mb-2", text: config.published_number ? `Compared with v${config.published_number}, which runs today.` : "This is the first version." }),
-            ...changes.map((change) => h("div", { class: "mb-1" }, [h("span", { class: "me-2", text: change[0] }), change[1]])),
-            h("button", { type: "button", class: "btn btn-link btn-sm px-0", "data-action": "yaml-diff", text: state.yamlDiff ? "Hide the YAML diff" : "Show the YAML diff (what Git gets)" }),
+            ...changes.map((change) => h("div", { class: "nwe-change" }, [h("span", { class: `nwe-change-mark ${change[0] === "+" ? "add" : change[0] === "−" ? "del" : "mod"}`, text: change[0] }), change[1]])),
+            h("button", { type: "button", class: "nwe-link", "data-action": "yaml-diff" }, [icon(state.yamlDiff ? "chevron-up" : "chevron-down"), state.yamlDiff ? "Hide the YAML diff" : "Show the YAML diff (what Git gets)"]),
             state.yamlDiff ? diffView(lineDiff(String(config.published_yaml || ""), state.yamlText || "")) : null,
         ]),
         h("div", { class: "nwe-card", id: "nwe-publish-card" }, [
@@ -1316,15 +1321,15 @@ function checks() {
         ["schedule", "Schedule & approval", [payload.approval_required ? "Needs approval" : "No approval", payload.schedule.enabled ? "ServiceNow change window" : "Runs any time"].join(" · ")],
     ];
     return h("div", { class: "nwe-card" }, [
-        h("div", { class: "fw-semibold mb-2", text: "Checks" }),
-        ...rows.map(([id, label, detail]) => h("div", { class: "d-flex gap-2 mb-2" }, [
-            h("span", { text: buckets[id].length ? "!" : "✓" }),
+        h("div", { class: "nwe-card-title", text: "Checks" }),
+        ...rows.map(([id, label, detail]) => h("div", { class: `nwe-check-row${buckets[id].length ? " bad" : ""}` }, [
+            h("span", { class: "nwe-check-ico" }, [icon(buckets[id].length ? "alert-circle-outline" : "check-circle-outline")]),
             h("div", { class: "flex-grow-1" }, [
-                h("div", { class: "fw-semibold", text: label }),
-                h("div", { class: "small text-secondary", text: detail }),
-                ...buckets[id].slice(0, 3).map((message) => h("div", { class: "small text-danger", text: message })),
+                h("b", { text: label }),
+                h("small", { text: detail }),
+                ...buckets[id].slice(0, 3).map((message) => h("small", { class: "bad", text: message })),
             ]),
-            h("button", { type: "button", class: "btn btn-link btn-sm", "data-action": "goto", "data-section": id, text: "Edit" }),
+            h("button", { type: "button", class: "nwe-link", "data-action": "goto", "data-section": id }, [icon("pencil-outline"), "Edit"]),
         ])),
     ]);
 }
@@ -1400,7 +1405,7 @@ function yamlView() {
         h("div", { class: "nwe-kicker", text: "Edit as YAML" }),
         h("h2", { text: `${payload.key || "workflow"}.yaml` }),
         h("p", { class: "nwe-sub", text: locked ? "You need the Author templates and scripts permission to edit YAML." : "The draft, as YAML. Edits apply to the draft. Git gets this file when you publish." }),
-        h("div", { class: "nwe-code" }, [
+        h("div", { class: "nwe-code-editor" }, [
             h("div", { class: "nwe-gutter", id: "nwe-gutter" }, lines.map((line, index) => h("div", { class: bad.has(index + 1) ? "bad" : "", text: String(index + 1) }))),
             h("textarea", { class: "nwe-yaml", id: "nwe-yaml", "data-yaml": "1", disabled: locked, text: state.yamlText || "" }),
         ]),
@@ -1645,6 +1650,14 @@ function scheduleCount(index) {
     }, 400);
 }
 
+function paintChip(input) {
+    const label = input.closest(".nwe-ck");
+    if (!label) return;
+    label.classList.toggle("on", input.checked);
+    const box = label.querySelector(".bx");
+    if (box) box.replaceChildren(...(input.checked ? [icon("check-bold")] : []));
+}
+
 function valueOf(target) {
     if (target.type === "checkbox") return target.checked;
     return target.value;
@@ -1708,7 +1721,7 @@ app.addEventListener("change", (event) => {
     if (target.dataset.chip) {
         const boxes = document.querySelectorAll(`[data-chip="${CSS.escape(target.dataset.chip)}"]`);
         assign(target.dataset.chip, Array.from(boxes).filter((box) => box.checked).map((box) => box.value).join(", "));
-        target.closest("label")?.classList.toggle("on", target.checked);
+        paintChip(target);
         touch();
         return;
     }
@@ -2073,7 +2086,7 @@ async function openVersions() {
             ]),
             revision.state === "published" && revision.number === config.published_number
                 ? h("span", { class: "nwe-pill nwe-pill-ok", text: "Live" })
-                : h("button", { type: "button", class: "btn btn-sm btn-light", "data-restore": String(revision.number), text: "Restore into draft" }),
+                : h("button", { type: "button", class: "btn btn-sm nwe-btn", "data-restore": String(revision.number), text: "Restore into draft" }),
         ])),
     );
     body.querySelectorAll("[data-restore]").forEach((button) => {

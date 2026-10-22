@@ -5,13 +5,15 @@
 {% block title %}Workflows{% endblock title %}
 
 {% block extra_styles %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}">
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v2">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v3">
 {% endblock extra_styles %}
 
 {% block header %}{% endblock header %}
 
 {% block content %}
-<div class="nwe-catalog-page">
+<div class="nwe-catalog-page nwe-ui">
     <div id="nwe-catalog-csrf" hidden>{% csrf_token %}</div>
     {% if unsynced %}
         <div class="alert alert-danger d-flex gap-3 align-items-start" role="status" id="nwe-unsynced-banner">
@@ -32,14 +34,14 @@
     <div class="d-flex align-items-end gap-3 mb-3 flex-wrap">
         <div>
             <h1>Workflows</h1>
-            <div class="text-secondary">Self-service forms that run Nautobot scripts and AWX jobs.</div>
+            <div class="nwe-muted">Self-service forms that run Nautobot scripts and AWX jobs.</div>
         </div>
         <div class="ms-auto d-flex align-items-center gap-2">
             {% if git_indicator %}
-                <span class="text-secondary small" id="nwe-git-indicator">{% if git_indicator == "Synced" %}<i class="mdi mdi-cloud-check-outline"></i> {% endif %}{{ git_indicator }}</span>
+                <span class="nwe-muted small" id="nwe-git-indicator">{% if git_indicator == "Synced" %}<i class="mdi mdi-cloud-check-outline"></i> {% endif %}{{ git_indicator }}</span>
             {% endif %}
             {% if can_add_workflows %}
-                <a class="btn btn-primary" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_create' %}">
+                <a class="btn nwe-btn-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_create' %}">
                     <i class="mdi mdi-plus"></i> New workflow
                 </a>
             {% endif %}
@@ -115,8 +117,8 @@
                                 <td>
                                     <div>
                                         <a class="nwe-wf-name" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}">{{ wf.name }}</a>
-                                        {% if wf.needs_approval %}<i class="mdi mdi-account-check text-secondary" title="Needs approval before it runs"></i>{% endif %}
-                                        {% if wf.uses_snow %}<i class="mdi mdi-calendar-check text-secondary" title="Runs only in a ServiceNow change window"></i>{% endif %}
+                                        {% if wf.needs_approval %}<i class="mdi mdi-account-check-outline nwe-wf-flag" title="Needs approval before it runs"></i>{% endif %}
+                                        {% if wf.uses_snow %}<i class="mdi mdi-calendar-clock nwe-wf-flag" title="Runs only in a ServiceNow change window"></i>{% endif %}
                                         {% if wf.description %}<div class="nwe-wf-desc">{{ wf.description }}</div>{% endif %}
                                     </div>
                                 </td>
@@ -126,9 +128,9 @@
                                         <span class="dot"></span>{{ wf.status_label }}
                                     </a>
                                     {% if wf.status_kind == "new" %}
-                                        <div class="small text-secondary mt-1">Only editors can see it</div>
+                                        <div class="nwe-pill-sub">Only editors can see it</div>
                                     {% elif wf.status_kind == "draft" %}
-                                        <div class="small text-secondary mt-1">{{ wf.draft_editor }} · {{ wf.draft_when }}</div>
+                                        <div class="nwe-pill-sub">{{ wf.draft_editor }} · {{ wf.draft_when }}</div>
                                     {% endif %}
                                 </td>
                                 <td class="text-end">{% if wf.runs_30d %}{{ wf.runs_30d }}{% else %}<span class="text-secondary">—</span>{% endif %}</td>
@@ -151,17 +153,17 @@
                                 <td>
                                     <div class="nwe-row-acts">
                                         {% if wf.published_revision_id and wf.enabled %}
-                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>
+                                            <a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>
                                         {% else %}
                                             <span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}">
-                                                <button type="button" class="btn btn-sm btn-outline-primary" disabled><i class="mdi mdi-play"></i> Run</button>
+                                                <button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button>
                                             </span>
                                         {% endif %}
                                         {% if can_change_workflows %}
-                                            <a class="btn btn-sm btn-light" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}"><i class="mdi mdi-pencil"></i> Edit</a>
+                                            <a class="btn btn-sm nwe-btn" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}"><i class="mdi mdi-pencil-outline"></i> Edit</a>
                                         {% endif %}
                                         <div class="dropdown">
-                                            <button class="btn btn-sm btn-light" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More">⋯</button>
+                                            <button class="btn btn-sm nwe-btn-ghost" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More" aria-label="More actions"><i class="mdi mdi-dots-horizontal"></i></button>
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 {% if wf.published_revision_id %}
                                                     <li><a class="dropdown-item" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}?versions=1">Versions</a></li>

@@ -67,12 +67,6 @@
     padding: 1.5rem;
 }
 
-.nwe-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 1.15rem;
-}
-
 .nwe-fields > .nwe-f + .nwe-f {
     margin-top: 0;
 }

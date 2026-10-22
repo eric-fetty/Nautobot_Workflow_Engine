@@ -674,8 +674,8 @@ a.nwe-pill:hover {
 .nwe-f-help,
 .nwe-f-hint {
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
+    align-items: flex-start;
+    flex-wrap: nowrap;
     gap: 0.3rem;
     margin-top: 0.35rem;
     color: var(--nwe-muted);
@@ -684,8 +684,20 @@ a.nwe-pill:hover {
 }
 
 .nwe-f-hint .mdi {
+    flex: none;
+    margin-top: 0.12rem;
     font-size: 0.9rem;
     line-height: 1;
+}
+
+.nwe-f-hint > span {
+    min-width: 0;
+}
+
+.nwe-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
 }
 
 .nwe-f-hint + .nwe-f-help {
