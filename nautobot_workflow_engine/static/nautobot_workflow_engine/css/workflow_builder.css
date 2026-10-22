@@ -1054,3 +1054,54 @@ body.nwe-studio-body #header > .container-fluid {
     color: var(--nwe-muted);
     font-size: 0.76rem;
 }
+
+/* ---------- row header actions: identical on inputs and steps ---------- */
+.nwe-in-head .nwe-row-acts,
+.nwe-step-head .nwe-row-acts {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.05rem;
+    align-self: flex-start;
+}
+
+.nwe-in-head .nwe-row-acts .nwe-iconbtn,
+.nwe-step-head .nwe-row-acts .nwe-iconbtn {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.98rem;
+}
+
+.nwe-step-head .nwe-chev,
+.nwe-in-head .nwe-chev {
+    align-self: flex-start;
+    height: 1.75rem;
+}
+
+.nwe-step-head .nwe-grip,
+.nwe-step-head .nwe-tile {
+    align-self: flex-start;
+}
+
+.nwe-step-head .nwe-grip {
+    margin-top: 0.35rem;
+}
+
+/* Quiet until the row is hovered or focused, so the list reads as content first. */
+@media (hover: hover) {
+    .nwe-in:not(.open) .nwe-row-acts .nwe-iconbtn:not(:disabled),
+    .nwe-stepcard:not(.open) .nwe-row-acts .nwe-iconbtn:not(:disabled) {
+        color: var(--nwe-faint);
+    }
+
+    .nwe-in:hover .nwe-row-acts .nwe-iconbtn:not(:disabled),
+    .nwe-stepcard:hover .nwe-row-acts .nwe-iconbtn:not(:disabled),
+    .nwe-row-acts:focus-within .nwe-iconbtn:not(:disabled) {
+        color: var(--nwe-muted);
+    }
+}
+
+.nwe-studio-toast .toast-body {
+    display: flex;
+    align-items: center;
+}

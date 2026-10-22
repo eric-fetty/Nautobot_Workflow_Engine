@@ -127,6 +127,30 @@ function stepLocked(action) {
     return (config.published_step_names || []).includes(action.name) && action._nameTouched;
 }
 
+/** A deep copy of an input or step, without the builder's own bookkeeping timers. */
+function cloneRow(row) {
+    return JSON.parse(JSON.stringify(row, (key, value) => (key.endsWith("Timer") ? undefined : value)));
+}
+
+/** `base`, or `base_2`, `base_3`… so it doesn't clash with `taken`. */
+function uniqueKey(base, taken) {
+    const root = base || "step";
+    const used = new Set(taken.filter(Boolean));
+    if (!used.has(root)) return root;
+    let n = 2;
+    while (used.has(`${root}_${n}`)) n += 1;
+    return `${root}_${n}`;
+}
+
+/** Labels of the other steps whose parameters or condition read `results.<name>`. */
+function stepReferences(name, self) {
+    if (!name) return [];
+    const pattern = new RegExp(`\\bresults\\.${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    return allSteps()
+        .filter((action) => action !== self && pattern.test(JSON.stringify([action.when || "", action.with || "", action.extra_vars || ""])))
+        .map((action) => `“${action.label || action.name}”`);
+}
+
 function allSteps() {
     return PHASES.flatMap(([phase]) => payload.actions[phase] || []);
 }
@@ -218,14 +242,24 @@ async function api(url, body, method) {
     return { ok: response.ok, status: response.status, data };
 }
 
-function toast(message) {
+function toast(message, undo) {
     const node = document.getElementById("builder-toast-text");
     const toastNode = document.getElementById("builder-toast");
     if (!node || !toastNode || !window.bootstrap) return;
-    node.textContent = message;
-    window.bootstrap.Toast.getOrCreateInstance(toastNode, { delay: 4000 }).show();
+    const instance = window.bootstrap.Toast.getOrCreateInstance(toastNode, { delay: undo ? 7000 : 4000 });
+    node.replaceChildren(h("span", { text: message }));
+    if (undo) {
+        node.append(h("button", {
+            type: "button",
+            class: "nwe-link ms-2",
+            onclick: () => {
+                instance.hide();
+                undo();
+            },
+        }, [icon("undo"), "Undo"]));
+    }
+    instance.show();
 }
-
 let saveTimer = 0;
 function touch() {
     if (config.read_only) return;
@@ -715,7 +749,7 @@ function inputSubtitle(input) {
 function inputRow(input, index) {
     const open = state.openInput === index;
     return h("div", { class: `nwe-in ${open ? "open" : ""}`, draggable: "true", "data-drag": "input", "data-index": String(index) }, [
-        h("div", { class: "nwe-in-head", "data-action": "open-input", "data-index": String(index) }, [
+        h("div", { class: "nwe-in-head", "data-action": "open-input", "data-index": String(index), "aria-expanded": open ? "true" : "false" }, [
             h("span", { class: "nwe-grip", title: "Drag to reorder", "aria-hidden": "true" }, [icon("drag-vertical")]),
             tile(input.type),
             h("div", { class: "nwe-in-copy" }, [
@@ -723,7 +757,7 @@ function inputRow(input, index) {
                 h("div", { class: "nwe-in-meta", text: inputSubtitle(input) }),
             ]),
             h("div", { class: "nwe-pills" }, inputPills(input).map(([text, tone]) => h("span", { class: `nwe-tag ${tone}`, text }))),
-            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "remove-input", "data-index": String(index), title: "Remove input", "aria-label": `Remove ${input.label || "input"}` }, [icon("trash-can-outline")]),
+            rowActions("input", index, payload.inputs.length, input.label || "input"),
             h("span", { class: "nwe-chev", "aria-hidden": "true" }, [icon(open ? "chevron-up" : "chevron-down")]),
         ]),
         open ? inputEditor(input, index) : null,
@@ -1114,26 +1148,43 @@ function whenPlain(action) {
     return `“${label}” ${row.op} ${shown}`;
 }
 
+/**
+ * Reorder, duplicate and delete buttons for a row header. Inputs and steps use the
+ * same group in the same place, so the two lists behave alike.
+ */
+function rowActions(kind, index, count, name, phase) {
+    const base = { "data-index": String(index), "data-phase": phase || null };
+    const noun = kind === "step" ? "step" : "input";
+    return h("div", { class: "nwe-row-acts", role: "group", "aria-label": `${name} actions` }, [
+        h("button", { type: "button", class: "nwe-iconbtn", "data-action": `move-${kind}`, "data-dir": "-1", ...base, disabled: index === 0, title: "Move up", "aria-label": `Move ${name} up` }, [icon("arrow-up")]),
+        h("button", { type: "button", class: "nwe-iconbtn", "data-action": `move-${kind}`, "data-dir": "1", ...base, disabled: index >= count - 1, title: "Move down", "aria-label": `Move ${name} down` }, [icon("arrow-down")]),
+        h("button", { type: "button", class: "nwe-iconbtn", "data-action": `duplicate-${kind}`, ...base, title: `Duplicate ${noun}`, "aria-label": `Duplicate ${name}` }, [icon("content-copy")]),
+        h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": `remove-${kind}`, ...base, title: `Delete ${noun}`, "aria-label": `Delete ${name}` }, [icon("trash-can-outline")]),
+    ]);
+}
+
 function stepCard(phase, action, index) {
     const open = state.openStep === `${phase}:${index}`;
     const missing = action.type === "awx" ? !action.template_name && !action.template_id : !scriptName(action.script);
+    const list = payload.actions[phase] || [];
+    const name = action.label || action.name || "Untitled step";
     const flags = [];
-    if (action.when) flags.push(`Only if ${whenPlain(action)}`);
-    if (action.monitor) flags.push("Waits for the job to finish");
+    if (action.when) flags.push(["call-split", `Only if ${whenPlain(action)}`]);
+    if (action.type === "awx" && action.monitor !== false) flags.push(["timer-sand", "Waits for the job to finish"]);
     return h("div", { class: `nwe-stepcard ${open ? "open" : ""} ${missing ? "bad" : ""}`, draggable: "true", "data-drag": "step", "data-phase": phase, "data-index": String(index) }, [
-        h("div", { class: "nwe-step-head", "data-action": "open-step", "data-phase": phase, "data-index": String(index) }, [
-            h("span", { class: "nwe-grip", text: "⋮⋮" }),
+        h("div", { class: "nwe-step-head", "data-action": "open-step", "data-phase": phase, "data-index": String(index), "aria-expanded": open ? "true" : "false" }, [
+            h("span", { class: "nwe-grip", title: "Drag to reorder", "aria-hidden": "true" }, [icon("drag-vertical")]),
             tile(action.type === "awx" ? "awx" : "nautobot"),
-            h("div", { class: "flex-grow-1" }, [
+            h("div", { class: "nwe-step-main" }, [
                 h("div", { class: "nwe-step-title" }, [
-                    action.label || "Untitled step",
-                    h("span", { class: "nwe-soft", text: action.type === "awx" ? "AWX job" : "Nautobot script" }),
+                    h("span", { "data-step-title": `${phase}:${index}`, text: name }),
+                    h("span", { class: "nwe-tag", text: action.type === "awx" ? "AWX job" : "Nautobot script" }),
                 ]),
-                h("div", { class: "nwe-step-sum" }, [stepSummary(action)]),
-                flags.length ? h("div", { class: "nwe-pills" }, flags.map((text) => h("span", { class: "nwe-soft blue", text }))) : null,
+                h("div", { class: "nwe-step-sum", "data-step-sum": `${phase}:${index}` }, [stepSummary(action)]),
+                flags.length ? h("div", { class: "nwe-step-flags" }, flags.map(([glyph, text]) => h("span", { class: "nwe-tag blue" }, [icon(glyph), text]))) : null,
             ]),
-            h("button", { type: "button", class: "nwe-icon", "data-action": "remove-step", "data-phase": phase, "data-index": String(index), text: "🗑" }),
-            h("span", { class: "nwe-chev", text: open ? "▴" : "▾" }),
+            rowActions("step", index, list.length, name, phase),
+            h("span", { class: "nwe-chev", "aria-hidden": "true" }, [icon(open ? "chevron-up" : "chevron-down")]),
         ]),
         open ? stepEditor(phase, action, index) : null,
     ]);
@@ -1827,14 +1878,60 @@ app.addEventListener("click", (event) => {
         const index = Number(node.dataset.index);
         state.openInput = state.openInput === index ? -1 : index;
         renderAll();
+    } else if (action === "move-input" || action === "move-step") {
+        const index = Number(node.dataset.index);
+        const to = index + Number(node.dataset.dir);
+        const list = action === "move-input" ? payload.inputs : payload.actions[node.dataset.phase];
+        if (to < 0 || to >= list.length) return;
+        const [row] = list.splice(index, 1);
+        list.splice(to, 0, row);
+        if (action === "move-input") state.openInput = state.openInput === index ? to : state.openInput === to ? index : state.openInput;
+        else state.openStep = `${node.dataset.phase}:${to}`;
+        renderAll();
+        touch();
+        // Keep the keyboard on the moved row: same button, or the other arrow at the end of the list.
+        const scope = `[data-action="${action}"][data-index="${to}"]${node.dataset.phase ? `[data-phase="${node.dataset.phase}"]` : ""}`;
+        const again = [...app.querySelectorAll(scope)].sort((a) => (a.dataset.dir === node.dataset.dir ? -1 : 1)).find((button) => !button.disabled);
+        if (again) again.focus();
+    } else if (action === "duplicate-input") {
+        const index = Number(node.dataset.index);
+        const copy = cloneRow(payload.inputs[index]);
+        copy.label = `${copy.label || "Untitled"} (copy)`;
+        copy.key = uniqueKey(keyFrom(copy.label), payload.inputs.map((item) => item.key));
+        copy._keyTouched = false;
+        payload.inputs.splice(index + 1, 0, copy);
+        state.openInput = index + 1;
+        renderAll();
+        touch();
+        toast(`Duplicated as “${copy.label}”.`);
+    } else if (action === "duplicate-step") {
+        const phase = node.dataset.phase;
+        const index = Number(node.dataset.index);
+        const copy = cloneRow(payload.actions[phase][index]);
+        copy.label = `${copy.label || copy.name || "Untitled step"} (copy)`;
+        copy.name = uniqueKey(keyFrom(copy.label), allSteps().map((item) => item.name));
+        copy._nameTouched = false;
+        delete copy._origName;
+        payload.actions[phase].splice(index + 1, 0, copy);
+        state.openStep = `${phase}:${index + 1}`;
+        renderAll();
+        touch();
+        toast(`Duplicated as “${copy.label}”.`);
     } else if (action === "remove-input") {
         const index = Number(node.dataset.index);
         const input = payload.inputs[index];
         const hits = referencesTo(payload, input.key);
-        if (hits.length && !window.confirm(`Remove ${input.label || input.key}? It is used by ${hits.join(", ")}.`)) return;
+        if (hits.length && !window.confirm(`Delete “${input.label || input.key}”? It is used by ${hits.join(", ")}.`)) return;
         payload.inputs.splice(index, 1);
+        state.openInput = -1;
         renderAll();
         touch();
+        toast(`Deleted “${input.label || input.key || "input"}”.`, () => {
+            payload.inputs.splice(index, 0, input);
+            state.openInput = index;
+            renderAll();
+            touch();
+        });
     } else if (action === "add-choice") {
         payload.inputs[Number(node.dataset.index)].choices.push({ value: "", label: "" });
         renderAll();
@@ -1948,9 +2045,21 @@ app.addEventListener("click", (event) => {
         state.openStep = state.openStep === key ? "" : key;
         renderAll();
     } else if (action === "remove-step") {
-        payload.actions[node.dataset.phase].splice(Number(node.dataset.index), 1);
+        const phase = node.dataset.phase;
+        const index = Number(node.dataset.index);
+        const row = payload.actions[phase][index];
+        const users = stepReferences(row.name, row);
+        const label = row.label || row.name || "this step";
+        if (users.length && !window.confirm(`Delete “${label}”? ${users.join(", ")} ${users.length === 1 ? "uses" : "use"} its result.`)) return;
+        payload.actions[phase].splice(index, 1);
+        state.openStep = "";
         renderAll();
         touch();
+        toast(`Deleted “${label}”.`, () => {
+            payload.actions[phase].splice(index, 0, row);
+            renderAll();
+            touch();
+        });
     } else if (action === "preview-tab") {
         state.previewTab = node.dataset.tab;
         renderPreview();
