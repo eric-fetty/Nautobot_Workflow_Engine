@@ -303,10 +303,26 @@ function publishBlock() {
     return null;
 }
 
+const STATUS_HELP = {
+    new: "Only editors can see this draft. Publish it so people can run it.",
+    draft: "People run the published workflow. Your changes save to a draft that only editors see until you publish them.",
+    live: "People run what you see here. Changes you make save to a draft until you publish them.",
+};
+
+/** The header pill: no version numbers here, those live in Versions. */
 function statusText() {
-    if (!config.published_number) return ["Draft (not published yet)", "new"];
-    if (differs() || state.dirty) return [`Published v${config.published_number} · draft changes`, "draft"];
-    return [`Published v${config.published_number} · up to date`, "ok"];
+    if (!config.published_number) return ["Draft", "new"];
+    if (differs() || state.dirty) return ["Published · unpublished changes", "draft"];
+    return ["Published", "ok"];
+}
+
+function statusHelp(kind) {
+    const help = config.status_help || STATUS_HELP;
+    return help[kind === "ok" ? "live" : kind] || "";
+}
+
+function publishText() {
+    return config.published_number ? "Publish changes" : "Publish";
 }
 
 async function api(url, body, method) {
@@ -564,7 +580,7 @@ function renderHeader() {
                 class: "btn nwe-btn-accent nwe-publish",
                 "data-action": "publish",
                 disabled: Boolean(block) || config.read_only,
-            }, [icon("rocket-launch-outline"), config.can_publish ? "Publish changes" : "Request publish"]),
+            }, [icon("rocket-launch-outline"), config.can_publish ? publishText() : "Request publish"]),
         ]),
     );
     if (state.how) header.querySelector(".nwe-state")?.append(howPop());
@@ -1761,16 +1777,15 @@ function scheduleView() {
 
 function reviewView() {
     const block = publishBlock();
-    const next = (config.published_number || 0) + 1;
     const changes = changeList();
     return h("div", {}, [
         h("div", { class: "nwe-kicker", text: "Step 5 of 5" }),
         h("h2", { text: "Review & publish" }),
-        h("p", { class: "text-secondary", text: config.published_number ? `Until you publish, people keep running v${config.published_number}.` : "Check it, then publish it for the first time. Until then nobody can run it." }),
+        h("p", { class: "text-secondary", text: config.published_number ? "Until you publish, people keep running the published workflow." : "Check it, then publish it for the first time. Until then nobody can run it." }),
         checks(),
         h("div", { class: "nwe-card", id: "nwe-review-diff" }, [
             h("div", { class: "fw-semibold", text: "What changes for people running it" }),
-            h("div", { class: "small text-secondary mb-2", text: config.published_number ? `Compared with v${config.published_number}, which runs today.` : "This is the first version." }),
+            h("div", { class: "small text-secondary mb-2", text: config.published_number ? "Compared with the published workflow, which runs today." : "Nothing is published yet, so everything is new." }),
             ...changes.map((change) => h("div", { class: "nwe-change" }, [h("span", { class: `nwe-change-mark ${change[0] === "+" ? "add" : change[0] === "−" ? "del" : "mod"}`, text: change[0] }), change[1]])),
             h("button", { type: "button", class: "nwe-link", "data-action": "yaml-diff" }, [icon(state.yamlDiff ? "chevron-up" : "chevron-down"), state.yamlDiff ? "Hide the YAML diff" : "Show the YAML diff (what Git gets)"]),
             state.yamlDiff ? diffView(lineDiff(String(config.published_yaml || ""), state.yamlText || "")) : null,
@@ -1778,9 +1793,9 @@ function reviewView() {
         h("div", { class: "nwe-card", id: "nwe-publish-card" }, [
             config.can_publish
                 ? h("div", {}, [
-                    h("div", { class: "fw-semibold", text: `Publish v${next}` }),
+                    h("div", { class: "fw-semibold", text: publishText() }),
                     h("ol", {}, [
-                        h("li", { text: `Saves it as v${next} with your name, the time and your note.` }),
+                        h("li", { text: "Adds it to Versions with your name, the time and your note." }),
                         h("li", { text: `Commits ${payload.key || "workflow"}.yaml${config.repository_name ? ` to ${config.repository_name}` : ""} and pushes it.` }),
                         h("li", { text: "Makes it the version everyone runs, right away. Runs already in progress finish on their version." }),
                     ]),
@@ -1791,7 +1806,7 @@ function reviewView() {
                     h("div", { class: "d-flex align-items-center gap-2 mt-3" }, [
                         block ? h("span", { class: "text-danger small", text: block.message }) : h("span", { class: "text-success small", text: "Ready to publish" }),
                         h("button", { type: "button", class: "btn nwe-btn ms-auto", "data-action": "test" }, [icon("play-circle-outline"), "Preview run"]),
-                        h("button", { type: "button", class: "btn nwe-publish", "data-action": "publish", disabled: Boolean(block), text: `Publish v${next}` }),
+                        h("button", { type: "button", class: "btn nwe-publish", "data-action": "publish", disabled: Boolean(block), text: publishText() }),
                     ]),
                 ])
                 : h("div", {}, [
@@ -2681,7 +2696,7 @@ async function doPublish() {
         toast(result.data.detail || "Publish did not complete.");
         return;
     }
-    toast(`Published v${(config.published_number || 0) + 1}`);
+    toast(config.published_number ? "Changes published" : "Published");
     window.location.reload();
 }
 

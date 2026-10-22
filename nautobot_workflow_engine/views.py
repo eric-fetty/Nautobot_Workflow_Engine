@@ -59,7 +59,7 @@ from .schema.policy import (
     script_path_allowed,
 )
 from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
-from .services import ServiceError, duplicate_workflow, git_stale_banner, publish, status_label, update_draft
+from .services import STATUS_HELP, ServiceError, duplicate_workflow, git_stale_banner, publish, status_label, update_draft
 from .tables import WorkflowTable
 
 logger = logging.getLogger(__name__)
@@ -392,6 +392,7 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
             text, kind = status_label(workflow, drafts.get(workflow.id))
             workflow.status_label = text
             workflow.status_kind = kind
+            workflow.status_help = STATUS_HELP[kind]
             draft = drafts.get(workflow.id)
             workflow.draft_row = draft
             editor = ""
@@ -1791,7 +1792,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
     stages = approval_stage_summary(workflow) if workflow is not None else []
     draft = workflow.draft_revision if workflow is not None else None
     published = workflow.published_revision if workflow is not None and workflow.published_revision_id else None
-    label, kind = status_label(workflow, draft) if workflow is not None else ("Draft (not published yet)", "new")
+    label, kind = status_label(workflow, draft) if workflow is not None else ("Draft", "new")
     published_definition = (
         published.definition if published is not None and isinstance(published.definition, dict) else {}
     )
@@ -1877,6 +1878,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "username": getattr(user, "username", "") or "",
         "status_text": label,
         "status_kind": kind,
+        "status_help": STATUS_HELP,
         "has_draft_changes": kind != "live",
         "draft_by": getattr(draft_user, "username", "") or "",
         "draft_at": draft.created.isoformat() if draft is not None and draft.created else "",

@@ -529,16 +529,26 @@ def load_published_into_draft(*, user, workflow):
     )
 
 
+STATUS_HELP = {
+    "new": "Only editors can see this draft. Publish it so people can run it.",
+    "draft": "People run the published workflow. Your changes save to a draft that only editors see until you publish them.",
+    "live": "People run what you see here. Changes you make save to a draft until you publish them.",
+}
+
+
 def status_label(workflow, draft=None):
-    """Return the status sentence shared by the list and the builder header."""
+    """Return the status label shared by the list and the builder header, and its kind.
+
+    Labels never carry version numbers; versions live in the Versions history.
+    """
     published = workflow.published_revision if getattr(workflow, "published_revision_id", None) else None
     if published is None:
-        return "Draft (not published yet)", "new"
+        return "Draft", "new"
     if draft is None:
         draft = workflow.draft_revision
     if draft is not None and not _same_revision(draft, published):
-        return f"Published v{published.number} · draft changes", "draft"
-    return f"Published v{published.number} · up to date", "live"
+        return "Published · unpublished changes", "draft"
+    return "Published", "live"
 
 
 def git_stale_banner(workflow, draft=None):

@@ -14,6 +14,7 @@ from nautobot_workflow_engine.models import Workflow, WorkflowInput, WorkflowRev
 from nautobot_workflow_engine.schema.builder_payload import builder_from_definition, definition_from_builder
 from nautobot_workflow_engine.schema.filters import split_filter
 from nautobot_workflow_engine.services import (
+    STATUS_HELP,
     ServiceError,
     discard_draft,
     git_stale_banner,
@@ -79,7 +80,7 @@ class StudioLifecycleTestCase(TestCase):
 
     def test_status_wording_and_stale_banner(self):
         text, kind = status_label(self.workflow, self.draft)
-        self.assertEqual(text, "Published v2 · draft changes")
+        self.assertEqual(text, "Published · unpublished changes")
         self.assertEqual(kind, "draft")
         banner = git_stale_banner(self.workflow, self.draft)
         self.assertTrue(banner["detail"].startswith("Updated in Git by Jane Ortiz at "))
@@ -90,9 +91,12 @@ class StudioLifecycleTestCase(TestCase):
         self.draft.base_revision = self.workflow.published_revision
         self.draft.save()
         text, kind = status_label(self.workflow, self.draft)
-        self.assertEqual(text, "Published v2 · up to date")
+        self.assertEqual(text, "Published")
         self.assertEqual(kind, "live")
         self.assertIsNone(git_stale_banner(self.workflow, self.draft))
+        self.workflow.published_revision = None
+        self.workflow.save(update_fields=["published_revision"])
+        self.assertEqual(status_label(self.workflow, self.draft), ("Draft", "new"))
 
     def test_publish_is_blocked_while_git_is_newer(self):
         with self.assertRaises(ServiceError) as raised:
@@ -146,8 +150,10 @@ class StudioLifecycleTestCase(TestCase):
         response = self.client.get(reverse("plugins:nautobot_workflow_engine:workflows_list"))
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
-        self.assertIn("Draft (not published yet)", body)
-        self.assertIn("Published v2 · draft changes", body)
+        self.assertIn('<span class="dot"></span>Draft', body)
+        self.assertIn("Published · unpublished changes", body)
+        self.assertIn(STATUS_HELP["draft"], body)
+        self.assertNotRegex(body, r"Published v\d")
         self.assertIn("Edit", body)
         self.assertIn("New workflow", body)
         self.assertNotIn("Launch Workflow", body)

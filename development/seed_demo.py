@@ -15,7 +15,7 @@ import pathlib
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from nautobot.dcim.models import Device, DeviceType, Interface, Location, LocationType, Manufacturer, Platform
-from nautobot.extras.models import GitRepository, Role, Status
+from nautobot.extras.models import ExternalIntegration, GitRepository, Role, Status
 from nautobot.ipam.models import IPAddress, Namespace, Prefix
 
 from nautobot_workflow_engine.models import Workflow, WorkflowHelper
@@ -30,6 +30,11 @@ for name in ("Active", "Planned", "Staged", "Offline"):
     status = Status.objects.filter(name=name).first()
     if status is not None:
         status.content_types.add(device_ct)
+
+# A placeholder ServiceNow connection so the change-window demo has one to point at.
+ExternalIntegration.objects.get_or_create(
+    name="ServiceNow (demo)", defaults={"remote_url": "https://example.service-now.com", "timeout": 30}
+)
 
 site_type, _ = LocationType.objects.get_or_create(name="Site")
 site_type.content_types.add(device_ct, ContentType.objects.get(app_label="ipam", model="vlan"))
@@ -212,6 +217,7 @@ REBOOT = {
     ],
     "schedule": {
         "servicenow": {
+            "integration_name": "ServiceNow (demo)",
             "change_input_key": "change_ticket",
             "allowed_states": ["Scheduled", "Implement"],
             "timezone": "America/New_York",

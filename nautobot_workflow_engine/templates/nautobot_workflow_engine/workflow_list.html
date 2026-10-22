@@ -6,8 +6,8 @@
 
 {% block extra_styles %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v10">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v11">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v11">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v12">
 {% endblock extra_styles %}
 
 {% block header %}{% endblock header %}
@@ -82,8 +82,8 @@
                 <div class="nwe-seg" role="group" aria-label="Status">
                     <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
                     <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
-                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">With draft changes <span class="n">{{ status_counts.draft }}</span></a>
-                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Not published yet <span class="n">{{ status_counts.new }}</span></a>
+                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
+                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
                 </div>
                 {% if categories %}
                     <form method="get" class="ms-auto">
@@ -124,7 +124,7 @@
                                 </td>
                                 <td>{% if wf.category %}{{ wf.category }}{% else %}<span class="text-secondary">—</span>{% endif %}</td>
                                 <td>
-                                    <a class="nwe-pill {% if wf.status_kind == 'live' %}nwe-pill-ok{% elif wf.status_kind == 'draft' %}nwe-pill-draft{% else %}nwe-pill-new{% endif %}" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}{% if wf.status_kind == 'draft' %}?section=review{% endif %}">
+                                    <a class="nwe-pill {% if wf.status_kind == 'live' %}nwe-pill-ok{% elif wf.status_kind == 'draft' %}nwe-pill-draft{% else %}nwe-pill-new{% endif %}" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}{% if wf.status_kind == 'draft' %}?section=review{% endif %}" title="{{ wf.status_help }}">
                                         <span class="dot"></span>{{ wf.status_label }}
                                     </a>
                                     {% if wf.status_kind == "new" %}
