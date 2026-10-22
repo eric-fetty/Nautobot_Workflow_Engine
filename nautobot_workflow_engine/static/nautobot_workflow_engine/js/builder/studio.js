@@ -1,6 +1,7 @@
 /**Workflow builder: one shared draft, five steps, live preview. */
 
 import { blankAction, blankInput, referencesTo, setPath, slugify } from "./store.js";
+import { createField } from "../shared/fields.js";
 
 const configNode = document.getElementById("workflow-builder-config");
 const config = configNode ? JSON.parse(configNode.textContent) : {};
@@ -369,6 +370,7 @@ function ensureFields(model) {
         state.modelExamples = state.modelExamples || {};
         state.modelExamples[model] = result.ok ? result.data.examples || [] : [];
         renderEditor();
+        renderPreview();
     });
 }
 
@@ -1430,54 +1432,100 @@ function renderPreview() {
     );
 }
 
-function previewForm() {
-    if (!payload.inputs.length) return h("p", { class: "text-secondary", text: "Add an input to see it here." });
-    return h("div", {}, payload.inputs.map((input, index) => {
-        const editing = state.section === "inputs" && state.openInput === index;
-        return h("div", { class: `nwe-prev-field ${editing ? "editing" : ""}` }, [
-            editing ? h("span", { class: "nwe-editing", text: "Editing" }) : null,
-            input.type === "boolean"
-                ? h("label", { class: "nwe-switch" }, [
-                    h("input", { type: "checkbox", "data-preview": input.key, checked: state.preview[input.key] === true }),
-                    h("span", { class: "nwe-switch-ui" }),
-                    h("span", {}, [h("b", { text: input.label || "Untitled" }), input.help_text ? h("small", { text: input.help_text }) : null]),
-                ])
-                : h("div", {}, [
-                    h("label", { class: "form-label", text: `${input.label || "Untitled"}${input.required ? " *" : ""}` }),
-                    previewControl(input),
-                    input.help_text ? h("div", { class: "form-text", text: input.help_text }) : null,
-                ]),
-        ]);
-    }));
+// Icons for the object types people pick most often (matches launch_ui.MODEL_ICONS).
+const MODEL_ICONS = {
+    "dcim.device": "server",
+    "dcim.location": "map-marker-outline",
+    "dcim.interface": "ethernet",
+    "dcim.rack": "server-network",
+    "ipam.vlan": "lan",
+    "ipam.prefix": "ip-network-outline",
+    "ipam.ipaddress": "ip-outline",
+    "extras.tag": "tag-outline",
+    "tenancy.tenant": "account-outline",
+};
+
+function modelNouns(model) {
+    const name = String(model || "record").split(".").pop().toLowerCase();
+    const known = { ipaddress: ["IP address", "IP addresses"], vlan: ["VLAN", "VLANs"], devicetype: ["device type", "device types"], vlangroup: ["VLAN group", "VLAN groups"] };
+    if (known[name]) return known[name];
+    return [name, /(s|x|ch|sh)$/.test(name) ? `${name}es` : /[^aeiou]y$/.test(name) ? `${name.slice(0, -1)}ies` : `${name}s`];
 }
 
-function previewControl(input) {
-    if (input.type === "choice" && (input.choices || []).length && input.choices.length <= 4) {
-        return h("div", { class: "nwe-radios" }, input.choices.map((choice) => h("label", { class: `nwe-radio ${state.preview[input.key] === choice.value ? "on" : ""}` }, [
-            h("input", { type: "radio", name: `preview-${input.key}`, "data-preview": input.key, value: choice.value || "", checked: state.preview[input.key] === choice.value }),
-            h("span", { text: choice.label || choice.value || "Option" }),
-        ])));
+/** The builder's input, in the shape the launch page's field components take. */
+function previewSpec(input) {
+    const spec = {
+        key: input.key || `input-${payload.inputs.indexOf(input)}`,
+        label: input.label || "Untitled",
+        type: input.type || "string",
+        required: Boolean(input.required),
+        help: input.help_text || "",
+        placeholder: input.placeholder || "",
+        choices: (input.choices || []).filter((choice) => choice && (choice.value || choice.label)).map((choice) => ({ value: String(choice.value ?? choice.label), label: choice.label || String(choice.value) })),
+        min_value: input.min_value,
+        max_value: input.max_value,
+        min_items: input.min_items,
+        max_items: input.max_items,
+        columns: input.columns || [],
+        min_rows: input.min_rows,
+        max_rows: input.max_rows,
+        csv_import: input.csv_import !== false,
+    };
+    if (spec.type === "integer" && (input.min_value !== "" && input.min_value != null || input.max_value !== "" && input.max_value != null)) {
+        const low = input.min_value !== "" && input.min_value != null ? input.min_value : null;
+        const high = input.max_value !== "" && input.max_value != null ? input.max_value : null;
+        const range = low != null && high != null ? `Between ${low} and ${high}.` : low != null ? `At least ${low}.` : `Up to ${high}.`;
+        spec.help = spec.help ? `${spec.help} ${range}` : range;
     }
-    if (input.type === "multichoice") {
-        const picked = new Set(Array.isArray(state.preview[input.key]) ? state.preview[input.key] : []);
-        return h("div", { class: "nwe-chips" }, (input.choices || []).map((choice) => h("label", { class: `nwe-check ${picked.has(choice.value) ? "on" : ""}` }, [
-            h("input", { type: "checkbox", "data-preview-multi": input.key, value: choice.value || "", checked: picked.has(choice.value) }),
-            h("span", { text: choice.label || choice.value || "Option" }),
-        ])));
+    if (input.model) {
+        const [noun, nouns] = modelNouns(input.model);
+        Object.assign(spec, { model: input.model, icon: MODEL_ICONS[String(input.model).toLowerCase()] || "cube-outline", noun, nouns });
     }
-    if (input.type === "boolean") return null;
-    if (input.type === "listdict") return h("div", { class: "nwe-table-empty", text: "No rows yet. Add a row, paste from a spreadsheet, or import a CSV." });
-    if (input.type === "object" || input.type === "multiobject") {
-        const index = payload.inputs.indexOf(input);
-        const match = (state.match || {})[index];
-        const examples = (match && match.examples && match.examples.length ? match.examples : (state.modelExamples || {})[input.model]) || [];
-        const count = match && match.count != null ? match.count : examples.length;
-        return h("select", { class: "form-select", "data-preview": input.key }, [
-            h("option", { value: "", text: `Choose… (${count} available)` }),
-            ...examples.map((item) => h("option", { value: item.id, text: item.label, selected: state.preview[input.key] === item.id })),
+    return spec;
+}
+
+function previewOptions(input) {
+    const index = payload.inputs.indexOf(input);
+    const match = (state.match || {})[index];
+    if (input.model && !(state.modelExamples || {})[input.model]) ensureFields(input.model);
+    const examples = (match && match.examples && match.examples.length ? match.examples : (state.modelExamples || {})[input.model]) || [];
+    const total = match && match.count != null ? match.count : examples.length;
+    return { options: examples.map((item) => ({ value: String(item.id), label: item.label })), total, hasMore: false };
+}
+
+function previewDefault(input) {
+    const raw = input.default;
+    if (raw === undefined || raw === null || raw === "") return undefined;
+    if (input.type === "boolean") return raw === true || String(raw).toLowerCase() === "true";
+    if (["multichoice", "multiobject", "list"].includes(input.type)) {
+        if (Array.isArray(raw)) return raw.map(String);
+        return String(raw).split(input.type === "list" ? /\n/ : /[,\n]/).map((part) => part.trim()).filter(Boolean);
+    }
+    if (input.type === "listdict") return Array.isArray(raw) ? raw : undefined;
+    return String(raw);
+}
+
+function previewForm() {
+    if (!payload.inputs.length) return h("p", { class: "text-secondary", text: "Add an input to see it here." });
+    return h("div", { class: "nwe-fields" }, payload.inputs.map((input, index) => {
+        const editing = state.section === "inputs" && state.openInput === index;
+        const spec = previewSpec(input);
+        const field = createField(spec, {
+            value: Object.prototype.hasOwnProperty.call(state.preview, input.key) ? state.preview[input.key] : previewDefault(input),
+            onChange: (key, value) => {
+                state.preview[input.key] = value;
+                payload.inputs.forEach((other, otherIndex) => {
+                    if ((other.filter_rows || []).some((row) => row.source === "input" && row.input === input.key)) scheduleCount(otherIndex);
+                });
+            },
+            loadOptions: async () => previewOptions(input),
+        });
+        if (input.model) field.reload();
+        return h("div", { class: `nwe-prev-field ${editing ? "editing" : ""}` }, [
+            editing ? h("span", { class: "nwe-editing", text: "Editing" }) : null,
+            field.el,
         ]);
-    }
-    return h("input", { class: "form-control", "data-preview": input.key, value: state.preview[input.key] || "", placeholder: input.placeholder || "" });
+    }));
 }
 
 function previewPlan() {
@@ -1629,10 +1677,6 @@ app.addEventListener("input", (event) => {
         touch();
         return;
     }
-    if (target.dataset.preview) {
-        state.preview[target.dataset.preview] = valueOf(target);
-        return;
-    }
     if (target.dataset.yaml != null) {
         state.yamlText = target.value;
         clearTimeout(state.yamlTimer);
@@ -1679,23 +1723,6 @@ app.addEventListener("change", (event) => {
     }
     if (target.dataset.when) {
         applyWhenPart(target.dataset.phase, Number(target.dataset.index), target.dataset.when, target.value, true);
-        return;
-    }
-    if (target.dataset.previewMulti) {
-        const key = target.dataset.previewMulti;
-        const current = new Set(Array.isArray(state.preview[key]) ? state.preview[key] : []);
-        if (target.checked) current.add(target.value);
-        else current.delete(target.value);
-        state.preview[key] = [...current];
-        renderPreview();
-        return;
-    }
-    if (target.dataset.preview) {
-        state.preview[target.dataset.preview] = valueOf(target);
-        renderPreview();
-        payload.inputs.forEach((input, index) => {
-            if ((input.filter_rows || []).some((row) => row.source === "input" && row.input === target.dataset.preview)) scheduleCount(index);
-        });
         return;
     }
     if (target.dataset.varKey) {

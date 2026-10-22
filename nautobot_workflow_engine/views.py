@@ -37,6 +37,7 @@ from .approvals import (
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm
+from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -552,8 +553,7 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                 pass
 
         form = DynamicWorkflowForm(wf, initial=initial)
-        context["workflow"] = wf
-        context["form"] = form
+        context.update(launch_context(self.request, wf, form))
         return context
 
     def post(self, request, key):
@@ -592,7 +592,7 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                     return render(
                         request,
                         "nautobot_workflow_engine/workflow_launch.html",
-                        {"workflow": wf, "form": form},
+                        launch_context(request, wf, form),
                     )
 
                 execution_type = "scheduled"
@@ -703,7 +703,7 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                     )
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
 
-        return render(request, "nautobot_workflow_engine/workflow_launch.html", {"workflow": wf, "form": form})
+        return render(request, "nautobot_workflow_engine/workflow_launch.html", launch_context(request, wf, form))
 
 
 class InputOptionsView(View):
@@ -875,7 +875,7 @@ class InputOptionsView(View):
                     or getattr(obj, "hostname", None)
                     or str(obj)
                 )
-                data.append({"value": str(obj.pk), "label": display_name})
+                data.append({"value": str(obj.pk), "label": display_name, "meta": option_meta(obj)})
 
             response_data = {
                 "options": data,
@@ -933,6 +933,9 @@ class InputOptionsView(View):
         total_count = qs.count()
 
         # Apply pagination
+        related = related_for_meta(model)
+        if related:
+            qs = qs.select_related(*related)
         qs = qs[offset : offset + limit]
 
         # Use display field for consistency with API search results
@@ -949,7 +952,7 @@ class InputOptionsView(View):
                 or getattr(obj, "hostname", None)  # For device objects
                 or str(obj)  # Fallback to string representation
             )
-            data.append({"value": str(obj.pk), "label": display_name})
+            data.append({"value": str(obj.pk), "label": display_name, "meta": option_meta(obj)})
 
         # Check if we're supposed to prepend a "Create New XXX" to the dropdown
         show_add_new_item = [x.lower() for x in PLUGIN_CFG.get("show_add_new_item", [])]

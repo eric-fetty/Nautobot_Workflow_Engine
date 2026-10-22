@@ -1,0 +1,333 @@
+/* Launch page. Colours come from nwe.css tokens, which sit on Bootstrap's theme variables. */
+
+.nwe-launch {
+    container-type: inline-size;
+    max-width: 58.5rem;
+    padding-bottom: 2.5rem;
+}
+
+.nwe-launch-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    margin: 0.75rem 0 1.25rem;
+}
+
+.nwe-launch-head .nwe-tile {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1.4rem;
+}
+
+.nwe-launch-head h1 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.nwe-launch-head p {
+    margin: 0.25rem 0 0;
+    color: var(--nwe-muted);
+    max-width: 40rem;
+}
+
+.nwe-launch-head .nwe-launch-edit {
+    margin-left: auto;
+    flex: none;
+}
+
+.nwe-launch-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 40rem) minmax(14rem, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+@container (max-width: 52rem) {
+    .nwe-launch-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.nwe-launch-card,
+.nwe-side-card {
+    background: var(--nwe-surface);
+    border: 1px solid var(--nwe-line);
+    border-radius: var(--nwe-radius-lg);
+    box-shadow: var(--nwe-shadow);
+    min-width: 0;
+}
+
+.nwe-launch-body {
+    padding: 1.5rem;
+}
+
+.nwe-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+}
+
+.nwe-fields > .nwe-f + .nwe-f {
+    margin-top: 0;
+}
+
+.nwe-launch-section {
+    border-top: 1px solid var(--nwe-line);
+    padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.nwe-launch-section h2 {
+    margin: 0 0 0.2rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.nwe-launch-section > p {
+    margin: 0 0 0.85rem;
+    color: var(--nwe-muted);
+    font-size: 0.8125rem;
+}
+
+.nwe-timing-cards {
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+
+.nwe-timing-cards .nwe-rcard small {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--nwe-muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+}
+
+.nwe-when-row {
+    margin-top: 1rem;
+}
+
+.nwe-when {
+    max-width: 16rem;
+}
+
+.nwe-launch-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem 1.5rem;
+    border-top: 1px solid var(--nwe-line);
+    background: var(--nwe-fill);
+    border-radius: 0 0 var(--nwe-radius-lg) var(--nwe-radius-lg);
+}
+
+.nwe-launch-foot .note {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-right: auto;
+    color: var(--nwe-muted);
+    font-size: 0.8125rem;
+}
+
+.nwe-launch-foot .note .mdi {
+    font-size: 1rem;
+}
+
+.nwe-launch-alert {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+    margin-bottom: 1.15rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--bs-danger-border-subtle);
+    border-radius: var(--nwe-radius);
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+    font-size: 0.875rem;
+}
+
+.nwe-launch-alert .mdi {
+    font-size: 1.1rem;
+    line-height: 1.2;
+}
+
+/* Right-hand panels */
+.nwe-launch-side {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 0;
+}
+
+.nwe-side-card {
+    padding: 1rem 1.1rem 1.1rem;
+}
+
+.nwe-side-card .nwe-kicker {
+    margin-bottom: 0.75rem;
+}
+
+.nwe-wh {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.nwe-wh li {
+    position: relative;
+    display: flex;
+    gap: 0.65rem;
+    padding-bottom: 0.85rem;
+}
+
+.nwe-wh li:last-child {
+    padding-bottom: 0;
+}
+
+/* The line joining each step to the next */
+.nwe-wh li.step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 0.75rem;
+    top: 1.6rem;
+    bottom: 0.1rem;
+    width: 1px;
+    background: var(--nwe-line);
+}
+
+.nwe-wh .ic {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--nwe-fill-2);
+    color: var(--bs-secondary-color);
+    font-size: 0.9rem;
+}
+
+.nwe-wh .done .ic {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.nwe-wh .tx {
+    min-width: 0;
+    padding-top: 0.1rem;
+}
+
+.nwe-wh b {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.nwe-wh small {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--nwe-muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
+.nwe-wh li.phase {
+    padding: 0 0 0.6rem 2.15rem;
+    color: var(--nwe-faint);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.nwe-about {
+    margin: 0;
+    font-size: 0.8125rem;
+}
+
+.nwe-about > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0;
+}
+
+.nwe-about dt {
+    font-weight: 400;
+    color: var(--nwe-muted);
+}
+
+.nwe-about dd {
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.nwe-side-card .nwe-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.6rem;
+    font-size: 0.8125rem;
+}
+
+/* Toast shown when Run workflow finds problems */
+.nwe-toast-host {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 1080;
+    max-width: min(30rem, calc(100vw - 3rem));
+}
+
+.nwe-toast {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.6rem 0.65rem 0.9rem;
+    border-radius: var(--nwe-radius);
+    background: var(--bs-emphasis-color);
+    color: var(--bs-body-bg);
+    box-shadow: var(--nwe-shadow-pop);
+    font-size: 0.875rem;
+    animation: nwe-toast-in 0.18s ease-out;
+}
+
+.nwe-toast > .mdi {
+    font-size: 1.1rem;
+}
+
+.nwe-toast .nwe-iconbtn {
+    margin-left: auto;
+    color: inherit;
+    opacity: 0.75;
+}
+
+.nwe-toast .nwe-iconbtn:hover {
+    opacity: 1;
+    background: transparent;
+}
+
+@keyframes nwe-toast-in {
+    from {
+        transform: translateY(0.5rem);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nwe-toast {
+        animation: none;
+    }
+}
+
+.nwe-launch-title {
+    min-width: 0;
+}

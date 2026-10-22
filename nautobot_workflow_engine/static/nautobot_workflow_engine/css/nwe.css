@@ -1,0 +1,1499 @@
+/*
+ * Shared look for the workflow pages: the list, the builder and the launch form.
+ *
+ * Every colour comes from a Bootstrap or Nautobot variable, so light and dark
+ * themes both work. The accent is Nautobot's orange (--bs-warning). Surfaces use
+ * --bs-body-bg, tints are drawn from --bs-emphasis-color-rgb at low opacity.
+ */
+:root,
+[data-bs-theme] {
+    --nwe-accent: var(--bs-warning);
+    --nwe-accent-rgb: var(--bs-warning-rgb);
+    --nwe-accent-text: var(--bs-warning-text-emphasis);
+    --nwe-accent-soft: rgba(var(--bs-warning-rgb), 0.1);
+    --nwe-accent-line: rgba(var(--bs-warning-rgb), 0.55);
+    --nwe-on-accent: var(--bs-white);
+    --nwe-ring: 0 0 0 3px rgba(var(--bs-warning-rgb), 0.2);
+    --nwe-surface: var(--bs-body-bg);
+    --nwe-line: var(--bs-border-color);
+    --nwe-line-soft: rgba(var(--bs-emphasis-color-rgb), 0.07);
+    --nwe-fill: rgba(var(--bs-emphasis-color-rgb), 0.045);
+    --nwe-fill-2: rgba(var(--bs-emphasis-color-rgb), 0.08);
+    --nwe-hover: rgba(var(--bs-emphasis-color-rgb), 0.06);
+    --nwe-muted: var(--bs-secondary-color);
+    --nwe-faint: var(--bs-tertiary-color);
+    --nwe-danger: var(--bs-danger-text-emphasis);
+    --nwe-danger-soft: var(--bs-danger-bg-subtle);
+    --nwe-ok: var(--bs-success-text-emphasis);
+    --nwe-ok-soft: var(--bs-success-bg-subtle);
+    --nwe-info: var(--bs-primary-text-emphasis);
+    --nwe-info-soft: var(--bs-primary-bg-subtle);
+    --nwe-radius: 0.5rem;
+    --nwe-radius-lg: 0.75rem;
+    --nwe-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --nwe-shadow-pop: 0 0.75rem 2rem -0.5rem rgba(0, 0, 0, 0.28), 0 0.25rem 0.5rem -0.25rem rgba(0, 0, 0, 0.12);
+    --nwe-mono: var(--bs-font-monospace);
+}
+
+/* ---------- buttons ---------- */
+.nwe-ui .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+/* Nautobot sizes every icon's ::before at 1.25rem and nudges it down. Inside the app the
+   icon follows the size set on the <i> itself, so components can size icons normally. */
+.nwe-ui .mdi,
+.nwe-pop .mdi {
+    display: inline-block;
+    font-size: 1.15em;
+    line-height: 1;
+}
+
+.nwe-ui .mdi.mdi::before,
+.nwe-pop .mdi.mdi::before {
+    font-size: inherit;
+    line-height: 1;
+    position: static;
+    top: auto;
+    left: auto;
+    vertical-align: top;
+}
+
+.nwe-ui .btn .mdi {
+    font-size: 1.15em;
+}
+
+.nwe-btn-accent,
+.nwe-ui .btn.nwe-btn-accent {
+    --bs-btn-color: var(--nwe-on-accent);
+    --bs-btn-bg: var(--nwe-accent);
+    --bs-btn-border-color: var(--nwe-accent);
+    --bs-btn-hover-color: var(--nwe-on-accent);
+    --bs-btn-hover-bg: rgba(var(--nwe-accent-rgb), 0.88);
+    --bs-btn-hover-border-color: rgba(var(--nwe-accent-rgb), 0.88);
+    --bs-btn-active-color: var(--nwe-on-accent);
+    --bs-btn-active-bg: rgba(var(--nwe-accent-rgb), 0.8);
+    --bs-btn-active-border-color: rgba(var(--nwe-accent-rgb), 0.8);
+    --bs-btn-disabled-color: var(--nwe-on-accent);
+    --bs-btn-disabled-bg: rgba(var(--nwe-accent-rgb), 0.45);
+    --bs-btn-disabled-border-color: transparent;
+    --bs-btn-disabled-opacity: 1;
+    --bs-btn-focus-shadow-rgb: var(--nwe-accent-rgb);
+    font-weight: 600;
+}
+
+.nwe-btn,
+.nwe-ui .btn.nwe-btn {
+    --bs-btn-color: var(--bs-body-color);
+    --bs-btn-bg: var(--nwe-surface);
+    --bs-btn-border-color: var(--nwe-line);
+    --bs-btn-hover-color: var(--bs-emphasis-color);
+    --bs-btn-hover-bg: var(--nwe-surface);
+    --bs-btn-hover-border-color: var(--bs-secondary-color);
+    --bs-btn-active-color: var(--bs-emphasis-color);
+    --bs-btn-active-bg: var(--nwe-hover);
+    --bs-btn-active-border-color: var(--bs-secondary-color);
+    --bs-btn-disabled-color: var(--nwe-muted);
+    --bs-btn-disabled-bg: var(--nwe-surface);
+    --bs-btn-disabled-border-color: var(--nwe-line);
+    font-weight: 500;
+    box-shadow: var(--nwe-shadow);
+}
+
+.nwe-btn-ghost,
+.nwe-ui .btn.nwe-btn-ghost {
+    --bs-btn-color: var(--nwe-muted);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--bs-emphasis-color);
+    --bs-btn-hover-bg: var(--nwe-hover);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-bg: var(--nwe-fill-2);
+    --bs-btn-active-border-color: transparent;
+}
+
+.nwe-btn-outline-accent,
+.nwe-ui .btn.nwe-btn-outline-accent {
+    --bs-btn-color: var(--nwe-accent-text);
+    --bs-btn-bg: var(--nwe-surface);
+    --bs-btn-border-color: var(--nwe-accent-line);
+    --bs-btn-hover-color: var(--nwe-accent-text);
+    --bs-btn-hover-bg: var(--nwe-accent-soft);
+    --bs-btn-hover-border-color: var(--nwe-accent);
+    --bs-btn-active-color: var(--nwe-accent-text);
+    --bs-btn-active-bg: var(--nwe-accent-soft);
+    --bs-btn-active-border-color: var(--nwe-accent);
+    --bs-btn-disabled-color: var(--nwe-faint);
+    --bs-btn-disabled-bg: var(--nwe-surface);
+    --bs-btn-disabled-border-color: var(--nwe-line);
+    --bs-btn-disabled-opacity: 1;
+    font-weight: 500;
+}
+
+.nwe-link {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--nwe-accent-text);
+    font-weight: 600;
+    font-size: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.nwe-link:hover {
+    text-decoration: underline;
+    color: var(--nwe-accent-text);
+}
+
+.nwe-link:disabled {
+    color: var(--nwe-faint);
+    text-decoration: none;
+    cursor: not-allowed;
+}
+
+.nwe-link.muted {
+    color: var(--nwe-muted);
+    font-weight: 500;
+}
+
+.nwe-iconbtn {
+    width: 1.9rem;
+    height: 1.9rem;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: var(--nwe-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+
+.nwe-iconbtn:hover:not(:disabled) {
+    background: var(--nwe-hover);
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-iconbtn.danger:hover:not(:disabled) {
+    background: var(--nwe-danger-soft);
+    color: var(--nwe-danger);
+}
+
+.nwe-iconbtn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.nwe-iconbtn:focus-visible,
+.nwe-link:focus-visible {
+    outline: 0;
+    box-shadow: var(--nwe-ring);
+}
+
+/* ---------- form controls in our pages ---------- */
+.nwe-ui .form-control:focus,
+.nwe-ui .form-select:focus,
+.nwe-ui .form-check-input:focus {
+    border-color: var(--nwe-accent);
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-ui .form-check-input:checked,
+.nwe-ui .form-check-input[type="checkbox"]:indeterminate {
+    background-color: var(--nwe-accent);
+    border-color: var(--nwe-accent);
+}
+
+.nwe-ui .form-label {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+.nwe-ui .form-text {
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+}
+
+.nwe-ui .input-group-text {
+    background: var(--nwe-fill);
+    color: var(--nwe-muted);
+}
+
+/* ---------- switches ---------- */
+.nwe-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin: 0;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.nwe-switch > input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+}
+
+.nwe-switch-ui {
+    position: relative;
+    flex: none;
+    width: 2.15rem;
+    height: 1.2rem;
+    margin-top: 0.05rem;
+    border-radius: 999px;
+    background: var(--nwe-fill-2);
+    box-shadow: inset 0 0 0 1px var(--nwe-line);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.nwe-switch-ui::after {
+    content: "";
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    background: var(--bs-white);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    transition: transform 0.15s ease;
+}
+
+.nwe-switch > input:checked + .nwe-switch-ui {
+    background: var(--nwe-accent);
+    box-shadow: inset 0 0 0 1px var(--nwe-accent);
+}
+
+.nwe-switch > input:checked + .nwe-switch-ui::after {
+    transform: translateX(0.95rem);
+}
+
+.nwe-switch > input:focus-visible + .nwe-switch-ui {
+    box-shadow: inset 0 0 0 1px var(--nwe-accent), var(--nwe-ring);
+}
+
+.nwe-switch > input:disabled + .nwe-switch-ui {
+    opacity: 0.45;
+}
+
+.nwe-switch > input:disabled ~ * {
+    cursor: not-allowed;
+}
+
+.nwe-switch-copy b,
+.nwe-switch-copy small {
+    display: block;
+}
+
+.nwe-switch-copy b {
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.nwe-switch-copy small {
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.35;
+    margin-top: 0.1rem;
+}
+
+/* ---------- pills, tags, chips ---------- */
+.nwe-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    padding: 0.05rem 0.6rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.35rem;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+a.nwe-pill:hover {
+    text-decoration: underline;
+}
+
+.nwe-pill .dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+
+.nwe-pill-ok {
+    background: var(--bs-success-bg-subtle);
+    border-color: var(--bs-success-border-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.nwe-pill-draft {
+    background: var(--bs-warning-bg-subtle);
+    border-color: var(--bs-warning-border-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.nwe-pill-new {
+    background: var(--nwe-fill);
+    border-color: var(--nwe-line);
+    color: var(--nwe-muted);
+}
+
+.nwe-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.45rem;
+    font-size: 0.74rem;
+    font-weight: 500;
+    background: var(--nwe-fill-2);
+    color: var(--nwe-muted);
+    white-space: nowrap;
+    line-height: 1.3rem;
+}
+
+.nwe-tag.blue {
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
+}
+
+.nwe-tag.amber {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.nwe-tag.green {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.nwe-tag.red {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.nwe-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    max-width: 100%;
+    border: 1px solid var(--nwe-line);
+    border-radius: 0.35rem;
+    background: var(--nwe-fill);
+    padding: 0 0.15rem 0 0.5rem;
+    font-size: 0.8rem;
+    line-height: 1.4rem;
+    color: var(--bs-body-color);
+}
+
+.nwe-chip > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nwe-chip button {
+    border: 0;
+    background: transparent;
+    color: var(--nwe-muted);
+    border-radius: 0.25rem;
+    padding: 0 0.2rem;
+    line-height: 1;
+    font-size: 0.9rem;
+}
+
+.nwe-chip button:hover {
+    background: var(--nwe-fill-2);
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-var {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid var(--bs-primary-border-subtle);
+    border-radius: 0.3rem;
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
+    padding: 0 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.3rem;
+    white-space: nowrap;
+    vertical-align: baseline;
+}
+
+.nwe-var.res {
+    border-color: var(--nwe-line);
+    background: var(--nwe-fill-2);
+    color: var(--bs-body-color);
+}
+
+.nwe-var.expr {
+    font-family: var(--nwe-mono);
+    background: var(--nwe-fill);
+    border-color: var(--nwe-line);
+    color: var(--bs-body-color);
+}
+
+.nwe-var.bad {
+    border-color: var(--bs-danger-border-subtle);
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.nwe-var .mdi {
+    font-size: 0.85rem;
+}
+
+.nwe-lit {
+    font-family: var(--nwe-mono);
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-code {
+    font-family: var(--nwe-mono);
+    font-size: 0.82rem;
+}
+
+/* ---------- segmented control ---------- */
+.nwe-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.15rem;
+    padding: 0.15rem;
+    border-radius: 0.5rem;
+    background: var(--nwe-fill-2);
+}
+
+.nwe-seg > button,
+.nwe-seg > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.4rem;
+    background: transparent;
+    padding: 0.2rem 0.7rem;
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.nwe-seg > button:hover,
+.nwe-seg > a:hover {
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-seg > .on {
+    background: var(--nwe-surface);
+    border-color: var(--nwe-line);
+    color: var(--bs-emphasis-color);
+    box-shadow: var(--nwe-shadow);
+}
+
+.nwe-seg .n {
+    color: var(--nwe-faint);
+    font-size: 0.75rem;
+}
+
+.nwe-seg .mdi {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+/* ---------- type tiles ---------- */
+.nwe-tile {
+    width: 2.15rem;
+    height: 2.15rem;
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 0.5rem;
+    font-size: 1.1rem;
+    line-height: 1;
+    background: var(--nwe-fill-2);
+    color: var(--nwe-muted);
+}
+
+.nwe-tile.sm {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.95rem;
+    border-radius: 0.4rem;
+}
+
+.nwe-tile.t-string,
+.nwe-tile.t-nautobot {
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
+}
+
+.nwe-tile.t-integer,
+.nwe-tile.t-listdict {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.nwe-tile.t-boolean {
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+}
+
+.nwe-tile.t-choice,
+.nwe-tile.t-multichoice,
+.nwe-tile.t-awx,
+.nwe-tile.t-workflow {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.nwe-tile.t-object,
+.nwe-tile.t-multiobject {
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
+}
+
+/* ---------- popovers & menus ---------- */
+.nwe-pop {
+    position: absolute;
+    z-index: 1040;
+    min-width: 13rem;
+    padding: 0.35rem;
+    border: 1px solid var(--nwe-line);
+    border-radius: 0.6rem;
+    background: var(--nwe-surface);
+    color: var(--bs-body-color);
+    box-shadow: var(--nwe-shadow-pop);
+}
+
+.nwe-pop-sec {
+    padding: 0.5rem 0.6rem 0.2rem;
+    color: var(--nwe-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.nwe-pop-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    padding: 0.4rem 0.6rem;
+    color: var(--bs-body-color);
+    font-size: 0.86rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nwe-pop-item:hover,
+.nwe-pop-item.hl {
+    background: var(--nwe-hover);
+}
+
+.nwe-pop-item.danger {
+    color: var(--nwe-danger);
+}
+
+.nwe-pop-item small {
+    margin-left: auto;
+    color: var(--nwe-muted);
+    font-size: 0.76rem;
+}
+
+.nwe-pop-item .mdi {
+    color: var(--nwe-muted);
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.nwe-pop hr {
+    margin: 0.3rem 0;
+    border-color: var(--nwe-line);
+    opacity: 1;
+}
+
+/* ---------- launch-form field components ---------- */
+.nwe-f {
+    position: relative;
+    min-width: 0;
+}
+
+.nwe-f + .nwe-f {
+    margin-top: 1.15rem;
+}
+
+.nwe-f[hidden] + .nwe-f,
+.nwe-f-hidden + .nwe-f {
+    margin-top: 0;
+}
+
+.nwe-f-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--bs-emphasis-color);
+    font-weight: 600;
+    font-size: 0.875rem;
+    line-height: 1.3;
+}
+
+.nwe-req {
+    color: var(--nwe-danger);
+    margin-left: 0.15rem;
+}
+
+.nwe-f-help,
+.nwe-f-hint {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.nwe-f-hint .mdi {
+    font-size: 0.9rem;
+    line-height: 1;
+}
+
+.nwe-f-hint + .nwe-f-help {
+    margin-top: 0.1rem;
+}
+
+.nwe-f-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+    color: var(--nwe-danger);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.nwe-f-error .mdi {
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+
+.nwe-f .form-control.is-invalid,
+.nwe-f .is-invalid {
+    border-color: var(--nwe-danger);
+}
+
+.nwe-f-wait {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px dashed var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-fill);
+    padding: 0.55rem 0.75rem;
+    color: var(--nwe-muted);
+    font-size: 0.82rem;
+}
+
+.nwe-number {
+    max-width: 12rem;
+}
+
+/* radio cards (pick one, up to four options) */
+.nwe-rcards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.5rem;
+}
+
+.nwe-rcard {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    margin: 0;
+    border: 1.5px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-surface);
+    padding: 0.55rem 0.75rem;
+    cursor: pointer;
+    font-weight: 500;
+    line-height: 1.35;
+}
+
+.nwe-rcard:hover {
+    border-color: var(--bs-secondary-color);
+}
+
+.nwe-rcard input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.nwe-rcard .rd {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.1rem;
+    border-radius: 50%;
+    border: 2px solid var(--bs-secondary-color);
+    background: var(--nwe-surface);
+}
+
+.nwe-rcard.on {
+    border-color: var(--nwe-accent);
+    background: var(--nwe-accent-soft);
+}
+
+.nwe-rcard.on .rd {
+    border: 5px solid var(--nwe-accent);
+}
+
+.nwe-rcard:has(input:focus-visible) {
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-rcard small {
+    display: block;
+    color: var(--nwe-muted);
+    font-size: 0.78rem;
+    font-weight: 400;
+}
+
+/* checkbox chips (pick many) */
+.nwe-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.nwe-ck {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    border: 1.5px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-surface);
+    padding: 0.32rem 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.nwe-ck:hover {
+    border-color: var(--bs-secondary-color);
+}
+
+.nwe-ck input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.nwe-ck .bx {
+    flex: none;
+    width: 0.95rem;
+    height: 0.95rem;
+    display: grid;
+    place-items: center;
+    border: 1.5px solid var(--bs-secondary-color);
+    border-radius: 0.2rem;
+    background: var(--nwe-surface);
+    color: var(--nwe-on-accent);
+    font-size: 0.75rem;
+    line-height: 1;
+}
+
+.nwe-ck.on {
+    border-color: var(--nwe-accent);
+    background: var(--nwe-accent-soft);
+}
+
+.nwe-ck.on .bx {
+    border-color: var(--nwe-accent);
+    background: var(--nwe-accent);
+}
+
+.nwe-ck:has(input:focus-visible) {
+    box-shadow: var(--nwe-ring);
+}
+
+/* object picker (searchable, one or many) */
+.nwe-picker {
+    position: relative;
+}
+
+.nwe-combo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    min-height: 2.5rem;
+    border: var(--bs-border-width) solid var(--nwe-line);
+    border-radius: var(--bs-border-radius);
+    background: var(--nwe-surface);
+    padding: 0.35rem 0.7rem;
+    color: var(--bs-body-color);
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nwe-combo:hover {
+    border-color: var(--bs-secondary-color);
+}
+
+.nwe-combo:focus-visible,
+.nwe-combo.open {
+    outline: 0;
+    border-color: var(--nwe-accent);
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-combo.is-invalid {
+    border-color: var(--nwe-danger);
+}
+
+.nwe-combo:disabled {
+    cursor: not-allowed;
+    background: var(--nwe-fill);
+    color: var(--nwe-muted);
+}
+
+.nwe-combo > .mdi {
+    flex: none;
+    color: var(--nwe-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.nwe-combo .caret {
+    margin-left: auto;
+}
+
+.nwe-combo-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.nwe-combo-title {
+    font-weight: 500;
+    color: var(--bs-emphasis-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nwe-combo-meta {
+    color: var(--nwe-muted);
+    font-size: 0.76rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nwe-combo-ph {
+    color: var(--nwe-muted);
+}
+
+.nwe-combo-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.nwe-picker-pop {
+    left: 0;
+    right: 0;
+    top: calc(100% + 0.3rem);
+    padding: 0;
+    overflow: hidden;
+}
+
+.nwe-picker-search {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--nwe-line);
+}
+
+.nwe-picker-search .mdi {
+    color: var(--nwe-muted);
+}
+
+.nwe-picker-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--bs-body-color);
+    font-size: 0.875rem;
+}
+
+.nwe-picker-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.35rem 0.75rem;
+    border-bottom: 1px solid var(--nwe-line);
+    font-size: 0.8rem;
+}
+
+.nwe-picker-tools .count {
+    margin-left: auto;
+    color: var(--nwe-muted);
+}
+
+.nwe-picker-list {
+    max-height: 16rem;
+    overflow: auto;
+    padding: 0.3rem;
+}
+
+.nwe-opt {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    padding: 0.4rem 0.55rem;
+    color: var(--bs-body-color);
+    text-align: left;
+    cursor: pointer;
+}
+
+.nwe-opt:hover,
+.nwe-opt.hl {
+    background: var(--nwe-hover);
+}
+
+.nwe-opt.on .nwe-combo-title {
+    color: var(--nwe-accent-text);
+}
+
+.nwe-opt .ck {
+    margin-left: auto;
+    color: var(--nwe-accent-text);
+    font-size: 1rem;
+}
+
+.nwe-opt .bx {
+    flex: none;
+    width: 0.95rem;
+    height: 0.95rem;
+    display: grid;
+    place-items: center;
+    border: 1.5px solid var(--bs-secondary-color);
+    border-radius: 0.2rem;
+    color: var(--nwe-on-accent);
+    font-size: 0.75rem;
+}
+
+.nwe-opt.on .bx {
+    border-color: var(--nwe-accent);
+    background: var(--nwe-accent);
+}
+
+.nwe-picker-empty {
+    padding: 0.9rem;
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+    text-align: center;
+}
+
+.nwe-picker-more {
+    padding: 0.4rem 0.75rem;
+    border-top: 1px solid var(--nwe-line);
+    color: var(--nwe-muted);
+    font-size: 0.78rem;
+}
+
+/* list input: one item per line */
+.nwe-lines {
+    font-family: var(--nwe-mono);
+    font-size: 0.86rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.nwe-counter {
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+    margin-top: 0.35rem;
+}
+
+.nwe-counter.bad {
+    color: var(--nwe-danger);
+}
+
+/* table input */
+.nwe-grid-wrap {
+    border: var(--bs-border-width) solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-surface);
+    overflow: hidden;
+}
+
+.nwe-grid-wrap.is-invalid {
+    border-color: var(--nwe-danger);
+}
+
+.nwe-grid-scroll {
+    overflow: auto;
+    max-height: 26rem;
+}
+
+table.nwe-grid {
+    width: 100%;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.86rem;
+}
+
+table.nwe-grid th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 0.45rem 0.55rem;
+    border-bottom: 1px solid var(--nwe-line);
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-emphasis-color);
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-align: left;
+    vertical-align: bottom;
+    white-space: nowrap;
+}
+
+table.nwe-grid th:not(.rn) {
+    white-space: normal;
+}
+
+table.nwe-grid th .ct-part {
+    white-space: nowrap;
+}
+
+table.nwe-grid th .ct {
+    display: block;
+    color: var(--nwe-muted);
+    font-size: 0.72rem;
+    font-weight: 400;
+}
+
+table.nwe-grid td {
+    padding: 0.2rem 0.3rem;
+    border-bottom: 1px solid var(--nwe-line-soft);
+    vertical-align: middle;
+}
+
+table.nwe-grid .rn {
+    width: 2.2rem;
+    color: var(--nwe-muted);
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+table.nwe-grid .rx {
+    width: 2.2rem;
+    text-align: center;
+}
+
+table.nwe-grid .tb {
+    text-align: center;
+}
+
+table.nwe-grid tr.bad td {
+    background: var(--nwe-danger-soft);
+}
+
+table.nwe-grid tr.bad td.rn {
+    color: var(--nwe-danger);
+    font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--nwe-danger);
+}
+
+table.nwe-grid tr.rowerr td {
+    background: var(--nwe-danger-soft);
+    color: var(--nwe-danger);
+    font-size: 0.78rem;
+    padding: 0 0.6rem 0.45rem 2.5rem;
+}
+
+table.nwe-grid tr.rowerr td .mdi {
+    margin-right: 0.25rem;
+}
+
+table.nwe-grid .tempty {
+    padding: 1.1rem 0.75rem;
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+    text-align: center;
+}
+
+.nwe-cell {
+    width: 100%;
+    min-width: 4.5rem;
+    border: 1px solid transparent;
+    border-radius: 0.35rem;
+    background: transparent;
+    padding: 0.28rem 0.45rem;
+    color: var(--bs-body-color);
+    font-size: 0.86rem;
+}
+
+.nwe-cell:hover {
+    border-color: var(--nwe-line);
+}
+
+.nwe-cell:focus {
+    outline: 0;
+    border-color: var(--nwe-accent);
+    background: var(--nwe-surface);
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-cell.bad {
+    border-color: var(--nwe-danger);
+    background: var(--nwe-surface);
+}
+
+select.nwe-cell {
+    min-width: 6.5rem;
+    cursor: pointer;
+}
+
+select.nwe-cell option {
+    background: var(--nwe-surface);
+    color: var(--bs-body-color);
+}
+
+input.nwe-cell[type="number"] {
+    font-variant-numeric: tabular-nums;
+}
+
+.nwe-cell-check {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--nwe-accent);
+    cursor: pointer;
+}
+
+.nwe-grid-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+    padding: 0.4rem 0.6rem;
+    border-top: 1px solid var(--nwe-line);
+    background: var(--bs-tertiary-bg);
+    font-size: 0.82rem;
+}
+
+.nwe-grid-foot .meta {
+    color: var(--nwe-muted);
+}
+
+.nwe-grid-foot .end {
+    margin-left: auto;
+    display: flex;
+    gap: 0.4rem;
+}
+
+.nwe-grid-foot .btn {
+    --bs-btn-padding-y: 0.15rem;
+    --bs-btn-padding-x: 0.55rem;
+    --bs-btn-font-size: 0.8rem;
+}
+
+.nwe-csv-sum {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--nwe-line);
+    font-size: 0.84rem;
+}
+
+.nwe-csv-sum.ok {
+    background: var(--bs-success-bg-subtle);
+}
+
+.nwe-csv-sum.warn {
+    background: var(--bs-warning-bg-subtle);
+}
+
+.nwe-csv-sum.bad {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.nwe-csv-sum ul {
+    margin: 0.2rem 0 0;
+    padding-left: 1.1rem;
+}
+
+/* ---------- Jinja editor ---------- */
+.nwe-jinja {
+    position: relative;
+}
+
+.nwe-jinja-box {
+    position: relative;
+    border: var(--bs-border-width) solid var(--nwe-line);
+    border-radius: var(--bs-border-radius);
+    background: var(--nwe-surface);
+}
+
+.nwe-jinja-box:focus-within {
+    border-color: var(--nwe-accent);
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-jinja.bad .nwe-jinja-box {
+    border-color: var(--nwe-danger);
+}
+
+.nwe-jinja-hl,
+.nwe-jinja-ta {
+    display: block;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    padding: 0.4rem 0.6rem;
+    font-family: var(--nwe-mono);
+    font-size: 0.86rem;
+    line-height: 1.45;
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+}
+
+.nwe-jinja-hl {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    color: var(--bs-body-color);
+}
+
+.nwe-jinja-ta {
+    position: relative;
+    min-height: 2.2rem;
+    resize: vertical;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--bs-emphasis-color);
+    outline: 0;
+}
+
+.nwe-jinja-ta::placeholder {
+    color: var(--nwe-faint);
+}
+
+.nwe-jinja-ta::selection {
+    background: rgba(var(--bs-primary-rgb), 0.3);
+}
+
+.nwe-jinja-hl .tk-delim {
+    color: var(--nwe-accent-text);
+}
+
+.nwe-jinja-hl .tk-expr {
+    color: var(--bs-primary-text-emphasis);
+    background: var(--bs-primary-bg-subtle);
+    border-radius: 0.2rem;
+}
+
+.nwe-jinja-hl .tk-stmt {
+    color: var(--bs-success-text-emphasis);
+}
+
+.nwe-jinja-hl .tk-err {
+    text-decoration: underline wavy var(--nwe-danger);
+    text-underline-offset: 3px;
+}
+
+.nwe-jinja-stat {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    margin-top: 0.3rem;
+    color: var(--nwe-muted);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    min-height: 1.1rem;
+}
+
+.nwe-jinja-stat.bad {
+    color: var(--nwe-danger);
+}
+
+.nwe-jinja-stat .mdi {
+    font-size: 0.9rem;
+    line-height: 1.1;
+}
+
+.nwe-jinja-stat .kbd,
+.nwe-kbd {
+    display: inline-block;
+    border: 1px solid var(--nwe-line);
+    border-radius: 0.25rem;
+    background: var(--nwe-fill);
+    padding: 0 0.3rem;
+    font-family: var(--nwe-mono);
+    font-size: 0.72rem;
+    line-height: 1.1rem;
+    color: var(--nwe-muted);
+}
+
+.nwe-jinja-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    margin-top: 0.3rem;
+    border-radius: 0.35rem;
+    background: var(--nwe-fill);
+    padding: 0.3rem 0.55rem;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.nwe-jinja-preview .lbl {
+    flex: none;
+    color: var(--nwe-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.66rem;
+}
+
+.nwe-jinja-preview code {
+    color: var(--bs-emphasis-color);
+    font-family: var(--nwe-mono);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.nwe-jinja-preview .hint {
+    color: var(--nwe-muted);
+}
+
+.nwe-ac {
+    left: 0;
+    top: calc(100% + 0.25rem);
+    width: min(30rem, 100%);
+    min-width: 18rem;
+    max-height: 18rem;
+    overflow: auto;
+}
+
+.nwe-ac .nwe-pop-item {
+    font-size: 0.8rem;
+    padding: 0.32rem 0.5rem;
+}
+
+.nwe-ac .nwe-pop-item code {
+    color: var(--bs-primary-text-emphasis);
+    font-family: var(--nwe-mono);
+    font-size: 0.8rem;
+}
+
+.nwe-ac .nwe-pop-item small {
+    white-space: nowrap;
+}
+
+.nwe-ac-foot {
+    display: flex;
+    gap: 0.8rem;
+    margin-top: 0.25rem;
+    padding: 0.35rem 0.5rem 0.15rem;
+    border-top: 1px solid var(--nwe-line-soft);
+    color: var(--nwe-muted);
+    font-size: 0.7rem;
+}
+
+/* ---------- small helpers ---------- */
+.nwe-muted {
+    color: var(--nwe-muted);
+}
+
+.nwe-kicker {
+    color: var(--nwe-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.nwe-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.nwe-spin {
+    display: inline-block;
+    animation: nwe-spin 1s linear infinite;
+}
+
+@keyframes nwe-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Tick inside the small check boxes */
+.nwe-ck .bx .mdi,
+.nwe-opt .bx .mdi {
+    font-size: 0.7rem;
+}
+
+table.nwe-grid th.tb {
+    text-align: center;
+}
