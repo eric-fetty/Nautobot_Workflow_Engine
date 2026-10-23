@@ -612,7 +612,15 @@ def _archive_file(workflow, path, exists, pushed_before, touch, revision, log):
     published_at = revision.published_at if revision is not None else None
     if not exists:
         return None
-    if pushed_before and touch["at"] is not None and published_at is not None and touch["at"] > published_at:
+    # Our own push is never "a newer Git change": Git keeps whole seconds, so its time can read later.
+    own_push = bool(touch["sha"]) and touch["sha"] == (workflow.git_commit or "")
+    if (
+        pushed_before
+        and not own_push
+        and touch["at"] is not None
+        and published_at is not None
+        and touch["at"] > published_at
+    ):
         log.info("E-NWE-207 Newer Git change kept for archived workflow %s.", workflow.key)
         return None
     path.unlink()
