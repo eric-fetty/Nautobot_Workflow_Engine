@@ -4,29 +4,11 @@
  * the same tokens, so the builder follows Nautobot's light and dark themes.
  */
 
-/* ---------- page chrome: the builder keeps Nautobot's sidebar collapsed ---------- */
-body.nwe-studio-body:has(#sidenav) {
-    padding-inline-start: 4rem !important;
-}
-
-body.nwe-studio-body #sidenav {
-    width: 4rem !important;
-    overflow: hidden;
-}
-
-body.nwe-studio-body #sidenav .nav-link {
-    justify-content: center;
-    padding-inline: 0.4rem;
-}
-
-body.nwe-studio-body #sidenav .nav-link span,
-body.nwe-studio-body #sidenav .nb-nav-text,
-body.nwe-studio-body #sidenav .nb-sidenav-list-item span,
-body.nwe-studio-body #sidenav .nb-sidenav-brand span,
-body.nwe-studio-body #sidenav .nb-sidenav-link-group span {
-    display: none !important;
-}
-
+/* ---------- page chrome ----------
+ * The builder starts with Nautobot's sidebar collapsed using Nautobot's own
+ * class, so its flyout menus keep working. Don't clip #sidenav here: the
+ * flyouts sit outside it and clipping them stops navigation.
+ */
 body.nwe-studio-body .page-header,
 body.nwe-studio-body .nb-page-header,
 body.nwe-studio-body #page-title:empty {
@@ -81,7 +63,7 @@ body.nwe-studio-body #header > .container-fluid {
 .nwe-head {
     position: sticky;
     top: 0;
-    z-index: 1030;
+    z-index: 1020; /* below Nautobot's sidebar (1030) so its flyout menus stay clickable */
     display: flex;
     flex-wrap: wrap;
     align-items: center;

@@ -85,7 +85,11 @@ const state = {
 const app = document.getElementById("builder-app");
 document.body.classList.add("nwe-studio-body");
 const sidenav = document.getElementById("sidenav");
-if (sidenav) sidenav.classList.add("nb-sidenav-collapsed");
+if (sidenav) {
+    // Nautobot's own collapsed state: icons only, flyouts still open on click.
+    sidenav.classList.add("nb-sidenav-collapsed");
+    sidenav.querySelector(".nb-sidenav-toggler")?.setAttribute("aria-expanded", "false");
+}
 
 function h(tag, attrs, kids) {
     const node = document.createElement(tag);
@@ -378,7 +382,10 @@ function touch() {
     state.save = "dirty";
     paintChrome();
     clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(saveDraft, 800);
+    saveTimer = window.setTimeout(() => {
+        saveTimer = 0;
+        saveDraft();
+    }, 800);
 }
 
 /** Catch changes made by handlers that forgot to call touch() (reorder, delete, undo, …). */
@@ -3154,6 +3161,31 @@ const requestedSection = new URLSearchParams(window.location.search).get("sectio
 if (SECTIONS.some((item) => item[0] === requestedSection)) state.section = requestedSection;
 refreshYaml();
 renderAll();
+// Leaving the page just works: drafts autosave. Send a pending save on the way out.
+function flushOnLeave() {
+    if (!saveTimer || config.read_only || !config.key || !payload.key || !payload.name) return;
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    const body = JSON.stringify({
+        payload,
+        strict: false,
+        base_revision: config.base_revision,
+        base_git_commit: config.base_git_commit || "",
+        base_content_hash: config.base_content_hash || "",
+    });
+    fetch(config.draft_url, {
+        method: "PUT",
+        credentials: "same-origin",
+        keepalive: true,
+        headers: { "Content-Type": "application/json", "X-CSRFToken": config.csrf_token || "" },
+        body,
+    }).catch(() => {});
+}
+window.addEventListener("pagehide", flushOnLeave);
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushOnLeave();
+});
+
 ["click", "change", "input", "drop", "keyup"].forEach((type) => {
     document.addEventListener(type, () => queueMicrotask(noticeChanges));
 });
