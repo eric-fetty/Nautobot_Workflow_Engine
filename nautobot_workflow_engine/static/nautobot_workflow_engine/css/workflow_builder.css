@@ -199,19 +199,34 @@ body.nwe-studio-body #header > .container-fluid {
     color: var(--nwe-danger) !important;
 }
 
-.nwe-why {
+/* One compact control for all issues: the nav carries the per-section detail. */
+.nwe-issues {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.25rem;
+    height: 2rem;
+    padding: 0 0.6rem;
+    border: 1px solid rgba(var(--bs-danger-rgb), 0.35);
+    border-radius: 999px;
+    background: var(--nwe-danger-soft);
     color: var(--nwe-danger);
     font-size: 0.82rem;
-    text-decoration: none;
-    white-space: nowrap;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
 }
 
-.nwe-why:hover {
-    color: var(--nwe-danger);
-    text-decoration: underline;
+.nwe-issues:hover {
+    border-color: var(--nwe-danger);
+}
+
+.nwe-issues:focus-visible {
+    outline: 0;
+    box-shadow: var(--nwe-ring);
+}
+
+.nwe-issues .mdi {
+    font-size: 1rem;
 }
 
 .nwe-menu {

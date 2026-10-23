@@ -3,8 +3,8 @@
 {% block title %}Run {{ workflow.name }}{% endblock title %}
 {% block extra_styles %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v18">
-  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/launch.css' %}?v18">
+  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v19">
+  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/launch.css' %}?v19">
 {% endblock extra_styles %}
 {% block breadcrumbs %}
   <li class="breadcrumb-item"><a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}">Workflows</a></li>
@@ -97,5 +97,5 @@
 {% endblock content %}
 {% block javascript %}
   {{ block.super }}
-  <script type="module" src="{% static 'nautobot_workflow_engine/js/launch/launch.js' %}?v18"></script>
+  <script type="module" src="{% static 'nautobot_workflow_engine/js/launch/launch.js' %}?v19"></script>
 {% endblock javascript %}

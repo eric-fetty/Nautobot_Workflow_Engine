@@ -296,14 +296,12 @@ function differs() {
 function publishBlock() {
     if (state.stale) return { message: "Newer version in Git", section: "review" };
     const buckets = localIssues();
-    const order = ["steps", "inputs", "details", "schedule", "review"];
-    const hit = order.find((section) => buckets[section].length);
+    const hit = SECTIONS.map(([id]) => id).find((section) => buckets[section].length);
     if (hit) {
-        const count = buckets[hit].length;
-        const label = SECTIONS.find((item) => item[0] === hit)[1];
-        return { message: `Fix ${count} issue${count === 1 ? "" : "s"} in ${label}`, section: hit };
+        const total = Object.values(buckets).reduce((sum, list) => sum + list.length, 0);
+        return { message: `${total} issue${total === 1 ? "" : "s"} to fix`, section: hit, issues: total };
     }
-    if (!differs()) return { message: "No changes to publish", section: "review" };
+    if (!differs()) return { message: "No changes to publish yet", section: "review" };
     return null;
 }
 
@@ -580,11 +578,21 @@ function renderHeader() {
                 h("button", { type: "button", class: "nwe-iconbtn", "data-action": "menu", title: "More", "aria-label": "More actions", "aria-expanded": state.menu ? "true" : "false" }, [icon("dots-horizontal")]),
                 state.menu ? menu() : null,
             ]),
-            block ? h("a", { href: "#", class: "nwe-why", "data-action": "goto", "data-section": block.section }, [icon("alert-circle-outline"), block.message]) : null,
+            block && block.issues
+                ? h("button", {
+                    type: "button",
+                    class: "nwe-issues",
+                    "data-action": "goto",
+                    "data-section": block.section,
+                    title: `${block.message}. Go to the first one.`,
+                    "aria-label": `${block.message}. Go to the first one.`,
+                }, [icon("alert-circle-outline"), h("span", { text: String(block.issues) })])
+                : null,
             h("button", {
                 type: "button",
                 class: "btn nwe-btn-accent nwe-publish",
                 "data-action": "publish",
+                title: block && !block.issues ? block.message : null,
                 disabled: Boolean(block) || config.read_only,
             }, [icon("rocket-launch-outline"), config.can_publish ? publishText() : "Request publish"]),
         ]),
@@ -688,7 +696,14 @@ function summary(id) {
         return bits.join(" · ") || "Optional";
     }
     const block = publishBlock();
-    return block ? block.message : "Ready to publish";
+    if (!block) return "Ready to publish";
+    if (block.issues) return issuesElsewhere(block) ? "Not ready yet" : block.message;
+    return block.message;
+}
+
+/** True when the blocking issues sit in another section (the nav already shows them there). */
+function issuesElsewhere(block) {
+    return block.section !== "review";
 }
 
 function renderEditor() {
@@ -1985,7 +2000,9 @@ function reviewView() {
                         ? switchRow({ id: "nwe-enable-pub", "data-action": "enable-on-publish", checked: state.enableOnPublish }, "Turn it on when it’s published", "Off means it’s published but nobody can run it yet.")
                         : null,
                     h("div", { class: "d-flex align-items-center gap-2 mt-3" }, [
-                        block ? h("span", { class: "text-danger small", text: block.message }) : h("span", { class: "text-success small", text: "Ready to publish" }),
+                        block
+                            ? h("span", { class: block.issues ? "text-danger small" : "text-secondary small", text: block.issues ? "Not ready: see the checks above." : block.message })
+                            : h("span", { class: "text-success small", text: "Ready to publish" }),
                         h("button", { type: "button", class: "btn nwe-btn ms-auto", "data-action": "test" }, [icon("play-circle-outline"), "Preview run"]),
                         h("button", { type: "button", class: "btn nwe-publish", "data-action": "publish", disabled: Boolean(block), text: publishText() }),
                     ]),
