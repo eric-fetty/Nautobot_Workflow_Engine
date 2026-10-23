@@ -181,6 +181,38 @@ body.nwe-studio-body #header > .container-fluid {
     color: var(--nwe-danger) !important;
 }
 
+/* The reason a push failed, on hover or keyboard focus of "Not synced". */
+.nwe-git-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.nwe-git-tip {
+    left: auto;
+    right: 0;
+    width: 24rem;
+}
+
+.nwe-git-bad:hover + .nwe-tip,
+.nwe-git-bad:focus-visible + .nwe-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0.15s, 0.15s, 0s;
+}
+
+.nwe-repo-problem {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin-top: -0.25rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-danger-soft);
+    color: var(--nwe-danger);
+    font-size: 0.85rem;
+}
+
 /* One compact control for all issues: the nav carries the per-section detail. */
 .nwe-issues {
     display: inline-flex;

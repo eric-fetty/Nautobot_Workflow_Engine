@@ -922,22 +922,15 @@ class WorkflowViewSet(ViewSet):
             definition = _definition_from_body(data)
             repo = _repository(request.user, data.get("repository"))
             if data.get("repository") not in (None, ""):
-                from nautobot_workflow_engine.utilities.git_publish import repo_can_publish
+                from nautobot_workflow_engine.utilities.git_publish import publish_blocker
 
-                if repo is not None and not repo_can_publish(repo):
-                    return Response(
-                        _errors_payload(
-                            [
-                                FieldError(
-                                    "/repository",
-                                    "repository_required",
-                                    "That repository cannot be published to. It needs workflow publishing and an HTTP token.",
-                                    path="repository",
-                                )
-                            ]
-                        ),
-                        status=400,
+                blocker = publish_blocker(repo) if repo is not None else ""
+                if blocker:
+                    payload = _errors_payload(
+                        [FieldError("/source_repo", "repository_required", blocker, path="source_repo")]
                     )
+                    payload["detail"] = blocker
+                    return Response(payload, status=400)
             saved, revision = publish(
                 user=request.user,
                 workflow=workflow,
@@ -1131,8 +1124,14 @@ class WorkflowViewSet(ViewSet):
             return Response({"detail": "This workflow has no Git repository."}, status=400)
         from nautobot.extras.secrets.exceptions import SecretError
 
-        from nautobot_workflow_engine.utilities.git_publish import publish_repository
+        from nautobot_workflow_engine.utilities.git_publish import publish_blocker, publish_repository
 
+        blocker = publish_blocker(workflow.source_repo)
+        if blocker:
+            workflow.git_status = "disabled_repo"
+            workflow.git_error = blocker
+            workflow.save(update_fields=["git_status", "git_error", "last_updated"])
+            return Response(_git_status_payload(workflow), status=202)
         workflow.git_status = "pending"
         workflow.git_next_retry_at = None
         workflow.save(update_fields=["git_status", "git_next_retry_at", "last_updated"])

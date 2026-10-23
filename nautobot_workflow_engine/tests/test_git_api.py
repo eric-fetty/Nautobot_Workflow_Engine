@@ -60,7 +60,7 @@ class GitApiTestCase(BareRepoMixin, TestCase):
         self.assertEqual(saved.name, "Lab flow")
 
         saved.git_status = GIT_STATUS_NOT_SYNCED
-        saved.git_error = "E-NWE-203 earlier"
+        saved.git_error = "Couldn't push earlier."
         saved.save(update_fields=["git_status", "git_error", "last_updated"])
         retried = self._send("post", "workflow-git-push", key=saved.key)
         self.assertEqual(retried.status_code, 202)
@@ -192,7 +192,7 @@ class GitPushResponseTestCase(BareRepoMixin, TransactionTestCase):
 
         saved, _revision = self.save_and_push(self.definition(key="secret-retry", name="Secret retry"))
         saved.git_status = GIT_STATUS_NOT_SYNCED
-        saved.git_error = "E-NWE-203 earlier"
+        saved.git_error = "Couldn't push earlier."
         saved.save(update_fields=["git_status", "git_error", "last_updated"])
         client = APIClient()
         client.force_authenticate(self.user)
@@ -208,7 +208,7 @@ class GitPushResponseTestCase(BareRepoMixin, TransactionTestCase):
             retry = client.post(push_url)
         self.assertEqual(retry.status_code, 202, getattr(retry, "data", retry.content))
         self.assertEqual(retry.data["git_status"], "not_synced")
-        self.assertIn("E-NWE-203", retry.data["git_error"])
+        self.assertIn("couldn't be read", retry.data["git_error"])
         self.assertNotIn(TOKEN_VALUE, retry.content.decode())
         saved.refresh_from_db()
         self.assertEqual(saved.name, "Secret retry")

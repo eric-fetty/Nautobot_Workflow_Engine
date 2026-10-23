@@ -1731,9 +1731,11 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
     names and hints reach the page.
     """
     user = request.user
+    from nautobot_workflow_engine.utilities.git_publish import publish_blocker
+
     repositories = [
-        {"id": str(repo.pk), "name": repo.name}
-        for repo in GitRepository.objects.restrict(user, "view").order_by("name")
+        {"id": str(repo.pk), "name": repo.name, "problem": publish_blocker(repo)}
+        for repo in GitRepository.objects.restrict(user, "view").select_related("secrets_group").order_by("name")
     ]
     visible_repo_ids = [repo["id"] for repo in repositories]
     scripts_by_repo = {}

@@ -747,7 +747,7 @@ INCLUDE_WARNING = (
 
 def adopt_workflow(*, user, workflow, confirm=False):
     """Switch a Git-managed workflow to Nautobot. The first push rewrites the file."""
-    from nautobot_workflow_engine.utilities.git_publish import default_git_path, repo_can_publish, schedule_publish
+    from nautobot_workflow_engine.utilities.git_publish import default_git_path, publish_blocker, schedule_publish
     from nautobot_workflow_engine.utilities.sync_rules import file_digest
 
     if workflow.managed_by != "git":
@@ -759,8 +759,9 @@ def adopt_workflow(*, user, workflow, confirm=False):
     repository = workflow.source_repo
     if repository is None or not user.has_perm("extras.view_gitrepository", repository):
         raise ServiceError(404, detail="Not found.")
-    if not repo_can_publish(repository):
-        raise ServiceError(400, detail="The repository is not opted in to publishing.")
+    blocker = publish_blocker(repository)
+    if blocker:
+        raise ServiceError(400, detail=blocker)
     includes = _include_paths(workflow)
     if includes and not confirm:
         return {

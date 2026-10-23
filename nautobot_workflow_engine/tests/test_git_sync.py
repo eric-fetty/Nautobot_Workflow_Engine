@@ -217,7 +217,7 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
         original = self.show_file("workflows/taken.yaml")
         saved, _revision = self.save_and_push(self.definition(key="taken", name="From Nautobot"))
         self.assertEqual(saved.git_status, GIT_STATUS_NOT_SYNCED)
-        self.assertIn("E-NWE-202", saved.git_error)
+        self.assertIn("already exists there", saved.git_error)
         self.assertEqual(self.show_file("workflows/taken.yaml"), original)
         self.assertEqual(saved.name, "From Nautobot")
 
@@ -229,7 +229,7 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
         self.assertEqual(saved.git_status, GIT_STATUS_NOT_SYNCED)
         self.assertNotIn(TOKEN_VALUE, saved.git_error)
         self.assertNotIn("user:", saved.git_error)
-        self.assertIn("E-NWE-203", saved.git_error)
+        self.assertIn("authentication failed", saved.git_error)
         self.assertTrue(Workflow.objects.filter(key="secret-flow").exists())
 
     def test_secret_error_is_recorded_and_reraised(self):
@@ -259,7 +259,7 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
         saved.refresh_from_db()
         self.assertEqual(saved.git_status, GIT_STATUS_NOT_SYNCED)
         self.assertNotIn(TOKEN_VALUE, saved.git_error)
-        self.assertIn("E-NWE-203", saved.git_error)
+        self.assertIn("couldn't be read", saved.git_error)
 
     def test_retry_backoff_and_maintenance_push(self):
         first = next_retry_at(1)
@@ -269,7 +269,7 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
         saved, _revision = self.save_and_push(self.definition(key="retry-flow", name="Retry me"))
         saved.git_status = GIT_STATUS_NOT_SYNCED
         saved.git_next_retry_at = timezone.now() - timedelta(minutes=1)
-        saved.git_error = "E-NWE-203 earlier"
+        saved.git_error = "Couldn't push earlier."
         saved.name = "Retry me again"
         definition = dict(saved.published_revision.definition)
         definition["name"] = "Retry me again"
@@ -313,7 +313,7 @@ class GitSyncTestCase(BareRepoMixin, TestCase):
         self.assertFalse(pushed)
         saved.refresh_from_db()
         self.assertEqual(saved.git_status, GIT_STATUS_NOT_SYNCED)
-        self.assertIn("E-NWE-205", saved.git_error)
+        self.assertIn("another publish to it is still running", saved.git_error)
 
     def test_two_sequential_publishes_make_two_commits(self):
         self.save_and_push(self.definition(key="one-flow", name="One"))

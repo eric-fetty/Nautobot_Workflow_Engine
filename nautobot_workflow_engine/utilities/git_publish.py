@@ -1,6 +1,7 @@
 """Publish the desired workflow files for one repository and retry when Git is ahead."""
 
 import logging
+import re
 from datetime import timedelta
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from nautobot_workflow_engine.utilities.git import (
     release_repo_lock,
     revision_url,
     sanitize_git_error,
+    scrub_plain,
 )
 from nautobot_workflow_engine.utilities.sync_rules import apply_git_version, commit_touch, file_digest
 
@@ -69,8 +71,12 @@ class PublishLog:
         """Record a line the sync helpers can pass as ``job_result.log``."""
         self._write("info", kwargs.get("message", message))
 
-    def _write(self, level, message):
-        text = sanitize_git_error(message)
+    def plain_error(self, message):
+        """Record a message written for people. It has no Git output in it, so only URL userinfo is stripped."""
+        self._write("error", message, plain=True)
+
+    def _write(self, level, message, plain=False):
+        text = scrub_plain(message) if plain else sanitize_git_error(message)
         self.lines.append(text)
         if self.job_logger is not None:
             getattr(self.job_logger, level, self.job_logger.info)(text)
@@ -78,23 +84,54 @@ class PublishLog:
             self.job_result.log(message=text)
 
 
-def repo_can_publish(repository):
-    """A repo publishes only when it opts in and has an HTTP token."""
+PATH_CONFLICT = "wasn't created by this workflow"
+PUBLISH_CONTENT_LABEL = "Workflow publishing (Nautobot → Git)"
+
+
+def publish_blocker(repository):
+    """Return why ``repository`` can't take a publish, in plain words, or "" when it can.
+
+    The push uses the same credentials as Nautobot's own repository sync (and Golden Config):
+    the repository's secrets group, access type HTTP(S), secret type Token, plus an optional
+    Username. A group with only a token works.
+    """
     if repository is None:
-        return False
+        return ""
+    name = repository.name
     contents = set(repository.provided_contents or [])
     if WORKFLOW_PUBLISH_CONTENT not in contents or WORKFLOWS_CONTENT not in contents:
-        return False
+        return (
+            f"Couldn't publish to {name}: the repository isn't set up for publishing. An admin needs to edit it "
+            f"in Nautobot and tick both “workflows” and “{PUBLISH_CONTENT_LABEL}” under Provides."
+        )
     group = getattr(repository, "secrets_group", None)
     if group is None:
-        return False
+        return (
+            f"Couldn't push to {name}: the repository has no token. An admin needs to give it a secrets group "
+            "with an HTTP(S) Token secret."
+        )
     associations = getattr(group, "secrets_group_associations", None)
-    if associations is None:
-        return False
-    return associations.filter(
-        access_type=SecretsGroupAccessTypeChoices.TYPE_HTTP,
-        secret_type=SecretsGroupSecretTypeChoices.TYPE_TOKEN,
-    ).exists()
+    has_token = (
+        associations is not None
+        and associations.filter(
+            access_type=SecretsGroupAccessTypeChoices.TYPE_HTTP,
+            secret_type=SecretsGroupSecretTypeChoices.TYPE_TOKEN,
+        ).exists()
+    )
+    if not has_token:
+        return (
+            f"Couldn't push to {name}: its secrets group “{group.name}” has no token. Add a secret with access "
+            "type HTTP(S) and secret type Token."
+        )
+    remote = str(getattr(repository, "remote_url", "") or "").lower()
+    if remote and not remote.startswith(("https://", "http://")):
+        return f"Couldn't push to {name}: publishing needs an https:// repository address."
+    return ""
+
+
+def repo_can_publish(repository):
+    """A repo publishes only when it opts in and has an HTTP(S) token."""
+    return repository is not None and not publish_blocker(repository)
 
 
 def known_secrets(repository):
@@ -146,9 +183,10 @@ def schedule_publish(workflow, user):
         return None
     if not getattr(workflow, "git_path", ""):
         workflow.git_path = default_git_path(workflow)
-    if not repo_can_publish(workflow.source_repo):
+    blocker = publish_blocker(workflow.source_repo)
+    if blocker:
         workflow.git_status = GIT_STATUS_DISABLED_REPO
-        workflow.git_error = "This repository is not opted in to publishing, or it has no HTTP token."
+        workflow.git_error = blocker
         workflow.save(update_fields=["git_status", "git_error", "git_path", "last_updated"])
         return None
     workflow.git_status = GIT_STATUS_PENDING
@@ -157,7 +195,11 @@ def schedule_publish(workflow, user):
     try:
         return enqueue_publish(workflow.source_repo, user)
     except Exception as exc:
-        message = readable_failure(exc, workflow.source_repo)
+        logger.error("Could not start the publish job for %s: %s", workflow.source_repo.name, sanitize_git_error(exc))
+        message = (
+            f"Couldn't start publishing to {workflow.source_repo.name}. It tries again shortly. "
+            "If it keeps failing, check that the Nautobot worker is running."
+        )
         workflow.git_status = GIT_STATUS_NOT_SYNCED
         workflow.git_error = message
         workflow.git_retry_count = (workflow.git_retry_count or 0) + 1
@@ -255,15 +297,22 @@ def publish_repository(repository_id, user, job_logger=None, job_result=None, lo
     timeout = int(plugin_setting("git_push_lock_timeout", 300) if lock_timeout is None else lock_timeout)
     lock = acquire_repo_lock(repository.pk, timeout)
     if lock is None:
-        _fail(repository, "E-NWE-205 Timed out waiting for the repository lock.", job_result, log)
+        _fail(
+            repository,
+            f"Couldn't push to {repository.name}: another publish to it is still running. It tries again shortly.",
+            job_result,
+            log,
+        )
         return False
     cache.delete(f"nwe:git:queued:{repository.pk}")
     try:
         return _publish_locked(repository, user, log, job_result)
-    except SecretError:
-        _fail(repository, "E-NWE-203 The Git token could not be read.", job_result, log)
+    except SecretError as exc:
+        _log_full_error(repository, exc, log)
+        _fail(repository, readable_failure(exc, repository), job_result, log)
         raise
     except Exception as exc:
+        _log_full_error(repository, exc, log)
         _fail(repository, readable_failure(exc, repository), job_result, log)
         return False
     finally:
@@ -308,25 +357,92 @@ def run_git_maintenance(log=None):
                 publish_repository(repository.pk, _author_user(due.first()), job_logger=recorder)
 
 
+def _log_full_error(repository, exc, log):
+    """Keep the whole Git error, with secrets removed, in the server log and the job log."""
+    full = sanitize_git_error(exc, known_secrets(repository))
+    logger.error("Publishing workflows to %s failed: %s", getattr(repository, "name", "?"), full)
+    log.error(f"Full error: {full}")
+
+
+_PROTECTED = ("protected branch", "protected_branch", "gh006", "protected", "hook declined", "pre-receive")
+_NOT_FOUND = ("repository not found", "not found", "404", "does not appear to be a git repository")
+_NO_WRITE = ("write access", "permission to", "403", "not allowed to push", "permission denied")
+_AUTH = (
+    "authentication failed",
+    "401",
+    "could not read username",
+    "could not read password",
+    "invalid username or password",
+    "terminal prompts disabled",
+    "invalid credentials",
+    "bad credentials",
+)
+_UNREACHABLE = (
+    "could not resolve host",
+    "connection refused",
+    "connection timed out",
+    "timed out",
+    "failed to connect",
+    "network is unreachable",
+    "ssl certificate problem",
+)
+
+
+def _git_said(text):
+    """The most useful line of a Git error: stderr's last fatal/error/remote line."""
+    match = re.search(r"stderr:\s*'(.*)'", text, re.S)
+    body = match.group(1) if match else text
+    lines = [line.strip() for line in body.replace("\\n", "\n").splitlines() if line.strip()]
+    for prefix in ("fatal:", "error:", "remote:", "!"):
+        hits = [line for line in lines if line.lower().startswith(prefix)]
+        if hits:
+            return hits[-1]
+    return lines[-1] if lines else ""
+
+
 def readable_failure(exc, repository):
-    """Map a Git exception to a short message with no token."""
+    """Say why the push failed in plain words. Never includes the token."""
     secrets = known_secrets(repository) if repository is not None else []
     text = sanitize_git_error(exc, secrets)
     lowered = text.lower()
-    if isinstance(exc, BranchDoesNotExist) or "doesn't exist" in lowered or "does not exist" in lowered:
-        branch = getattr(repository, "branch", "") or "the branch"
-        return f"E-NWE-204 Branch `{branch}` doesn't exist upstream."
-    if "protected" in lowered or "denied" in lowered or "remote rejected" in lowered or "pre-receive" in lowered:
-        return "E-NWE-204 Remote rejected the push (protected branch?)"
-    if isinstance(exc, NonFastForward):
-        return "E-NWE-204 Push rejected: non-fast-forward retries ran out."
-    if isinstance(exc, SecretError) or "secret" in lowered or "authentication" in lowered or "401" in lowered:
-        if "no http token" in lowered or "token not found" in lowered:
-            return "E-NWE-203 No HTTP token is configured for this repository."
-        return f"E-NWE-203 {text}"[:500]
-    if "path_exists" in lowered:
+    name = getattr(repository, "name", "") or "the repository"
+    branch = getattr(repository, "branch", "") or "main"
+    start = f"Couldn't push to {name}: "
+    if PATH_CONFLICT in text:
         return text
-    return f"E-NWE-203 {text}"[:500]
+    if isinstance(exc, SecretError):
+        return (
+            start + "the token in its secrets group couldn't be read. Check the secret's settings, for example that "
+            "its environment variable is set on the Nautobot server and worker."
+        )
+    if isinstance(exc, NonFastForward) or "non-fast-forward retries ran out" in lowered:
+        return start + f"others kept pushing to “{branch}” while this was publishing. It tries again shortly."
+    if isinstance(exc, BranchDoesNotExist) or "couldn't find remote ref" in lowered or "doesn't exist" in lowered:
+        return start + f"the branch “{branch}” doesn't exist there. Create it, or change the repository's branch."
+    if any(marker in lowered for marker in _PROTECTED):
+        return (
+            start + f"the branch “{branch}” is protected. Allow the token's account to push to it, or point the "
+            "repository at a branch it can push to."
+        )
+    if any(marker in lowered for marker in _AUTH):
+        return (
+            start + "authentication failed. Check that the token in its secrets group is valid and hasn't expired. "
+            "If your Git server also needs a username, add a Username secret to the same group."
+        )
+    if any(marker in lowered for marker in _NO_WRITE):
+        return start + "the token can read the repository but can't push to it. Give it write access."
+    if (
+        "repository not found" in lowered
+        or "does not appear to be a git repository" in lowered
+        or ("not found" in lowered and "remote ref" not in lowered)
+    ):
+        return start + "the repository wasn't found at its address. Check the address, and that the token can see it."
+    if any(marker in lowered for marker in _UNREACHABLE):
+        return start + "couldn't reach the Git server. Check the address and the network from the Nautobot worker."
+    said = _git_said(text)
+    if said:
+        return (start + f"Git said “{said}”.")[:500]
+    return f"Couldn't push to {name}. The server log has the full error."
 
 
 def next_retry_at(retry_count):
@@ -390,10 +506,7 @@ def _publish_locked(repository, user, log, job_result):
         log.info("no changes")
         _mark_clean(repository, helper, job_result)
         return True
-    try:
-        helper.push_derived(regenerate, max_retries=3)
-    except NonFastForward as exc:
-        raise GitCommandError(["git", "push"], f"E-NWE-204 {exc}") from exc
+    helper.push_derived(regenerate, max_retries=3)
     _mark_clean(repository, helper, job_result)
     repository.current_head = helper.head
     repository.save(update_fields=["current_head"])
@@ -456,7 +569,10 @@ def _write_rule(helper, repository, workflow, path, relative, log, job_result):
 
     if exists and not pushed_before and current_hash != desired_hash:
         workflow.git_status = GIT_STATUS_NOT_SYNCED
-        workflow.git_error = f"E-NWE-202 path_exists: {relative} is not owned by this workflow."
+        workflow.git_error = (
+            f"Couldn't push to {repository.name}: {relative} already exists there and {PATH_CONFLICT}. "
+            "Remove or rename that file in Git, or give this workflow a different ID."
+        )
         workflow.git_retry_count = (workflow.git_retry_count or 0) + 1
         workflow.git_next_retry_at = next_retry_at(workflow.git_retry_count)
         workflow.git_path = relative
@@ -534,7 +650,10 @@ def _diverged(helper, repository, workflow, path, desired, current, touch, revis
         errors = validate(normalize(parsed), repo=repository, enforce_policy=False, check_scripts=False)
         if errors or not isinstance(parsed, dict):
             workflow.git_status = GIT_STATUS_NOT_SYNCED
-            workflow.git_error = "E-NWE-207 Git is newer but the file is not valid. The database save was kept."
+            workflow.git_error = (
+                f"Couldn't push to {repository.name}: someone changed {relative} in Git after this was published, "
+                "and their version isn't valid. Nautobot kept the published version. Fix or revert the file in Git."
+            )
             workflow.save(update_fields=["git_status", "git_error", "last_updated"])
             log.error(workflow.git_error)
             return None
@@ -648,7 +767,7 @@ def _mark_clean(repository, helper, job_result):
     for workflow in rows:
         relative = workflow.git_path or default_git_path(workflow)
         path = root / relative
-        if workflow.git_error.startswith("E-NWE-202"):
+        if PATH_CONFLICT in (workflow.git_error or ""):
             continue
         workflow.git_status = GIT_STATUS_IN_SYNC
         workflow.git_commit = head
@@ -670,11 +789,13 @@ def _mark_clean(repository, helper, job_result):
 
 
 def _fail(repository, message, job_result, log):
-    safe = sanitize_git_error(message, known_secrets(repository))
-    log.error(safe)
+    # ``message`` is written for people (see ``readable_failure``). Core's sanitizer would redact
+    # words such as "secrets group", so only secret values and URL userinfo are stripped here.
+    safe = scrub_plain(message, known_secrets(repository))
+    log.plain_error(safe)
     rows = Workflow.objects.filter(source_repo=repository, managed_by=MANAGED_BY_NAUTOBOT, git_status__in=UNPUSHED)
     for workflow in rows:
-        if workflow.git_error.startswith("E-NWE-202"):
+        if PATH_CONFLICT in (workflow.git_error or ""):
             continue
         workflow.git_status = GIT_STATUS_NOT_SYNCED
         workflow.git_error = safe

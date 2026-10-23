@@ -181,6 +181,18 @@ def sanitize_git_error(exc, secrets=()):
     return _USERINFO.sub(r"\1****@", text)
 
 
+def scrub_plain(text, secrets=()):
+    """Strip secret values and URL userinfo from a message written for people.
+
+    Unlike :func:`sanitize_git_error`, this keeps words like "secrets group" readable.
+    """
+    text = str(text)
+    for secret in secrets:
+        if secret:
+            text = text.replace(str(secret), "****")
+    return _USERINFO.sub(r"\1****@", text)
+
+
 def file_sha256(payload):
     """Return the hex sha256 of file bytes."""
     if isinstance(payload, str):

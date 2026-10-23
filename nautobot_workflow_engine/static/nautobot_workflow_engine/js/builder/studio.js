@@ -84,12 +84,7 @@ const state = {
 
 const app = document.getElementById("builder-app");
 document.body.classList.add("nwe-studio-body");
-const sidenav = document.getElementById("sidenav");
-if (sidenav) {
-    // Nautobot's own collapsed state: icons only, flyouts still open on click.
-    sidenav.classList.add("nb-sidenav-collapsed");
-    sidenav.querySelector(".nb-sidenav-toggler")?.setAttribute("aria-expanded", "false");
-}
+// The sidebar is left exactly as Nautobot draws it, collapsed or not, so it always navigates.
 
 function h(tag, attrs, kids) {
     const node = document.createElement(tag);
@@ -253,6 +248,8 @@ function localIssues() {
     const buckets = { details: [], inputs: [], steps: [], schedule: [], review: [] };
     if (!payload.name) buckets.details.push(["Name is required.", "name"]);
     if (!payload.key) buckets.details.push(["Workflow ID is required.", "key"]);
+    const repoProblem = selectedRepo()?.problem;
+    if (repoProblem) buckets.details.push([repoProblem, "source_repo"]);
     payload.inputs.forEach((input, index) => {
         const who = input.label || `Input ${index + 1}`;
         if (!input.label) buckets.inputs.push([`${who}: add a label.`, `inputs.${index}.label`]);
@@ -279,6 +276,11 @@ function localIssues() {
         buckets.schedule.push([`“${zone}” isn’t a timezone. Choose one from the list.`, "schedule.timezone"]);
     }
     return mergeIssues(buckets, state.serverErrors);
+}
+
+function selectedRepo() {
+    const id = String(payload.source_repo || "");
+    return id ? (config.repositories || []).find((repo) => String(repo.id) === id) : null;
 }
 
 function issueCount(buckets) {
@@ -328,22 +330,28 @@ function publishText() {
 }
 
 async function api(url, body, method) {
-    const response = await fetch(url, {
-        method: method || "POST",
-        credentials: "same-origin",
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": config.csrf_token || "",
-        },
-        body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(body || {}),
-    });
+    let response;
+    try {
+        response = await fetch(url, {
+            method: method || "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": config.csrf_token || "",
+            },
+            body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(body || {}),
+        });
+    } catch (error) {
+        return { ok: false, status: 0, data: {} };
+    }
     const text = await response.text();
     let data = {};
     if (text) {
         try {
             data = JSON.parse(text);
         } catch (error) {
-            data = { detail: text };
+            // An HTML error page is not a message for people. Callers fall back to plain words.
+            data = {};
         }
     }
     return { ok: response.ok, status: response.status, data };
@@ -604,7 +612,13 @@ function renderHeader() {
         ]),
         h("div", { class: "nwe-tools" }, [
             git.bad
-                ? h("button", { type: "button", class: "btn btn-sm nwe-btn nwe-git-bad", "data-action": "retry" }, [icon("alert-circle-outline"), git.text])
+                ? h("span", { class: "nwe-git-wrap" }, [
+                    h("button", { type: "button", class: "btn btn-sm nwe-btn nwe-git-bad", "data-action": "retry", "aria-describedby": "nwe-git-tip" }, [icon("alert-circle-outline"), git.text]),
+                    h("span", { class: "nwe-tip nwe-git-tip", id: "nwe-git-tip", role: "tooltip" }, [
+                        h("span", { text: git.reason }),
+                        h("span", { class: "nwe-tip-sub", text: "It’s published in Nautobot and people can run it. Only the copy in Git is behind." }),
+                    ]),
+                ])
                 : h("span", { class: "nwe-synced" }, [icon(git.icon || "cloud-check-outline"), git.text]),
             switchRow({ "data-action": "enabled", checked: payload.enabled, disabled: !config.published_number || config.read_only }, "Enabled"),
             h("div", { class: "nwe-seg", role: "group", "aria-label": "Editor" }, [
@@ -638,8 +652,8 @@ function renderHeader() {
 }
 
 function gitIndicator() {
-    if (state.gitStatus === "not_synced" || state.gitStatus === "git_invalid") {
-        return { text: "Not synced · Retry", bad: true };
+    if (state.gitStatus === "not_synced" || state.gitStatus === "git_invalid" || state.gitStatus === "disabled_repo") {
+        return { text: "Not synced · Retry", bad: true, reason: state.gitError || "The last publish couldn’t be pushed. Retry to try again." };
     }
     if (!config.published_number) return { text: "Not in Git yet", bad: false, icon: "cloud-outline" };
     if (state.gitStatus === "pending") return { text: "Syncing…", bad: false, icon: "cloud-sync-outline" };
@@ -806,6 +820,9 @@ function detailsView() {
                     "Published YAML is committed here. Drafts stay in Nautobot.",
                     true,
                 ),
+                selectedRepo()?.problem
+                    ? h("div", { class: "nwe-span nwe-repo-problem", role: "status" }, [icon("alert-circle-outline"), h("span", { text: selectedRepo().problem })])
+                    : null,
             ]),
             hours ? h("div", { class: "nwe-effort", text: `Example: 48 runs × ${manual} min by hand, minus about 4 min per automated run ≈ ${hours} hours saved a month on the dashboard.` }) : null,
             h("details", { class: "nwe-advanced" }, [
@@ -2926,11 +2943,26 @@ async function doPublish() {
     if (!config.published_number) body.enable = state.enableOnPublish;
     const result = await api(config.publish_url, body);
     if (!result.ok) {
-        toast(result.data.detail || "Publish did not complete.");
+        const errors = (result.data && result.data.errors) || [];
+        if (errors.length) {
+            state.serverErrors = errors;
+            renderAll();
+        }
+        toast(publishFailure(result));
         return;
     }
     toast(config.published_number ? "Changes published" : "Published");
     window.location.reload();
+}
+
+function publishFailure(result) {
+    const data = result.data || {};
+    const first = (data.errors || [])[0];
+    if (data.detail) return data.detail;
+    if (first && first.message) return data.errors.length > 1 ? `${first.message} (and ${data.errors.length - 1} more to fix)` : first.message;
+    if (result.status === 403) return "You don’t have permission to publish this workflow.";
+    if (!result.status) return "Couldn’t reach Nautobot. Check your connection and try again.";
+    return "Publish didn’t complete. Nothing changed. Try again, or ask an admin to check the server log.";
 }
 
 async function setEnabled(on) {
@@ -2976,13 +3008,24 @@ function confirmDiscard() {
     modal.show();
 }
 
+const REVISION_STATE = { published: "Published", superseded: "Earlier version", draft: "Draft", discarded: "Discarded draft" };
+
+function revisionTitle(revision) {
+    if (revision.state === "draft") return "Saved draft";
+    const when = revision.published_at || revision.created;
+    const stamp = when ? new Date(when) : null;
+    return stamp && !Number.isNaN(stamp.getTime())
+        ? `Published ${stamp.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+        : "Published version";
+}
+
 async function openVersions() {
     const body = document.getElementById("builder-versions-body");
     body.replaceChildren(h("p", { text: "Loading versions…" }));
     const modal = window.bootstrap.Modal.getOrCreateInstance(document.getElementById("builder-versions-dialog"));
     modal.show();
     if (!config.revisions_url) {
-        body.textContent = "Nothing published yet. The first publish creates v1.";
+        body.textContent = "Nothing published yet. Every publish is kept here.";
         return;
     }
     const result = await api(config.revisions_url, {}, "GET");
@@ -2991,8 +3034,8 @@ async function openVersions() {
         h("p", { text: "Every publish is kept here. Restore copies a version into the draft. Nothing goes live until someone publishes." }),
         ...revisions.map((revision) => h("div", { class: "d-flex gap-2 align-items-start border-bottom py-2" }, [
             h("div", { class: "flex-grow-1" }, [
-                h("div", { class: "fw-semibold", text: revision.state === "draft" ? "Saved draft" : `v${revision.number}` }),
-                h("div", { class: "small text-secondary", text: `${revision.created_by || revision.published_by || ""} · ${revision.comment || "No note"} · ${revision.state}` }),
+                h("div", { class: "fw-semibold", text: revisionTitle(revision) }),
+                h("div", { class: "small text-secondary", text: [revision.published_by || revision.created_by || "", revision.comment || "No note", REVISION_STATE[revision.state] || ""].filter(Boolean).join(" · ") }),
             ]),
             revision.state === "published" && revision.number === config.published_number
                 ? h("span", { class: "nwe-pill nwe-pill-ok", text: "Live" })
@@ -3138,8 +3181,25 @@ async function retryGit() {
     const result = await api(config.push_url, {});
     state.gitStatus = (result.data && result.data.git_status) || state.gitStatus;
     state.gitError = (result.data && result.data.git_error) || "";
-    toast(state.gitStatus === "synced" ? "Synced" : state.gitError || "Retry started.");
+    toast(state.gitStatus === "in_sync" ? "Synced" : state.gitError || "Trying again…");
     renderHeader();
+    watchGit();
+}
+
+let gitPolls = 0;
+function watchGit() {
+    if (state.gitStatus !== "pending" || !config.git_status_url || gitPolls > 40) return;
+    gitPolls += 1;
+    window.setTimeout(async () => {
+        const result = await api(config.git_status_url, {}, "GET");
+        if (result.ok && result.data) {
+            state.gitStatus = result.data.git_status || state.gitStatus;
+            state.gitError = result.data.git_error || "";
+            renderHeader();
+            if (state.gitStatus !== "pending" && state.gitError) toast(state.gitError);
+        }
+        watchGit();
+    }, 3000);
 }
 
 async function loadGit() {
@@ -3161,6 +3221,7 @@ const requestedSection = new URLSearchParams(window.location.search).get("sectio
 if (SECTIONS.some((item) => item[0] === requestedSection)) state.section = requestedSection;
 refreshYaml();
 renderAll();
+watchGit();
 // Leaving the page just works: drafts autosave. Send a pending save on the way out.
 function flushOnLeave() {
     if (!saveTimer || config.read_only || !config.key || !payload.key || !payload.name) return;

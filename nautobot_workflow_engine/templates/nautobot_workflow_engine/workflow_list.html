@@ -6,8 +6,8 @@
 
 {% block extra_styles %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v23">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v24">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v25">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v26">
 {% endblock extra_styles %}
 
 {% block header %}{% endblock header %}
@@ -22,7 +22,7 @@
                 <div class="small">
                     It's published in Nautobot and people are running it. Git is behind until a push works; it retries automatically.
                     Drafts aren't affected, because they never go to Git.
-                    {% if unsynced.0.git_error %}<div class="font-monospace mt-1">{{ unsynced.0.git_error }}</div>{% endif %}
+                    {% if unsynced.0.git_error %}<div class="mt-1">{{ unsynced.0.git_error }}</div>{% endif %}
                 </div>
             </div>
             {% if can_publish_workflows %}
