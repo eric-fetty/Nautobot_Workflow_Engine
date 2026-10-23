@@ -308,11 +308,11 @@ def publish_repository(repository_id, user, job_logger=None, job_result=None, lo
     try:
         return _publish_locked(repository, user, log, job_result)
     except SecretError as exc:
-        _log_full_error(repository, exc, log)
+        log_full_error(repository, exc, log)
         _fail(repository, readable_failure(exc, repository), job_result, log)
         raise
     except Exception as exc:
-        _log_full_error(repository, exc, log)
+        log_full_error(repository, exc, log)
         _fail(repository, readable_failure(exc, repository), job_result, log)
         return False
     finally:
@@ -357,7 +357,7 @@ def run_git_maintenance(log=None):
                 publish_repository(repository.pk, _author_user(due.first()), job_logger=recorder)
 
 
-def _log_full_error(repository, exc, log):
+def log_full_error(repository, exc, log):
     """Keep the whole Git error, with secrets removed, in the server log and the job log."""
     full = sanitize_git_error(exc, known_secrets(repository))
     logger.error("Publishing workflows to %s failed: %s", getattr(repository, "name", "?"), full)

@@ -1740,6 +1740,9 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
     visible_repo_ids = [repo["id"] for repo in repositories]
     scripts_by_repo = {}
     script_params = {}
+    script_on = {}
+    from nautobot_workflow_engine.script_files import SCRIPT_PERMISSION, script_enabled, scripts_dir
+
     helper_rows = WorkflowHelper.objects.filter(source_repo_id__in=visible_repo_ids).values_list(
         "source_repo_id", "file_path", "content"
     )
@@ -1749,6 +1752,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         scripts_by_repo.setdefault(str(repo_id), []).append(file_path)
         # Only parameter names and hints are sent to the page, never the source.
         script_params[(str(repo_id), file_path)] = script_parameters(content)
+        script_on[(str(repo_id), file_path)] = script_enabled(content)
     scripts = []
     for repo_id, paths in scripts_by_repo.items():
         for file_path in paths:
@@ -1760,6 +1764,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
                     "name": _script_label(file_path),
                     "params": meta["params"],
                     "declared": meta["declared"],
+                    "enabled": script_on.get((repo_id, file_path), True),
                 }
             )
     content_types = []
@@ -1947,6 +1952,10 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
             else ""
         ),
         "can_author_code": can_author_code,
+        "can_write_scripts": user.has_perm(SCRIPT_PERMISSION),
+        "scripts_dir": scripts_dir(),
+        "script_preview_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-script-preview"),
+        "script_create_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-script-create"),
         "can_publish": can_publish,
         "approval_stages": stages,
         "pending_approvals": pending_approval_count(workflow) if workflow is not None else 0,

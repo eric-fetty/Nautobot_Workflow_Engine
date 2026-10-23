@@ -1437,6 +1437,144 @@ const PARAM_MODES = [
 ];
 const PARAM_TYPE_LABEL = { string: "text", integer: "number", boolean: "yes / no", object: "Nautobot object", multiobject: "Nautobot objects", list: "list", choice: "choice", dict: "mapping" };
 
+const NEW_SCRIPT = "__new_script__";
+
+/** Parameters for a new script, from what the step already passes it. */
+function newScriptParams(action) {
+    const raw = action.with && typeof action.with === "object" && !Array.isArray(action.with) ? action.with : {};
+    return Object.entries(raw).map(([name, value]) => {
+        const read = paramMode(value);
+        const input = read.mode === "input" ? inputByKey(read.input) : null;
+        const row = { name, required: true, type: "string" };
+        if (input && (!read.attr || (read.attr === "id" && input.type === "object"))) {
+            const map = { object: "object", multiobject: "multiobject", integer: "integer", boolean: "boolean", list: "list", multichoice: "list", choice: "choice", listdict: "list" };
+            row.type = map[input.type] || "string";
+            if (input.model) row.model = input.model;
+            row.help = input.label || "";
+        } else if (typeof value === "boolean") {
+            row.type = "boolean";
+        } else if (typeof value === "number") {
+            row.type = "integer";
+        }
+        return row;
+    });
+}
+
+function freeScriptName(base) {
+    const slug = (text) => text.toLowerCase().replace(/[^0-9a-z]+/g, "_").replace(/^_+|_+$/g, "");
+    const taken = new Set((config.scripts || []).map((item) => item.path));
+    const dir = config.scripts_dir || "scripts";
+    let name = base.toLowerCase();
+    for (let n = 2; taken.has(`${dir}/${slug(name)}.py`) && n < 50; n += 1) name = `${base.toLowerCase()} ${n}`;
+    return name;
+}
+
+function newScriptRequest(action) {
+    const draft = state.newScript;
+    return {
+        name: draft.name,
+        title: action.label || draft.name,
+        parameters: newScriptParams(action),
+        body: config.can_write_scripts ? draft.body : undefined,
+        repository: payload.source_repo || null,
+    };
+}
+
+let scriptPreviewTimer = 0;
+function refreshScriptPreview(action) {
+    clearTimeout(scriptPreviewTimer);
+    scriptPreviewTimer = window.setTimeout(async () => {
+        const draft = state.newScript;
+        if (!draft || !config.script_preview_url) return;
+        const result = await api(config.script_preview_url, newScriptRequest(action));
+        if (state.newScript !== draft) return;
+        draft.code = result.ok ? result.data.content : "";
+        draft.path = result.ok ? result.data.path : "";
+        draft.problems = result.ok ? result.data.problems || [] : [{ message: publishFailure(result) }];
+        paintScriptPreview();
+    }, 300);
+}
+
+function paintScriptPreview() {
+    const draft = state.newScript;
+    const code = document.getElementById("nwe-ns-code");
+    const where = document.getElementById("nwe-ns-where");
+    const problems = document.getElementById("nwe-ns-problems");
+    const create = document.getElementById("nwe-ns-create");
+    if (!draft) return;
+    if (code) code.textContent = draft.code || "Loading…";
+    if (where) where.textContent = draft.path ? `Saved as ${draft.path}${selectedRepo() ? ` in ${selectedRepo().name}` : ""}.` : "Give it a name.";
+    if (problems) problems.replaceChildren(...(draft.problems || []).map((item) => h("div", { class: "nwe-ns-problem" }, [icon("alert-circle-outline"), item.message])));
+    if (create) create.disabled = Boolean(draft.busy || (draft.problems || []).length || !draft.path || !payload.source_repo);
+}
+
+function newScriptPanel(phase, action, index) {
+    const draft = state.newScript;
+    const params = newScriptParams(action);
+    const canWrite = Boolean(config.can_write_scripts);
+    const repoMissing = !payload.source_repo;
+    const panel = h("div", { class: "nwe-newscript", "data-ns-id": `${phase}:${index}` }, [
+        h("div", { class: "nwe-newscript-head" }, [icon("script-text-outline"), h("b", { text: "New script" })]),
+        h("div", { class: "nwe-grid" }, [
+            h("div", { class: "nwe-field nwe-span" }, [
+                h("label", { class: "form-label", for: "nwe-ns-name", text: "Script name" }),
+                h("input", { id: "nwe-ns-name", class: "form-control", "data-ns": "name", value: draft.name || "", spellcheck: "false", readonly: canWrite ? null : "readonly" }),
+                h("div", { class: "form-text", id: "nwe-ns-where" }),
+            ]),
+        ]),
+        h("div", { class: "nwe-ns-params" }, [
+            h("span", { class: "nwe-muted", text: params.length ? "It will ask for:" : "No parameters yet. Add them under Parameters and they show up here." }),
+            ...params.map((row) => h("span", { class: "nwe-tag" }, [row.name, h("small", { text: ` ${PARAM_TYPE_LABEL[row.type] || row.type}` })])),
+        ]),
+        canWrite
+            ? h("div", { class: "nwe-field" }, [
+                h("label", { class: "form-label", for: "nwe-ns-body", text: "What it does · optional" }),
+                h("textarea", { id: "nwe-ns-body", class: "form-control nwe-code nwe-ns-body", rows: "6", "data-ns": "body", spellcheck: "false", placeholder: "Python for the inside of run(params). Leave it empty for a placeholder that does nothing yet.", value: draft.body || "" }),
+                h("div", { class: "form-text", text: "Checked as you type. It isn’t run here." }),
+            ])
+            : h("p", { class: "nwe-muted small mb-2", text: "You can’t create scripts. Copy the code below and send it to an admin, or ask for the “Write scripts” permission." }),
+        h("div", { class: "nwe-ns-problems", id: "nwe-ns-problems" }),
+        h("div", { class: "nwe-ns-codehead" }, [
+            h("span", { class: "nwe-muted small", text: canWrite ? "The file it saves" : "The file it would save (read-only)" }),
+            h("button", { type: "button", class: "nwe-link", "data-action": "ns-copy" }, [icon("content-copy"), "Copy code"]),
+        ]),
+        h("pre", { class: "nwe-ns-code", id: "nwe-ns-code", tabindex: "0", "aria-label": "Script code, read-only" }),
+        h("div", { class: "nwe-ns-note" }, [icon("shield-lock-outline"), h("span", { text: "Nothing runs in the builder. The script is saved to the repository switched off. An admin needs to review it and enable it before this step can run." })]),
+        repoMissing ? h("div", { class: "nwe-ns-problem" }, [icon("alert-circle-outline"), "Choose the repository on Details first."]) : null,
+        h("div", { class: "d-flex gap-2 mt-2" }, [
+            canWrite ? h("button", { type: "button", class: "btn btn-sm nwe-btn-accent", id: "nwe-ns-create", "data-action": "ns-create", "data-phase": phase, "data-index": String(index) }, [icon("plus"), draft.busy ? "Creating…" : "Create script"]) : null,
+            h("button", { type: "button", class: "btn btn-sm nwe-btn", "data-action": "ns-cancel" }, ["Cancel"]),
+        ]),
+    ]);
+    queueMicrotask(() => {
+        paintScriptPreview();
+        refreshScriptPreview(action);
+    });
+    return panel;
+}
+
+async function createScript(phase, index) {
+    const action = payload.actions[phase][index];
+    const draft = state.newScript;
+    if (!draft || draft.busy) return;
+    draft.busy = true;
+    paintScriptPreview();
+    const result = await api(config.script_create_url, newScriptRequest(action));
+    draft.busy = false;
+    if (!result.ok) {
+        draft.problems = [{ message: publishFailure(result) }];
+        paintScriptPreview();
+        toast(publishFailure(result));
+        return;
+    }
+    config.scripts = [...(config.scripts || []), result.data.script];
+    action.script = result.data.script.path;
+    state.newScript = null;
+    renderEditor();
+    touch();
+    toast(result.data.detail || "Script created.");
+}
+
 function stepEditor(phase, action, index) {
     const base = `actions.${phase}.${index}`;
     const scripts = (config.scripts || []).filter((item) => !payload.source_repo || item.repo === String(payload.source_repo));
@@ -1444,6 +1582,7 @@ function stepEditor(phase, action, index) {
     const meta = scriptMeta(action);
     const locked = stepLocked(action);
     const key = action.name || "";
+    const drafting = action.type !== "awx" && state.newScript && state.newScript.id === `${phase}:${index}`;
     return h("div", { class: "nwe-step-body" }, [
         h("div", { class: "nwe-step-type" }, [
             h("span", { class: "nwe-step-type-label", id: `nwe-type-${phase}-${index}`, text: "What it runs" }),
@@ -1459,10 +1598,15 @@ function stepEditor(phase, action, index) {
                     h("input", { class: `form-control nwe-template-id ${action.template_id ? "" : "is-invalid"}`, type: "number", min: "1", "data-bind": `${base}.template_id`, value: action.template_id ?? "", placeholder: "ID", "aria-label": "Job template ID" }),
                     h("input", { class: "form-control", "data-bind": `${base}.template_name`, value: action.template_name || "", placeholder: "Network · Reboot device", "aria-label": "Job template name" }),
                 ]), "Its ID in AWX, and the name people know it by (shown on this card).")
-                : gridField("Script", h("select", { class: `form-select ${scriptName(action.script) ? "" : "is-invalid"}`, "data-bind": `${base}.script` }, [
-                    h("option", { value: "", text: "Choose a script…" }),
-                    ...choices.map((item) => h("option", { value: item.path, text: item.name, selected: action.script === item.path })),
-                ]), meta ? (meta.params.length ? `${action.script} · asks for ${meta.params.length} parameter${meta.params.length === 1 ? "" : "s"}` : action.script) : "Choose which script to run."),
+                : gridField("Script", h("select", { class: `form-select ${scriptName(action.script) || drafting ? "" : "is-invalid"}`, "data-script-pick": `${phase}:${index}`, "aria-label": "Script" }, [
+                    h("option", { value: "", text: choices.length ? "Choose a script…" : "No scripts in this repository yet", selected: !action.script && !drafting }),
+                    ...choices.map((item) => h("option", { value: item.path, text: item.enabled === false ? `${item.name} (switched off)` : item.name, selected: action.script === item.path && !drafting })),
+                    h("option", { value: NEW_SCRIPT, text: "New script…", selected: drafting }),
+                ]), drafting ? "Describe it below. It’s saved to the repository when you create it." : meta ? (meta.params.length ? `${action.script} · asks for ${meta.params.length} parameter${meta.params.length === 1 ? "" : "s"}` : action.script) : "Choose which script to run, or make a new one."),
+            meta && meta.enabled === false && !drafting
+                ? h("div", { class: "nwe-span nwe-script-off", role: "status" }, [icon("power-plug-off-outline"), h("span", { text: "Switched off: an admin needs to review this script and enable it before this step can run. You can still build and publish the workflow." })])
+                : null,
+            drafting ? h("div", { class: "nwe-span" }, [newScriptPanel(phase, action, index)]) : null,
             h("div", { class: "nwe-span" }, [paramsEditor(phase, action, index)]),
             action.type === "awx" ? h("div", { class: "nwe-span" }, [
                 switchRow({ "data-bind": `${base}.monitor`, checked: action.monitor !== false }, "Wait for the AWX job to finish", "The run waits until AWX reports success or failure, so later steps can rely on it."),
@@ -2463,6 +2607,12 @@ function valueOf(target) {
 
 app.addEventListener("input", (event) => {
     const target = event.target;
+    if (target.dataset.ns && state.newScript) {
+        state.newScript[target.dataset.ns] = target.value;
+        const [phase, index] = state.newScript.id.split(":");
+        refreshScriptPreview(payload.actions[phase][Number(index)]);
+        return;
+    }
     if (target.dataset.modelSearch != null) {
         state.modelQuery = target.value;
         const index = target.dataset.modelSearch;
@@ -2516,6 +2666,20 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("change", (event) => {
     const target = event.target;
+    if (target.dataset.ns) return;
+    if (target.dataset.scriptPick) {
+        const [phase, index] = target.dataset.scriptPick.split(":");
+        const action = payload.actions[phase][Number(index)];
+        if (target.value === NEW_SCRIPT) {
+            state.newScript = { id: target.dataset.scriptPick, name: freeScriptName(action.label || action.name || "new script"), body: "", code: "", path: "", problems: [] };
+        } else {
+            if (state.newScript && state.newScript.id === target.dataset.scriptPick) state.newScript = null;
+            assign(`actions.${phase}.${index}.script`, target.value);
+            touch();
+        }
+        renderAll();
+        return;
+    }
     if (target.dataset.action === "enabled") {
         setEnabled(target.checked);
         return;
@@ -2865,6 +3029,14 @@ app.addEventListener("click", (event) => {
         downloadYaml();
     } else if (action === "duplicate") {
         duplicate();
+    } else if (action === "ns-create") {
+        createScript(node.dataset.phase, Number(node.dataset.index));
+    } else if (action === "ns-cancel") {
+        state.newScript = null;
+        renderEditor();
+    } else if (action === "ns-copy") {
+        const text = (state.newScript && state.newScript.code) || "";
+        if (navigator.clipboard && text) navigator.clipboard.writeText(text).then(() => toast("Code copied"), () => toast("Couldn’t copy. Select the code and copy it."));
     } else if (action === "retry") {
         retryGit();
     } else if (action === "compare") {
@@ -3144,6 +3316,7 @@ async function runTest() {
                 sub = h("div", {}, [
                     step.assumption ? h("small", { class: "nwe-run-assume" }, [icon("help-circle-outline"), step.assumption]) : null,
                     h("small", { text: `Would run ${action.type === "awx" ? `AWX template ${action.template_name || `#${action.template_id || "?"}`}` : scriptName(action.script) || "the script"}${step.when_rendered ? " · condition is true" : ""}` }),
+                    scriptMeta(action)?.enabled === false ? h("small", { class: "nwe-run-assume" }, [icon("power-plug-off-outline"), "This script is switched off until an admin enables it, so a real run would stop here."]) : null,
                     params.length ? h("div", { class: "nwe-run-params" }, params.map(([key, value]) => paramLine(key, value))) : null,
                 ]);
             }

@@ -587,6 +587,128 @@ class BuilderDryRunView(APIView):
         return Response(result)
 
 
+def _script_request(user, data):
+    """Build the file a "New script" request describes. Only the parameters and body come from the user."""
+    from nautobot_workflow_engine.script_files import (
+        MAX_BODY_CHARS,
+        SCRIPT_PERMISSION,
+        check_script,
+        parameters_spec,
+        render_script,
+        script_path,
+    )
+
+    name = str(data.get("name") or "").strip()
+    path = script_path(name)
+    spec = parameters_spec(data.get("parameters") if isinstance(data.get("parameters"), list) else [])
+    can_write = user.has_perm(SCRIPT_PERMISSION)
+    body = data.get("body") if can_write and isinstance(data.get("body"), str) else None
+    problems = []
+    if not path:
+        problems.append({"line": 0, "message": "Give the script a name."})
+    if body is not None and len(body) > MAX_BODY_CHARS:
+        problems.append({"line": 0, "message": f"The code is too long. Keep it under {MAX_BODY_CHARS} characters."})
+        body = None
+    content = render_script(path=path or "scripts/new_script.py", title=data.get("title") or name, spec=spec, body=body)
+    lines = content.splitlines()
+    first_body_line = lines.index("def run(params):") + 3 if "def run(params):" in lines else 0
+    for problem in check_script(content):
+        line = problem.get("line") or 0
+        if body is not None and first_body_line and line >= first_body_line:
+            own = line - first_body_line + 1
+            text = problem["message"].split(": ", 1)[-1]
+            problem = {"line": own, "message": f"Line {own} of your code: {text}"}
+        problems.append(problem)
+    repository = None
+    try:
+        repository = _repository(user, data.get("repository"))
+    except ServiceError:
+        repository = None
+    if (
+        path
+        and repository is not None
+        and WorkflowHelper.objects.filter(source_repo=repository, file_path=path).exists()
+    ):
+        problems.append({"line": 0, "message": f"{path} already exists. Pick another name, or choose it in the list."})
+    return path, content, problems, can_write
+
+
+class BuilderScriptPreviewView(APIView):
+    """Show the file a new script would be. The code is parsed to check it and never run."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(request=None, responses={200: OpenApiResponse(description="Script preview")})
+    def post(self, request):
+        """Return the path, full file text, and plain problems."""
+        user = request.user
+        if not (
+            user.has_perm("nautobot_workflow_engine.add_workflow")
+            or user.has_perm("nautobot_workflow_engine.change_workflow")
+        ):
+            raise PermissionDenied(detail="You do not have permission to perform this action.")
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        path, content, problems, can_write = _script_request(user, data if isinstance(data, dict) else {})
+        from nautobot_workflow_engine.script_files import ADMIN_ENABLES_NOTE
+
+        return Response(
+            {"path": path, "content": content, "problems": problems, "can_write": can_write, "note": ADMIN_ENABLES_NOTE}
+        )
+
+
+class BuilderScriptCreateView(APIView):
+    """Commit a new, switched-off script to the workflow repository. Needs the Write scripts permission."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [BodyParser]
+
+    @extend_schema(request=None, responses={201: OpenApiResponse(description="Script created")})
+    def post(self, request):
+        """Write, commit and push the file, then return it the way the script picker lists scripts."""
+        from nautobot_workflow_engine.script_files import ADMIN_ENABLES_NOTE, NO_PERMISSION_MESSAGE, SCRIPT_PERMISSION
+        from nautobot_workflow_engine.script_params import script_parameters
+        from nautobot_workflow_engine.utilities.script_commit import ScriptCommitError, commit_script
+
+        user = request.user
+        if not user.has_perm(SCRIPT_PERMISSION):
+            return Response({"detail": NO_PERMISSION_MESSAGE}, status=403)
+        data, failure = _load_body(request)
+        if failure is not None:
+            return failure
+        data = data if isinstance(data, dict) else {}
+        try:
+            repository = _repository(user, data.get("repository"))
+        except ServiceError:
+            repository = None
+        if repository is None:
+            return Response({"detail": "Choose the workflow’s repository first, on Details."}, status=400)
+        path, content, problems, _can_write = _script_request(user, data)
+        if problems:
+            return Response({"detail": problems[0]["message"], "problems": problems}, status=400)
+        try:
+            commit_script(user=user, repository=repository, path=path, content=content)
+        except ScriptCommitError as exc:
+            return Response({"detail": exc.message}, status=exc.status)
+        meta = script_parameters(content)
+        return Response(
+            {
+                "script": {
+                    "repo": str(repository.pk),
+                    "path": path,
+                    "name": path.rsplit("/", 1)[-1][:-3].replace("_", " ").capitalize(),
+                    "params": meta["params"],
+                    "declared": meta["declared"],
+                    "enabled": False,
+                },
+                "detail": f"Created {path} in {repository.name}. {ADMIN_ENABLES_NOTE}",
+            },
+            status=201,
+        )
+
+
 class BuilderRenderView(APIView):
     """Preview one Jinja template, such as computed options."""
 

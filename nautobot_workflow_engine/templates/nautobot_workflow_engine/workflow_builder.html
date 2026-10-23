@@ -6,8 +6,8 @@
 {% block breadcrumbs_wrapper %}{% endblock breadcrumbs_wrapper %}
 
 {% block content %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v25">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v38">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v27">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v40">
     <div id="builder-app" class="nwe-studio nwe-ui">
         {% if errors %}
             <div class="alert alert-danger" role="alert">
@@ -75,5 +75,5 @@
 
 {% block javascript %}
     {{ block.super }}
-    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v38"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v40"></script>
 {% endblock javascript %}

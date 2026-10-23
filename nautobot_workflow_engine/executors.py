@@ -1124,9 +1124,15 @@ def _run_nautobot_script(action, params, run, repo):
     try:
         from .models import WorkflowHelper
 
-        _get_internal_manager(WorkflowHelper).get(source_repo=repo, file_path=script_path)
+        helper_row = _get_internal_manager(WorkflowHelper).get(source_repo=repo, file_path=script_path)
     except WorkflowHelper.DoesNotExist:
         raise RuntimeError(f"Script not found in repository: {script_path}")
+
+    # A script made in the builder starts with ENABLED = False. It is not imported until an admin switches it on.
+    from .script_files import SWITCHED_OFF_MESSAGE, script_enabled
+
+    if not script_enabled(getattr(helper_row, "content", "")):
+        raise RuntimeError(SWITCHED_OFF_MESSAGE.format(path=script_path))
 
     # --- helpers (local to keep this function self-contained) ---
     def _ensure_pkg_chain(path: pathlib.Path, pkg_root: pathlib.Path) -> None:

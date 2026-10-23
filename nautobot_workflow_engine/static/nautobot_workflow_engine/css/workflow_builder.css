@@ -1586,3 +1586,86 @@ body.nwe-studio-body #header > .container-fluid {
     gap: 0.25rem;
     white-space: nowrap;
 }
+
+/* New script: generated from the step, checked by parsing only, never run here. */
+.nwe-newscript {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+    border: 1px dashed var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--nwe-surface-2, var(--nwe-surface));
+}
+
+.nwe-newscript-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.nwe-ns-params {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+}
+
+.nwe-ns-params .nwe-tag small {
+    color: var(--nwe-muted);
+}
+
+.nwe-ns-body {
+    font-size: 0.82rem;
+    min-height: 7rem;
+}
+
+.nwe-ns-codehead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.nwe-ns-code {
+    max-height: 18rem;
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    overflow: auto;
+    border: 1px solid var(--nwe-line);
+    border-radius: var(--nwe-radius);
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    white-space: pre;
+}
+
+.nwe-ns-note,
+.nwe-script-off {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 0.5rem 0.7rem;
+    border-radius: var(--nwe-radius);
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+    font-size: 0.83rem;
+}
+
+.nwe-script-off {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.nwe-ns-problems:empty {
+    display: none;
+}
+
+.nwe-ns-problem {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    color: var(--nwe-danger);
+    font-size: 0.83rem;
+}
