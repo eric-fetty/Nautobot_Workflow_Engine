@@ -14,12 +14,34 @@ class FieldError(dict):
             "pointer": pointer,
             "code": code,
             "message": message,
-            "section": section,
+            "section": section or section_for(pointer),
             "item": item,
             "field_label": field_label,
             "path": path if path is not None else legacy_path(pointer),
         }
         super().__init__(payload)
+
+
+_SECTION_BY_HEAD = {
+    "pre_actions": "steps",
+    "actions": "steps",
+    "post_actions": "steps",
+    "inputs": "inputs",
+    "schedule": "schedule",
+    "approval_required": "schedule",
+    "name": "details",
+    "key": "details",
+    "description": "details",
+    "category": "details",
+    "manual_duration_minutes": "details",
+    "source_repo": "details",
+}
+
+
+def section_for(pointer):
+    """The builder section a pointer belongs to, so the issue shows next to the field."""
+    head = str(pointer or "").lstrip("/").split("/", 1)[0]
+    return _SECTION_BY_HEAD.get(head, "")
 
 
 def legacy_path(pointer):

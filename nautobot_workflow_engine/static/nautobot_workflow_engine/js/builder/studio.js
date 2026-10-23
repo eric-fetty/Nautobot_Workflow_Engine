@@ -3,6 +3,7 @@
 import { blankAction, blankInput, referencesTo, setPath, slugify } from "./store.js";
 import { createField } from "../shared/fields.js";
 import { parseWhen, STEP_TESTS, writeWhen as writeCondition } from "../shared/conditions.js";
+import { draftSnapshot, mergeIssues, validationGate } from "../shared/issues.js";
 import { jinjaEditor } from "../shared/jinja.js";
 import { fixedText, fixedValue, inputRef, isTemplate, paramMode } from "../shared/template.js";
 
@@ -246,39 +247,34 @@ function allSteps() {
 
 function localIssues() {
     const buckets = { details: [], inputs: [], steps: [], schedule: [], review: [] };
-    if (!payload.name) buckets.details.push("Name is required.");
-    if (!payload.key) buckets.details.push("Workflow ID is required.");
+    if (!payload.name) buckets.details.push(["Name is required.", "name"]);
+    if (!payload.key) buckets.details.push(["Workflow ID is required.", "key"]);
     payload.inputs.forEach((input, index) => {
         const who = input.label || `Input ${index + 1}`;
-        if (!input.label) buckets.inputs.push(`${who}: add a label.`);
-        if (!input.key) buckets.inputs.push(`${who}: add a variable name.`);
+        if (!input.label) buckets.inputs.push([`${who}: add a label.`, `inputs.${index}.label`]);
+        if (!input.key) buckets.inputs.push([`${who}: add a variable name.`, `inputs.${index}.key`]);
         if ((input.type === "object" || input.type === "multiobject") && !input.model) {
-            buckets.inputs.push(`${who}: choose an object type.`);
+            buckets.inputs.push([`${who}: choose an object type.`, `inputs.${index}.model`]);
         }
         if (input.type === "listdict" && !(input.columns || []).length) {
             buckets.inputs.push(`${who}: add a column.`);
         }
     });
     PHASES.forEach(([phase]) => {
-        (payload.actions[phase] || []).forEach((action) => {
+        (payload.actions[phase] || []).forEach((action, index) => {
             const who = action.label || action.name || "Step";
-            if (!action.name) buckets.steps.push(`${who}: add a step key.`);
-            if (action.type === "awx" && !action.template_name && !action.template_id) buckets.steps.push(`${who}: Choose an AWX job template`);
+            if (!action.name) buckets.steps.push([`${who}: add a step key.`, `steps.${phase}.${index}.name`]);
+            if (action.type === "awx" && !action.template_name && !action.template_id) buckets.steps.push([`${who}: choose an AWX job template.`, `steps.${phase}.${index}.template_id`]);
         });
     });
     if (payload.schedule.enabled && !payload.schedule.integration_name) {
-        buckets.schedule.push("Choose a ServiceNow connection.");
+        buckets.schedule.push(["Choose a ServiceNow connection.", "schedule.integration_name"]);
     }
     const zone = payload.schedule.timezone;
     if (payload.schedule.enabled && zone && config.timezones?.length && zone.toUpperCase() !== "UTC" && !config.timezones.some((item) => item.name === zone)) {
-        buckets.schedule.push(`“${zone}” isn’t a timezone. Choose one from the list.`);
+        buckets.schedule.push([`“${zone}” isn’t a timezone. Choose one from the list.`, "schedule.timezone"]);
     }
-    state.serverErrors.forEach((item) => {
-        const section = item.section || "review";
-        const bucket = buckets[section] ? section : "review";
-        buckets[bucket].push(item.message || "Check this value.");
-    });
-    return buckets;
+    return mergeIssues(buckets, state.serverErrors);
 }
 
 function issueCount(buckets) {
@@ -368,8 +364,16 @@ function toast(message, undo) {
     instance.show();
 }
 let saveTimer = 0;
+const gate = validationGate();
+let lastSnapshot = draftSnapshot(payload);
+
+/**
+ * Every change to the draft goes through here: it repaints the issue markers
+ * at once (local checks) and schedules a save, which reruns server validation.
+ */
 function touch() {
     if (config.read_only) return;
+    lastSnapshot = draftSnapshot(payload);
     state.dirty = true;
     state.save = "dirty";
     paintChrome();
@@ -377,10 +381,23 @@ function touch() {
     saveTimer = window.setTimeout(saveDraft, 800);
 }
 
+/** Catch changes made by handlers that forgot to call touch() (reorder, delete, undo, …). */
+function noticeChanges() {
+    if (config.read_only) return;
+    if (draftSnapshot(payload) !== lastSnapshot) touch();
+}
+
 async function saveDraft() {
     if (config.read_only) return;
     if (!payload.key && payload.name) payload.key = slugify(payload.name);
-    if (!payload.key || !payload.name) return;
+    if (!payload.key || !payload.name) {
+        // Nothing can be saved without a name, but the checks still have to follow the draft.
+        state.save = "unsaved";
+        paintSave();
+        refreshYaml();
+        return;
+    }
+    const ticket = gate.send(draftSnapshot(payload));
     state.save = "saving";
     paintSave();
     const body = {
@@ -403,6 +420,10 @@ async function saveDraft() {
     }
     if (!result || !result.ok) {
         state.save = "error";
+        if (result && result.status === 400 && gate.accept(ticket, draftSnapshot(payload))) {
+            state.serverErrors = (result.data && result.data.errors) || state.serverErrors;
+            paintChrome();
+        }
         paintSave();
         if (result && result.status === 409) toast(result.data.detail || "Reload to continue.");
         return;
@@ -411,8 +432,8 @@ async function saveDraft() {
         config.base_revision = result.data.revision.number;
         config.draft_by = config.username;
     }
-    state.serverErrors = result.data.errors || [];
-    state.save = "saved";
+    if (gate.accept(ticket, draftSnapshot(payload))) state.serverErrors = result.data.errors || [];
+    state.save = state.save === "saving" ? "saved" : state.save;
     state.savedAt = Date.now();
     config.has_draft_changes = true;
     paintChrome();
@@ -420,8 +441,9 @@ async function saveDraft() {
 }
 
 async function refreshYaml() {
+    const ticket = gate.send(draftSnapshot(payload));
     const result = await api(config.validate_url, { payload, strict: false, repository: payload.source_repo || null });
-    if (!result.ok) return;
+    if (!result.ok || !gate.accept(ticket, draftSnapshot(payload))) return;
     state.yamlText = result.data.yaml || "";
     state.serverErrors = result.data.errors || [];
     paintChrome();
@@ -433,6 +455,14 @@ function paintSave() {
     node.replaceChildren();
     if (state.save === "saving") {
         node.append(h("span", { text: "Saving…" }));
+        return;
+    }
+    if (state.save === "unsaved") {
+        node.append(h("span", { class: "text-danger", text: "Not saved: give it a name first" }));
+        return;
+    }
+    if (state.save === "error") {
+        node.append(h("span", { class: "text-danger", text: "Couldn’t save. Your next change tries again." }));
         return;
     }
     if (config.draft_by && config.draft_by !== config.username && state.save !== "dirty") {
@@ -2538,7 +2568,8 @@ app.addEventListener("change", (event) => {
     if (!target.dataset.bind) return;
     assign(target.dataset.bind, valueOf(target));
     if (target.tagName === "SELECT" || target.type === "checkbox") renderAll();
-    touch();
+    // A text field already saved on input; repainting again on blur would swallow the click that caused it.
+    if (draftSnapshot(payload) !== lastSnapshot) touch();
 });
 
 app.addEventListener("click", (event) => {
@@ -3123,6 +3154,9 @@ const requestedSection = new URLSearchParams(window.location.search).get("sectio
 if (SECTIONS.some((item) => item[0] === requestedSection)) state.section = requestedSection;
 refreshYaml();
 renderAll();
+["click", "change", "input", "drop", "keyup"].forEach((type) => {
+    document.addEventListener(type, () => queueMicrotask(noticeChanges));
+});
 if (config.key && new URLSearchParams(window.location.search).get("versions") === "1") {
     openVersions();
 }
