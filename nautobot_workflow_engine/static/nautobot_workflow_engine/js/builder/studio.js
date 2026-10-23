@@ -2,6 +2,7 @@
 
 import { blankAction, blankInput, referencesTo, setPath, slugify } from "./store.js";
 import { createField } from "../shared/fields.js";
+import { parseWhen, STEP_TESTS, writeWhen as writeCondition } from "../shared/conditions.js";
 import { jinjaEditor } from "../shared/jinja.js";
 import { fixedText, fixedValue, inputRef, isTemplate, paramMode } from "../shared/template.js";
 
@@ -994,11 +995,7 @@ function filterValueControl(input, row, base, meta, others) {
 }
 
 function writeWhen(row) {
-    if (!row || !row.input) return "";
-    const literal = row.value === true || row.value === "true" ? "true" : row.value === false || row.value === "false" ? "false" : JSON.stringify(String(row.value ?? ""));
-    if (row.op === "is not") return `{{ inputs.${row.input} != ${literal} }}`;
-    if (literal === "true") return `{{ inputs.${row.input} }}`;
-    return `{{ inputs.${row.input} == ${literal} }}`;
+    return writeCondition(row);
 }
 
 function varBucket(action) {
@@ -1024,8 +1021,22 @@ function applyShowPart(index, part, value, rerender) {
 function applyWhenPart(phase, index, part, value, rerender) {
     const actionRow = payload.actions[phase] && payload.actions[phase][index];
     if (!actionRow) return;
-    const row = parseShow(actionRow.when) || { input: "", op: "is", value: "" };
-    row[part] = value;
+    let row = parseWhen(actionRow.when) || { kind: "input", input: "", op: "is", value: "" };
+    if (part === "subject") {
+        const [kind, key] = String(value).split(/:(.*)/s);
+        if (kind === "step") {
+            row = row.kind === "step" ? { ...row, step: key } : { kind: "step", step: key, test: "succeeded", field: "", value: "" };
+        } else {
+            const input = inputByKey(key);
+            row = { kind: "input", input: key, op: "is", value: input && input.type === "boolean" ? true : "" };
+        }
+    } else {
+        row[part] = value;
+        if (part === "test" && !String(value).startsWith("output")) {
+            row.field = "";
+            row.value = "";
+        }
+    }
     actionRow._whenMode = "visual";
     actionRow.when = writeWhen(row);
     if (rerender) renderAll();
@@ -1276,9 +1287,28 @@ function paintStepSummary(phase, index) {
     if (node && action) node.replaceChildren(stepSummary(action));
 }
 
+const PHASE_SHORT = { pre: "Before", main: "Main", post: "At the end" };
+
+function phaseOf(action) {
+    return PHASES.map(([name]) => name).find((name) => (payload.actions[name] || []).includes(action)) || "";
+}
+
+function stepLabel(key) {
+    const found = allSteps().find((item) => item.name === key);
+    return found ? found.label || found.name : key;
+}
+
 function whenPlain(action) {
-    const row = parseShow(action.when);
+    const row = parseWhen(action.when);
     if (!row) return action.when ? "a custom condition is true" : "";
+    if (row.kind === "step") {
+        const name = `“${stepLabel(row.step)}”`;
+        if (row.test === "succeeded") return `${name} succeeded`;
+        if (row.test === "failed") return `${name} failed`;
+        if (row.test === "skipped") return `${name} was skipped`;
+        const what = row.field ? `${name} output ${row.field}` : `${name} output`;
+        return `${what} ${row.test === "output_not" ? "is not" : "is"} ${row.value === true ? "true" : row.value === false ? "false" : row.value}`;
+    }
     const input = inputByKey(row.input);
     const label = input ? input.label || input.key : row.input;
     const shown = row.value === true || row.value === "true" ? "Yes" : row.value === false || row.value === "false" ? "No" : row.value;
@@ -1659,7 +1689,7 @@ function setParamMode(phase, index, key, mode) {
 }
 
 function whenEditor(phase, action, index) {
-    const advanced = action._whenMode === "jinja" || (action.when && !parseShow(action.when));
+    const advanced = action._whenMode === "jinja" || (action.when && !parseWhen(action.when));
     if (advanced) {
         return h("div", {}, [
             h("div", { class: "nwe-params-head" }, [
@@ -1680,7 +1710,7 @@ function whenEditor(phase, action, index) {
             h("div", { class: "nwe-param-help", text: "The step runs when this renders to true, yes, on, y or 1. Anything else skips it." }),
         ]);
     }
-    const row = parseShow(action.when);
+    const row = parseWhen(action.when);
     if (!row) {
         return h("div", {}, [
             h("label", { class: "form-label", text: "Condition" }),
@@ -1690,18 +1720,55 @@ function whenEditor(phase, action, index) {
             ]),
         ]);
     }
-    const others = payload.inputs.filter((item) => ["boolean", "choice", "string"].includes(item.type) && item.key);
-    const source = inputByKey(row.input);
+    const inputs = payload.inputs.filter((item) => ["boolean", "choice", "string", "integer", "number"].includes(item.type) && item.key);
+    const steps = earlierSteps(phase, index);
+    const attrs = (part) => ({ class: "form-select form-select-sm", "data-when": part, "data-phase": phase, "data-index": String(index) });
+    const subject = row.kind === "step" ? `step:${row.step}` : `input:${row.input}`;
+    const subjects = h("select", { ...attrs("subject"), "aria-label": "What to check" }, [
+        h("optgroup", { label: "Launch form" }, inputs.map((item) => h("option", { value: `input:${item.key}`, text: item.label || item.key, selected: subject === `input:${item.key}` }))),
+        steps.length
+            ? h("optgroup", { label: "Earlier steps" }, steps.map((item) => h("option", { value: `step:${item.name}`, text: `${item.label || item.name} · ${PHASE_SHORT[phaseOf(item)] || ""}`.replace(/ · $/, ""), selected: subject === `step:${item.name}` })))
+            : null,
+    ]);
+    let rest;
+    let second = null;
+    if (row.kind === "step") {
+        const output = String(row.test).startsWith("output");
+        rest = [h("select", { ...attrs("test"), class: "form-select form-select-sm nwe-cond-test", "aria-label": "Outcome" }, STEP_TESTS.map(([value, text]) => h("option", { value, text, selected: row.test === value })))];
+        if (output) {
+            second = h("div", { class: "nwe-cond nwe-cond-sub" }, [
+                h("span", { class: "nwe-where", text: "Field" }),
+                h("input", { class: "form-control form-control-sm nwe-cond-field", "data-when": "field", "data-phase": phase, "data-index": String(index), value: row.field || "", placeholder: "whole output", "aria-label": "Output field, optional" }),
+                h("span", { class: "nwe-where", text: row.test === "output_not" ? "is not" : "is" }),
+                h("input", { class: "form-control form-control-sm", "data-when": "value", "data-phase": phase, "data-index": String(index), value: row.value === true ? "true" : row.value === false ? "false" : row.value ?? "", placeholder: "true, 3 or some text", "aria-label": "Value" }),
+            ]);
+        }
+    } else {
+        const source = inputByKey(row.input);
+        rest = [
+            h("select", { ...attrs("op"), "aria-label": "Comparison" }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
+            whenValue(source, row, phase, index),
+        ];
+    }
+    const missing = row.kind === "step" && !steps.some((item) => item.name === row.step);
     return h("div", {}, [
         h("label", { class: "form-label", text: "Condition" }),
         h("div", { class: "nwe-cond" }, [
             h("span", { class: "nwe-where", text: "Run only if" }),
-            h("select", { class: "form-select form-select-sm", "data-when": "input", "data-phase": phase, "data-index": String(index) }, others.map((item) => h("option", { value: item.key, text: item.label || item.key, selected: row.input === item.key }))),
-            h("select", { class: "form-select form-select-sm", "data-when": "op", "data-phase": phase, "data-index": String(index) }, ["is", "is not"].map((op) => h("option", { value: op, text: op, selected: row.op === op }))),
-            whenValue(source, row, phase, index),
-            h("button", { type: "button", class: "nwe-link muted", "data-action": "when-jinja", "data-phase": phase, "data-index": String(index) }, [icon("code-braces"), "Advanced (Jinja)"]),
-            h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "clear-when", "data-phase": phase, "data-index": String(index), title: "Always run", "aria-label": "Remove the condition" }, [icon("close")]),
+            subjects,
+            ...rest,
+            h("span", { class: "nwe-cond-tools" }, [
+                h("button", { type: "button", class: "nwe-link muted", "data-action": "when-jinja", "data-phase": phase, "data-index": String(index) }, [icon("code-braces"), "Advanced (Jinja)"]),
+                h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "clear-when", "data-phase": phase, "data-index": String(index), title: "Always run", "aria-label": "Remove the condition" }, [icon("close")]),
+            ]),
         ]),
+        second,
+        second ? h("div", { class: "nwe-param-help", text: "Leave Field empty to compare the whole output. Use dots for nested fields, for example facts.os." }) : null,
+        missing
+            ? h("div", { class: "nwe-param-help text-danger", text: `“${stepLabel(row.step)}” doesn’t run before this step any more. Pick an earlier step.` })
+            : row.kind === "step"
+                ? h("div", { class: "nwe-param-help", text: "If that step never ran, the condition counts as not matching." })
+                : null,
     ]);
 }
 
@@ -2626,8 +2693,13 @@ app.addEventListener("click", (event) => {
     } else if (action === "add-when") {
         const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
         const other = payload.inputs.find((item) => item.key);
+        const before = earlierSteps(node.dataset.phase, Number(node.dataset.index))[0];
         actionRow._whenMode = "visual";
-        actionRow.when = other ? writeWhen({ input: other.key, op: "is", value: other.type === "boolean" ? true : "" }) : "";
+        actionRow.when = other
+            ? writeWhen({ kind: "input", input: other.key, op: "is", value: other.type === "boolean" ? true : "" })
+            : before
+                ? writeWhen({ kind: "step", step: before.name, test: "succeeded" })
+                : "";
         renderAll();
         touch();
     } else if (action === "clear-when") {
@@ -2642,7 +2714,7 @@ app.addEventListener("click", (event) => {
     } else if (action === "when-visual") {
         const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
         actionRow._whenMode = "visual";
-        if (!parseShow(actionRow.when)) actionRow.when = "";
+        if (!parseWhen(actionRow.when)) actionRow.when = "";
         renderAll();
     } else if (action === "add-var") {
         const actionRow = payload.actions[node.dataset.phase][Number(node.dataset.index)];
@@ -2899,7 +2971,8 @@ function previewValues() {
     return values;
 }
 
-function skipText(step) {
+function skipText(step, action) {
+    if (action && parseWhen(action.when)) return `Skipped: it runs only if ${whenPlain(action)}, and that isn’t the case here.`;
     const shown = step.when_rendered === "" ? "empty" : `“${step.when_rendered}”`;
     return `Skipped: the condition came out ${shown}. Only true, yes, on, y or 1 run it.`;
 }
@@ -2963,11 +3036,15 @@ async function runTest() {
                 skipped += 1;
                 cls += " skip";
                 glyph = "debug-step-over";
-                sub = h("small", { text: skipText(step) });
+                sub = h("div", {}, [
+                    h("small", { text: skipText(step, action) }),
+                    step.assumption ? h("small", { class: "nwe-run-assume" }, [icon("help-circle-outline"), step.assumption]) : null,
+                ]);
             } else {
                 ran += 1;
                 const params = step.params && typeof step.params === "object" && !Array.isArray(step.params) ? Object.entries(step.params) : [];
                 sub = h("div", {}, [
+                    step.assumption ? h("small", { class: "nwe-run-assume" }, [icon("help-circle-outline"), step.assumption]) : null,
                     h("small", { text: `Would run ${action.type === "awx" ? `AWX template ${action.template_name || `#${action.template_id || "?"}`}` : scriptName(action.script) || "the script"}${step.when_rendered ? " · condition is true" : ""}` }),
                     params.length ? h("div", { class: "nwe-run-params" }, params.map(([key, value]) => paramLine(key, value))) : null,
                 ]);

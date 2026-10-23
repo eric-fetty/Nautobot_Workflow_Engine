@@ -976,7 +976,10 @@ def _execute_phase_actions(workflow_run, ctx, phase, fail_fast=False):
         if not should:
             workflow_run.log += f"\n[{phase}] Skipped action '{action.name}' (when={cond!r} → False)"
             workflow_run.save(update_fields=["log"])
-            phase_results[action.name] = {"status": "skipped", "return_value": None}
+            result = {"status": "skipped", "return_value": None}
+            # Later conditions can test results.<name>.status == "skipped".
+            ctx["results"][action.name] = result
+            phase_results[action.name] = result
             continue
 
         workflow_run.log += f"\n[{phase}] Starting action '{action.name}' ({action.action_type})"

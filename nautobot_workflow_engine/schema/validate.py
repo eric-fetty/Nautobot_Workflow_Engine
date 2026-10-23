@@ -1,5 +1,7 @@
 """JSON Schema plus semantic checks. Nothing here writes to the database."""
 
+import re
+
 from jsonschema import Draft202012Validator
 
 from ..timezones import is_valid_timezone
@@ -31,6 +33,7 @@ FIELD_ERROR_CODES = (
     "script_path",
     "template_required",
     "when_expression",
+    "step_order",
     "template_syntax",
     "template_rejected",
     "template_too_long",
@@ -293,7 +296,41 @@ def _references(inputs, errors):
         walk(key, [])
 
 
+_STEP_REF = re.compile(r"results(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*[\"']([^\"']+)[\"']\s*\])")
+
+
+def _step_order(definition, errors):
+    """A condition can only test steps that run before it."""
+    order = []
+    for key in PHASE_YAML_KEYS.values():
+        rows = definition.get(key) or []
+        if isinstance(rows, list):
+            order.extend((key, index, row) for index, row in enumerate(rows) if isinstance(row, dict))
+    position = {row.get("name"): at for at, (_, _, row) in enumerate(order) if row.get("name")}
+    labels = {row.get("name"): row.get("label") or row.get("name") for _, _, row in order if row.get("name")}
+    for at, (key, index, row) in enumerate(order):
+        when = row.get("when")
+        if not isinstance(when, str) or "results" not in when:
+            continue
+        for match in _STEP_REF.finditer(when):
+            ref = match.group(1) or match.group(2)
+            if ref in position and position[ref] >= at:
+                which = "this step itself" if position[ref] == at else f"“{labels[ref]}”, which runs later"
+                errors.append(
+                    FieldError(
+                        f"/{key}/{index}/when",
+                        "step_order",
+                        f"Run only if checks {which}. A condition can only use steps that run before it.",
+                        section="steps",
+                        item=row.get("name") or "",
+                        field_label="Condition",
+                    )
+                )
+                break
+
+
 def _actions(definition, errors, *, repo, check_scripts):
+    _step_order(definition, errors)
     seen = {}
     for phase, key in PHASE_YAML_KEYS.items():
         actions = definition.get(key) or []

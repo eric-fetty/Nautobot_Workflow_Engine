@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import threading
 
 from django.contrib.contenttypes.models import ContentType
@@ -83,22 +84,51 @@ def render_sample(template, inputs, user, *, results=None, max_output=100_000):
 def render_phases(definition, cleaned, mocks, user, *, repo=None, max_output=DEFAULT_OUTPUT_CAP):
     """Render every phase. Callers wrap this when they need the timeout."""
     env = get_jinja_environment(repo, strict=True)
-    context = {"inputs": cleaned, "results": mocks, "user": user}
+    results = dict(mocks)
+    context = {"inputs": cleaned, "results": results, "user": user}
+    simulated = set()
     phases = []
     for phase, key in PHASES:
         steps = []
         for action in definition.get(key) or []:
             if isinstance(action, dict):
-                steps.append(_render_step(action, context, env, max_output))
+                step = _render_step(action, context, env, max_output, simulated=simulated)
+                steps.append(step)
+                name = step["name"]
+                if name not in mocks:
+                    # Later conditions can test this step. Nothing ran, so assume the
+                    # outcome the preview shows: it succeeds (output unknown), is skipped, or fails.
+                    status = "failed" if step["error"] else "success" if step["will_run"] else "skipped"
+                    results[name] = {"status": status, "return_value": None}
+                    simulated.add(name)
         phases.append({"phase": phase, "steps": steps})
     return phases
 
 
-def _render_step(action, context, env, max_output):
+_OUTPUT_REF = re.compile(r"results(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*[\"']([^\"']+)[\"']\s*\])\.return_value")
+
+
+def _output_assumption(raw_when, simulated):
+    names = {match.group(1) or match.group(2) for match in _OUTPUT_REF.finditer(str(raw_when))}
+    names &= simulated
+    if not names:
+        return ""
+    return "Depends on what an earlier step returns, which a preview can’t know. The preview assumes it doesn’t match."
+
+
+def _render_step(action, context, env, max_output, *, simulated=frozenset()):
     name = action.get("name") or "step"
     raw_when = action.get("when") or ""
     had_when = bool(str(raw_when).strip())
-    step = {"name": name, "when_rendered": "", "will_run": not had_when, "params": {}, "error": "", "skip_reason": ""}
+    step = {
+        "name": name,
+        "when_rendered": "",
+        "will_run": not had_when,
+        "params": {},
+        "error": "",
+        "skip_reason": "",
+        "assumption": _output_assumption(raw_when, simulated) if had_when else "",
+    }
     if had_when:
         rendered, error = _bounded(_render, raw_when, context, env, max_output)
         if error:

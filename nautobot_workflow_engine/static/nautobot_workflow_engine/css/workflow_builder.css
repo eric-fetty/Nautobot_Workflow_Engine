@@ -1522,3 +1522,38 @@ body.nwe-studio-body #header > .container-fluid {
     color: var(--nwe-muted);
     font-size: 0.82rem;
 }
+
+/* ---------- step conditions on earlier steps ---------- */
+.nwe-cond > select[data-when="subject"] {
+    flex: 2 1 11rem;
+}
+
+.nwe-cond > .nwe-cond-test {
+    flex: 0 1 9.5rem;
+}
+
+.nwe-stepcard .nwe-cond > .nwe-where:first-child {
+    min-width: 5.2rem;
+}
+
+.nwe-cond .nwe-cond-field {
+    flex: 1 1 9rem;
+    font-family: var(--nwe-mono);
+}
+
+.nwe-run-assume {
+    display: flex;
+    gap: 0.3rem;
+    align-items: flex-start;
+    margin-top: 0.15rem;
+    color: var(--nwe-info);
+}
+
+.nwe-cond-tools {
+    display: inline-flex;
+    margin-left: auto;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+}

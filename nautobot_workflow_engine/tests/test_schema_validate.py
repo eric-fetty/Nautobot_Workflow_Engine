@@ -75,6 +75,14 @@ class FieldErrorCodeTestCase(TestCase):
         produced |= self._codes(
             _definition(
                 actions=[
+                    {"type": "awx", "name": "run", "template_id": 1, "when": '{{ results.later.status == "success" }}'},
+                    {"type": "awx", "name": "later", "template_id": 2},
+                ]
+            )
+        )
+        produced |= self._codes(
+            _definition(
+                actions=[
                     {
                         "type": "awx",
                         "name": "run",
