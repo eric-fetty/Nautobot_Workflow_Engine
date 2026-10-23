@@ -83,6 +83,15 @@ scheduler before synchronizing workflows.
 | `awx_poll_seconds` | `5` | Polling interval in seconds for AWX job monitoring. |
 | `show_disabled` | `False` | Display disabled workflows in the workflow list. |
 | `show_add_new_item` | Environment-derived | Model labels that offer the create-new-item choice; set an explicit list to override `SHOW_ADD_NEW_ITEM`. |
+| `scripts_dir` | `scripts` | Folder that workflow steps may run scripts from. **New script…** in the builder writes new scripts here. |
+| `builder_model_allowlist` | `dcim.*`, `ipam.*`, `circuits.*`, `tenancy.*`, `virtualization.*`, `cloud.*`, `wireless.*`, `vpn.*`, `load_balancers.*`, and a few `extras` models | Object types the builder offers for Nautobot object inputs. |
+| `git_committer_name` | `Nautobot Workflow Engine` | Committer name on publish commits. The author is the person who published. |
+| `git_committer_email` | `nautobot-workflow-engine@localhost` | Committer email on publish commits. |
+| `git_author_email_domain` | `users.noreply.nautobot.local` | Domain for the author email of a user who has no email address. |
+| `git_push_lock_timeout` | `300` | Seconds one publish may hold a repository before another can start. |
+| `git_remote_timeout_seconds` | `10` | Timeout for the Git check the builder does when it opens. |
+| `git_sync_interval_minutes` | `5` | How often **Workflow Git Maintenance** checks repositories and retries failed pushes. |
+| `git_push_retry_backoff_minutes` | `[1, 5, 15, 60]` | Wait before each automatic retry of a failed push. The last value repeats. |
 
 The create-new-item choice passes `__create__` to the workflow. Its action code must
 handle that value; choosing it does not create an object automatically.
@@ -91,10 +100,38 @@ handle that value; choosing it does not create an object automatically.
 
 Configure a Nautobot Git Repository for a trusted workflow source and select its
 Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
-their declared paths, and reusable helpers conventionally under `scripts/lib/`.
+`scripts_dir`, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
 
-![Git Repository content types including Workflow Engine](../assets/images/admin/01-git-content-types.png)
+### Publishing from the builder to Git
+
+To let the builder publish workflows (and create new scripts) in a repository:
+
+1. Give the repository a **secrets group** with a secret of access type **HTTP(S)** and
+   secret type **Token**. A token on its own works. Add an **HTTP(S)** / **Username**
+   secret too if the Git server needs a username. These are the same credentials
+   Nautobot core and the Golden Config app use for repositories.
+2. Under **Provides**, tick both **workflows** and **Workflow publishing (Nautobot → Git)**.
+3. Use an `https://` remote URL, and give the token's account push access to the
+   repository's branch. Check branch protection rules.
+4. Sync the repository.
+
+![Git Repository Provides with workflows and Workflow publishing ticked](../assets/images/publishing/03-git-repository-provides.png)
+
+If something is missing, the builder tells editors exactly what, and **Publish changes**
+stays off. Every publish error and its fix is listed in
+[When publishing fails](../user/publishing.md#when-publishing-fails). The full error, with
+the token removed, is written to the Nautobot server log and to the log of the
+**Publish Workflows to Git** job.
+
+### Scripts created in the builder
+
+People with the **Write scripts** permission can commit a new script from the builder
+(see [New scripts from the builder](../user/placeholder_scripts.md)). The builder only
+parses the code; it never imports or runs it. Each file is committed under
+`scripts_dir` with `ENABLED = False`, and a workflow step that uses it stops with a plain
+message until an admin reviews the file in Git, sets `ENABLED = True`, and syncs. Treat
+that change like any other code review.
 
 ### Optional: Nautobot approval for workflows (3.2+)
 
@@ -113,17 +150,20 @@ Use HTTPS and verified certificates for remote services.
 
 After you run `nautobot-server post_upgrade`, Nautobot creates Job records for
 this app. Nautobot starts most app jobs **disabled**. This app then turns on the
-two jobs it needs so scheduled and approval-gated runs work without extra clicks.
+jobs it needs so scheduled runs, approval-gated runs and Git publishing work without
+extra clicks.
 
 ### What the app enables for you
 
-These two jobs are **enabled automatically** on every `post_upgrade` (and whenever
+These jobs are **enabled automatically** on every `post_upgrade` (and whenever
 the database-ready signal runs for this app):
 
 | Job | Visible | Enabled by default? | Purpose |
 | --- | --- | --- | --- |
 | Execute Scheduled Workflow | Hidden | **Yes** (app turns it on) | Runs a pre-created workflow run at its scheduled time. Required for deferred, approval-gated, and ServiceNow-scheduled runs. |
 | Clean Orphaned Workflow Runs | Hidden | **Yes** (app turns it on) | Deletes workflow runs stuck in **Scheduled** or **Pending** with no matching scheduled job. |
+| Publish Workflows to Git | Hidden | **Yes** (app turns it on) | Pushes published workflows and builder-created scripts to their repository. Its log has the full error when a push fails. |
+| Workflow Git Maintenance | Hidden | **Yes** (app turns it on and schedules it every `git_sync_interval_minutes`) | Syncs repositories that changed in Git and retries failed pushes. |
 
 You do **not** need to find or enable these jobs in the UI for basic scheduling to
 work. They are hidden on purpose because the engine triggers them; you still do
@@ -183,6 +223,16 @@ scheduled job are left untouched.
 | `nautobot_workflow_engine.add_workflowrun` | Model | Grant the ability to launch runs at all. |
 | `nautobot_workflow_engine.view_workflowrun` | Object | View specific run records and their reports. |
 | `nautobot_workflow_engine.change_workflowrun` | Object | Cancel a specific run while it is scheduled. |
+| `nautobot_workflow_engine.add_workflow` | Object | Create workflows in the builder. |
+| `nautobot_workflow_engine.change_workflow` | Object | Edit drafts and use Preview run. |
+| `nautobot_workflow_engine.publish_workflow` | Object | Publish, switch Enabled, retry a push. Additional action `publish`. |
+| `nautobot_workflow_engine.author_code_workflow` | Object | Jinja beyond simple references, script paths, the YAML view. Additional action `author_code`. |
+| `nautobot_workflow_engine.write_script_workflow` | Object | Create scripts from the builder. Additional action `write_script`. |
+
+The last three are custom actions. In the object permission form, choose the
+**nautobot_workflow_engine | workflow** object type and type the action name under
+**Additional actions**. No migration or extra setup is needed. What each one allows in
+the builder is described in [Permissions](../user/permissions.md).
 
 `view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
 permissions: use a Nautobot object permission with a constraint to scope them to a

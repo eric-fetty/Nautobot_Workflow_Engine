@@ -4,34 +4,28 @@ Nautobot-managed workflows live in the database. Git is kept equal to that datab
 
 Every workflow opens in the same editor. Git receives the published YAML. Drafts stay in the database.
 
-## Secrets group
+## Setting up the repository
 
-The repository needs a secrets group before it can be published to.
+The repository needs **Provides** with both:
 
-1. Create a secret whose provider returns the Git HTTP token.
-2. If the host requires a username, create a second secret for it.
-3. Create a secrets group and associate them:
-   - Access type **HTTP**, secret type **Token** for the token.
-   - Access type **HTTP**, secret type **Username** when a username is required.
-4. For the webhook below, associate a third secret: access type **Generic**, secret type **Key**. That value is the HMAC secret (GitHub) or the token (GitLab). It is not the Git HTTP token.
-5. Assign the secrets group to the Git repository.
+- `nautobot_workflow_engine.workflows`, shown as **workflows** (scripts and workflow YAML), and
+- `nautobot_workflow_engine.workflow_publish`, shown as **Workflow publishing (Nautobot → Git)**,
 
-The token is injected into the clone URL the way Nautobot core does it. It is not written to the job log or to `git_error`. A misconfigured secret raises `SecretError` to the caller; the database save is kept and the workflow shows **Not synced · Retry**.
+and a secrets group with an **HTTP(S)** / **Token** secret. Add an **HTTP(S)** / **Username** secret too when the Git server needs a username. The step-by-step setup, with screenshots, is in [Getting a repository ready](publishing.md#getting-a-repository-ready).
 
-## Opt in
+The token is put into the clone address the same way Nautobot's own repository sync does it (`get_repo_access_url`), so whatever already works for syncing that repository, and for the Golden Config app, works for publishing. It is never written to a log or to the workflow's Git error.
 
-Publishing requires both provided contents:
+A repository that is missing either content or the token can't be picked for publishing, and the builder names what is missing.
 
-- `nautobot_workflow_engine.workflows` (scripts and Git-managed YAML)
-- `nautobot_workflow_engine.workflow_publish` (Nautobot → Git)
+### Webhook secret
 
-A repository missing either one, or missing the HTTP token, is shown as read-only and cannot be selected for publish.
+For the webhook below, add one more secret to the same group: access type **Generic**, secret type **Key**. That value is the HMAC secret (GitHub) or the token (GitLab). It is not the Git HTTP token.
 
 ## What gets committed
 
-Publishing writes `<workflow_dir>/<key>.yaml` (adopted workflows keep their existing path) with a managed-by header and canonical YAML. The author is the user who saved. The committer is the configured `git_committer_name`. The push goes directly to the repository branch. An empty commit is skipped. If the remote moved, the job fetches, resets to the new tip, writes the files again, and pushes. It does not rebase.
+Publishing writes `<workflow_dir>/<key>.yaml` to the repository's configured branch (adopted workflows keep their existing path) with a managed-by header and canonical YAML. The author is the user who saved. The committer is the configured `git_committer_name`. The push goes directly to that branch. An empty commit is skipped. If the remote moved (a non-fast-forward), the job fetches, resets to the new tip, writes the files again, and pushes, up to three times. It never force-pushes and never rebases. If the branch doesn't exist yet and the repository is empty, the first publish creates it.
 
-A failed push does not undo the save. The indicator stays **Not synced · Retry**, and the push is retried automatically.
+A failed push does not undo the publish. The indicator shows **Not synced · Retry** with the reason in plain words, and the push is retried automatically. The full error, without the token, goes to the server log and the publish job's log. Every message and its fix are listed in [When publishing fails](publishing.md#when-publishing-fails).
 
 ## Refresh, webhook, and the schedule
 
@@ -50,7 +44,7 @@ Without the app endpoint, a CI job can call core `POST /api/extras/git-repositor
 
 ## Latest change wins
 
-- A Nautobot-managed workflow that has never been published (`not_configured`, no content hash) is left unchanged. A YAML file with the same key does not replace a builder copy that was never pushed. After it has been published, latest-wins applies. A workflow owned by a different repository, or a Nautobot workflow with no repository, is still refused with E-NWE-101.
+- A Nautobot-managed workflow that has never been published (`not_configured`, no content hash) is left unchanged. A YAML file with the same key does not replace a builder copy that was never pushed. After it has been published, latest-wins applies. A workflow owned by a different repository, or a Nautobot workflow with no repository, is still refused.
 - A file whose bytes still match `git_content_hash` is our own push and does not create a revision.
 - A valid change to an in-sync file becomes a published revision with source `git`, the commit author, and the SHA. The launch form reads that revision.
 - Invalid YAML sets `git_invalid` and leaves the database definition unchanged.

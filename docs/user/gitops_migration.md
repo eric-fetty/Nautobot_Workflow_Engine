@@ -6,10 +6,10 @@ Git receives published versions only. A draft stays in the Nautobot database and
 
 There is one **Workflows** list. Each row has **Run**, **Edit**, and a menu for versions, a copy, run history, the YAML, and delete. **Enabled** is a switch on that row and in the builder. It works only after the first publish.
 
-Git shows up in three places:
+Git shows up in three places (all states are listed in [Publishing and versions](publishing.md#git)):
 
 - **Synced** when the published file matches the repository.
-- **Not synced · Retry** when a push failed. The version is already live in Nautobot. Retry runs the push again, and Nautobot also retries on its own.
+- **Not synced · Retry** when a push failed. Hover over it for the reason in plain words. The version is already live in Nautobot. Retry runs the push again, and Nautobot also retries on its own. See [When publishing fails](publishing.md#when-publishing-fails).
 - A banner when you open the builder and Git has a newer published version than the draft you started from: **Updated in Git by &lt;author&gt; at &lt;time&gt;**. Publish stays off until you compare or load that version. Loading it copies it into the draft. The draft you had is kept in Versions and does not go live by itself.
 
 Opening the builder pulls Git first. A save of the draft is allowed while Git is ahead. Publish is not.

@@ -1,7 +1,7 @@
 # Nautobot Workflow Engine
 
-Define workflows in YAML, synchronize them through Nautobot's repository integration,
-and launch them from dependency-aware forms. Actions run Python scripts in Nautobot
+Build workflows in a visual builder or in YAML, publish them to Git, and launch them
+from dependency-aware forms. Actions run Python scripts in Nautobot
 or job templates in AWX. Runs retain inputs, results, execution logs, and status.
 
 ## Start Here
@@ -12,7 +12,10 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 
 ## Use and Extend Workflows
 
-- [Workflow authoring reference](user/app_use_cases.md): inputs, validation, actions, the UI builder, and examples.
+- [The workflow builder](user/builder.md): [inputs](user/inputs.md), [steps](user/steps.md), [conditions](user/conditions.md), [schedule and approval](user/schedule_approval.md), [Preview run](user/preview_run.md), [publishing](user/publishing.md), and [new scripts](user/placeholder_scripts.md).
+- [Running a workflow](user/launch.md): the launch page, tables and CSV, run history.
+- [Permissions](user/permissions.md) and the [dashboard](user/app_reporting.md).
+- [YAML reference](user/app_use_cases.md) and [schema reference](user/workflow_schema.md).
 - [Integrations](user/external_interactions.md): AWX and ServiceNow.
 - [Custom filters](dev/extending.md): reusable Python helpers and Jinja filters.
 - [Frequently asked questions](user/faq.md): scheduling and cancellation.

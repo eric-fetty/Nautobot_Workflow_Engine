@@ -1,6 +1,6 @@
-# Workflow Authoring Reference
+# YAML reference
 
-This document describes common use-cases and scenarios for this App.
+This page describes the workflow YAML that the builder writes and Git sync reads. Every setting here can be made in the [builder](builder.md); the YAML view and files in Git use this format. The full field list is in the [schema reference](workflow_schema.md).
 
 ## General Usage
 
@@ -34,62 +34,9 @@ actions:
       param: "{{ inputs.field_key }}"
 ```
 
-## Building a Workflow in the UI
+## The builder writes the same YAML
 
-Open **Workflows** and choose **New workflow** or **Edit**. The page has five steps: **Details**, **Inputs**, **Steps**, **Schedule & approval**, and **Review & publish**. A numbered stepper on the left shows a check, the step number, or an issue count. **Back** and **Next** move between steps. The Nautobot sidebar collapses to icons while the builder is open.
-
-Every change saves itself, within about a second, into one shared draft. There is no Save button. The header reads **Saving…**, then **Draft saved · just now**, or names the person who last edited the draft. People running the workflow keep the published version. A new workflow stays off Run until it is published. The status pill, in the header and on the Workflows list, is one of:
-
-- **Draft**: never published. Only editors can see it.
-- **Published**: people run what the builder shows.
-- **Published · unpublished changes**: people run the published workflow; the draft has changes that are not live yet.
-
-Hover over or tab to the pill for a one-line explanation. The list filters use the same words: **All**, **Published**, **Unpublished changes**, and **Draft**. Version numbers do not appear in the status or on the buttons; they are listed only in **Versions** (in the **⋯** menu).
-
-The publish button reads **Publish** for a workflow that has never been published and **Publish changes** after that. It is enabled only when the draft differs from the published version and has no issues. Publishing adds an entry to Versions with who, when, and an optional note, pushes that YAML to the workflow's Git repository, and makes it live immediately. Runs already in progress finish on the version they started with. **Discard draft** asks first. **Versions** lists published copies; **Restore into draft** copies one into the draft and does not make it live. **Preview run** shows what the draft would do without running anything. Without the publish permission the button is **Request publish**.
-
-**Enabled** is a switch in the header and on the list. It applies immediately after the first publish and does not create a Git commit.
-
-**Manual effort per run (minutes)** is how long the task takes by hand. The dashboard subtracts the automated run time from that number.
-
-### Inputs
-
-**Add input** offers text, a whole number, a decimal, yes/no, pick one, pick many, a Nautobot object, several Nautobot objects, a list of text, or a table. Each row has a drag grip, a type icon, summary tags, a trash icon, and a chevron. The variable name is under **Advanced**. It is derived from the label and locks after the first publish.
-
-An object field uses a visual filter: WHERE and AND rows with a field, a plain-word operator, and a fixed value or a value from another input. The builder shows how many objects match. **Switch to advanced (Jinja)** keeps a query that already uses Django lookups.
-
-A table has a column editor. On the launch form the grid is editable. **Download template**, **Import CSV**, and **Paste from spreadsheet** read the file in the browser. Nothing is uploaded. The row cap, a 2 MB cap, and per-cell checks apply. A cell that starts with `=`, `+`, `-`, or `@` is flagged and is not run; a negative number in a number column is allowed. If the table already has rows, import asks **Replace** or **Add**.
-
-### Steps and ServiceNow
-
-Steps are a pipeline drawn on one timeline. **Before** stops the run when a step fails. **Main** records a failure and continues. **Always run at the end** runs even after failures. A **+** between steps inserts one at that point.
-
-Each step card has, in its header, **Move up**, **Move down**, **Duplicate**, and **Delete**, the same controls as an input row. Delete can be undone from the notice that follows.
-
-In the step editor:
-
-- **Step type** is a segmented control: **Nautobot script** or **AWX job**. Switching keeps the name, key, condition, and phase. If the switch would drop the script or job settings or the parameters, the builder asks first and offers **Undo** afterwards.
-- **Step name** is what people see on the card, in run history, and in **What runs**. The step key, used as `{{ results.<key> }}`, is under **Advanced**. It is made from the name (lowercase, words joined with `_`) until you edit it, and it locks after the first publish because run history and later steps refer to it. Renaming an unpublished step updates later `{{ results.<key> }}` references.
-- **Parameters** lists what the script declares (from a module-level `PARAMETERS` dict, or read from `run()` when there is none; the script is never executed to find out). Each parameter has a mode:
-    - **From an input**: pick a launch-form input, and an attribute such as `id` or `name` for an object.
-    - **Fixed value**: a typed value, saved as-is.
-    - **Expression**: Jinja, with autocomplete for `inputs.` and `results.` (type, or press Ctrl+Space), a syntax check that names the problem and offers **Fix it** for typos, and a live preview rendered with the Launch form values.
-    The card summarises each parameter as a chip. The YAML is unchanged: modes are inferred from the value, so existing workflows open with the right mode.
-- **Run only if** runs the step only when the rendered value is `true`, `1`, `yes`, `on`, or `y`. It uses the same Jinja editor.
-
-**Schedule & approval** stores the ServiceNow change window. The connection is a Nautobot External Integration. The change-number field is one of the text inputs. Under **Advanced**, **Change window timezone** is a searchable list of every timezone Python's `zoneinfo` knows, common ones first, with the current UTC offset beside each. It defaults to UTC. The value is used for window times that ServiceNow returns without a timezone. Anything not in the list is rejected when you save.
-
-### Review, Edit YAML, and Preview run
-
-Review lists what changes for people running the workflow, in plain language, with the YAML diff under it. **Edit YAML** is for people with the *Author templates and scripts* permission. It parses into the draft and shows errors on the line they belong to.
-
-**Preview run** (on **Review & publish**, under **What runs**, and in the **⋯** menu) uses the draft and the values in the **Launch form** preview. It never executes anything: it does not start a script, call AWX, create a workflow run, record an object change, or schedule a job. It:
-
-1. resolves the inputs, and lists any that are missing or invalid before showing a single step;
-2. evaluates each step's **Run only if** condition and says why a step would be skipped;
-3. renders each step's parameters with those values, and shows rendering errors on the step they belong to.
-
-See [Git and the builder](gitops_migration.md) and [Permissions](permissions.md).
+The builder pages describe each setting in the form editor: [inputs](inputs.md), [steps and parameters](steps.md), [conditions](conditions.md), [schedule and approval](schedule_approval.md), [Preview run](preview_run.md), and [publishing](publishing.md). The YAML view of the builder shows the draft in this format, and a published version is written to Git in it.
 
 ## Requiring Nautobot Approval (3.2+)
 
@@ -114,8 +61,8 @@ stages, approval requests stay pending indefinitely.
 
 | Execution mode | With `approval_required: true` on Nautobot 3.2+ | Without approval (or older Nautobot) |
 | --- | --- | --- |
-| Execute Immediately | Creates a near-term one-off scheduled job so the run enters the approval pipeline. Status shows **Pending Approval** until approved. | Runs via the normal Celery immediate path. |
-| Schedule for Later / ServiceNow | Already creates a `ScheduledJob`; the scoped definition applies automatically. | Unchanged. |
+| Run now | Creates a near-term one-off scheduled job so the run enters the approval pipeline. Status shows **Pending Approval** until approved. | Runs via the normal Celery immediate path. |
+| Schedule for later / In the change window | Already creates a `ScheduledJob`; the scoped definition applies automatically. | Unchanged. |
 
 After approval, Nautobot enables the scheduled job and the hidden **Execute Scheduled Workflow**
 job runs the workflow. Approvers use **Approvals → Approval Dashboard**. Denying or canceling
@@ -244,7 +191,7 @@ A searchable dropdown bound to a Nautobot model. Returns the selected object's p
     query: {"location_id": "{{ inputs.location.id }}"}
 ```
 
-![Launch form with searchable object and multi-object fields](../assets/images/authoring/01-launch-form-object-fields.png)
+![Launch form with object fields that wait for the location](../assets/images/launch/01-launch-form.png)
 
 ### Multi-Object
 
@@ -277,7 +224,7 @@ A dynamic list of string values. Users can add and remove items.
 
 ### List of Dictionaries (listdict)
 
-A dynamic table where each row represents a dictionary with predefined columns. Users can add and remove rows, import rows from CSV, download a matching CSV template, and each cell is validated according to its column definition. This is ideal for collecting structured, tabular data such as endpoint lists, user rosters, or port mappings.
+A dynamic table where each row represents a dictionary with predefined columns. Users can add and remove rows, import rows from CSV or paste them from a spreadsheet, download a matching CSV template, and each cell is validated according to its column definition. This is ideal for collecting structured, tabular data such as endpoint lists, user rosters, or port mappings.
 
 ```yaml
 - key: endpoints
@@ -313,7 +260,7 @@ Each column in a `listdict` input supports the following properties:
 | ------------ | ------- | -------- | ------------------------------------------------------------ |
 | `key`        | string  | Yes      | Unique identifier for the column (used in script context).   |
 | `label`      | string  | No       | Display label shown in the table header. Defaults to `key`.  |
-| `type`       | string  | No       | Column data type: `string` (default), `integer`, `boolean`, or `choice`. |
+| `type`       | string  | No       | Column data type: `string` (default), `integer`, `number`, `boolean`, or `choice`. |
 | `required`   | boolean | No       | Whether the cell must have a value. Default `false`.         |
 | `unique`     | boolean | No       | Whether values in this column must be unique across all rows. Duplicates are highlighted visually. Default `false`. |
 | `choices`    | list    | No       | For `choice` columns only. List of `{value, label}` objects. |
@@ -322,7 +269,8 @@ Each column in a `listdict` input supports the following properties:
 #### Column Types
 
 - **`string`** — Renders a text input. Supports `validators` for regex validation.
-- **`integer`** — Renders a numeric input. Validates that the value is a number.
+- **`integer`** — Renders a numeric input. Rejects decimals.
+- **`number`** — Renders a numeric input. Keeps decimals.
 - **`boolean`** — Renders a checkbox. Any boolean value is accepted; `required` has no effect.
 - **`choice`** — Renders a dropdown. Requires a `choices` list with `{value, label}` items.
 
@@ -330,21 +278,19 @@ Each column in a `listdict` input supports the following properties:
 
 The `listdict` field renders as a table in the workflow form:
 
-![Empty listdict table with Add Row, Download Template, and Upload CSV](../assets/images/authoring/02-listdict-table-empty.png)
+![Table input with Add row, Download template and Import CSV](../assets/images/launch/03-table-input.png)
 
 - **Column headers** are derived from each column's `label` (or `key` if no label is specified).
-- **Add Row** appends a new empty row to the table.
-- **Download Template** generates a CSV file with headers matching the configured columns.
-- **Upload CSV** parses a CSV file into the table so the user can review and edit rows before submission.
+- **Add row** appends a new empty row to the table. The **×** at the end of a row removes it.
+- **Download template** generates a CSV file with headers matching the configured columns.
+- **Import CSV** reads a CSV file into the table so the user can review and edit rows before submission. When the table already has rows, it asks **Replace** or **Add**. Rows can also be pasted from a spreadsheet.
 
-    ![listdict table after uploading a CSV for review and edit](../assets/images/authoring/03-listdict-csv-uploaded.png)
+    ![Table after a CSV import, with the rows to fix marked](../assets/images/launch/04-csv-imported.png)
 
-- **Remove** deletes a specific row.
-- Cells with validation errors are highlighted in red with a tooltip describing the error.
-- Columns marked `unique: true` show a warning banner when duplicate values are detected.
-
-    ![listdict validation errors and unique-column warning](../assets/images/authoring/04-listdict-validation-errors.png)
-
+- Cells with problems are outlined in red, and the problem is written under the row.
+- Columns marked `unique: true` flag repeated values.
+- The file is read in the browser and is not uploaded or stored. Files over 2 MB are refused, and rows beyond `max_rows` are skipped.
+- Set `csv_import: false` to hide **Import CSV** and **Download template**.
 - CSV headers are matched against the column `key` first and then the column `label`.
 - Choice columns accept either the configured choice `value` or the human-readable choice `label` from the CSV.
 - Boolean columns accept `true/false`, `yes/no`, `on/off`, and `1/0` in CSV uploads.
@@ -389,8 +335,6 @@ Fields can be shown or hidden based on the value of another field using `show_if
 ```
 
 In this example, `device_name` is only shown when the user selects "New Installation".
-
-![Conditional field shown when its show_if controlling input is set](../assets/images/authoring/05-show-if-conditional.png)
 
 ## Cascading Dependencies
 
@@ -528,7 +472,8 @@ Avoid relying on plugin-internal modules for custom filters. Instead, place reus
   when it evaluates to true, for example only when a previous action succeeded.
 
 Give actions distinct names when later steps refer to their results. Result records
-include `status` and `return_value`; failed records may include `error`. `last` holds
+include `status` (`success`, `failed`, or `skipped`) and `return_value`; failed records
+may include `error`. A step whose `when` was false is recorded as `skipped`. `last` holds
 the previous action's result and name. Use a condition to guard access to a return
 value that may not exist after a failure or skipped action:
 
@@ -542,15 +487,28 @@ actions:
   - type: nautobot
     name: reuse_hostname
     script: scripts/echo_hostname.py
-    when: "{{ results.prepare_hostname.status == 'success' }}"
+    when: "{{ results.prepare_hostname is defined and results.prepare_hostname.status == 'success' }}"
     with:
       hostname: "{{ results.prepare_hostname.return_value.hostname }}"
 ```
 
+Conditions on earlier steps written by the builder guard with `is defined`, so a step
+that never ran counts as not matching. A condition can only refer to steps that run
+before it; one that refers to itself or a later step is rejected. See
+[Conditions](conditions.md).
+
 ## Script Contract
 
 Action scripts define `run(params)`, accepting the dictionary rendered from `with`.
-They may return data for subsequent actions. Use the
+They may return data for subsequent actions. A module-level `PARAMETERS` dict tells the
+builder what to ask for, for example
+`PARAMETERS = {"device": {"type": "object", "required": True, "model": "dcim.Device"}}`.
+The builder reads it without running the file.
+
+A script may set `ENABLED = False` at module level. The runner reads that line without
+importing the file and stops the step with a plain message until an admin sets
+`ENABLED = True`. Scripts created in the builder start switched off; scripts without the
+line run as before. See [New scripts from the builder](placeholder_scripts.md). Use the
 [first workflow](app_getting_started.md) as a complete non-destructive example.
 Helpers under `scripts/lib/` can be imported with absolute imports such as
 `from scripts.lib.text_helpers import normalize_hostname`.
@@ -575,11 +533,11 @@ other repo-backed Python modules; see [extending the app](../dev/extending.md).
 
 Operators can select one of three execution modes when launching a workflow:
 
-![Execution Timing options: Immediate, Schedule for Later, and ServiceNow Change Window](../assets/images/authoring/07-execution-modes.png)
+![When should it run? with Run now, Schedule for later and In the change window](../assets/images/launch/02-when-should-it-run.png)
 
-- **Immediate** — the run starts as soon as the form is submitted.
-- **Scheduled** — the run is created now and executes at a chosen future time.
-- **ServiceNow change window** — the run is scheduled from a validated ServiceNow
+- **Run now** — the run starts as soon as the form is submitted.
+- **Schedule for later** — the run is created now and executes at a chosen future time.
+- **In the change window** — the run is scheduled from a validated ServiceNow
   change ticket, and the [sync job](external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
   keeps it aligned with the ticket.
 
