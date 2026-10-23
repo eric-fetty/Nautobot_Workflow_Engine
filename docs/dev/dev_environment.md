@@ -447,6 +447,14 @@ To run an individual test, you can run any or all of the following:
 ➜ invoke pylint
 ```
 
+`invoke unittest --keepdb` reuses the test database between runs. `invoke unittest`
+also builds the documentation with `mkdocs build --strict`, so a broken link or a page
+missing from the nav fails the run. The builder's JavaScript logic has its own tests:
+
+```bash
+➜ node --test ui-tests/
+```
+
 ### App Configuration Schema
 
 In the package source, there is the `nautobot_workflow_engine/app-config-schema.json` file, conforming to the [JSON Schema](https://json-schema.org/) format. This file is used to validate the configuration of the app in CI pipelines.

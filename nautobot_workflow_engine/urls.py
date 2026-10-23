@@ -15,6 +15,14 @@ router.register("workflow", views.WorkflowUIViewSet)
 
 urlpatterns = [
     path("workflows_list/", views.WorkflowListView.as_view(), name="workflows_list"),
+    path("workflows/builder/", views.WorkflowBuilderView.as_view(), name="workflow_builder_create"),
+    path("workflows/builder/yaml/", views.WorkflowBuilderYamlView.as_view(), name="workflow_builder_yaml"),
+    path("workflows/<slug:key>/builder/", views.WorkflowBuilderView.as_view(), name="workflow_builder_edit"),
+    path(
+        "workflows/<slug:key>/builder/duplicate/",
+        views.WorkflowDuplicateView.as_view(),
+        name="workflow_builder_duplicate",
+    ),
     path("workflows/<slug:key>/launch/", views.WorkflowRunCreateView.as_view(), name="workflow_launch"),
     path("workflows/<slug:key>/inputs/<slug:child>/options/", views.InputOptionsView.as_view(), name="input_options"),
     path("runs/", views.WorkflowRunListView.as_view(), name="workflow_run_list"),

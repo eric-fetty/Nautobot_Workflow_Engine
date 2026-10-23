@@ -40,7 +40,7 @@ class DisableWorkflowsMissingFromRepoTestCase(unittest.TestCase):
         self.assertFalse(orphan.enabled)
         orphan.save.assert_called_once_with(update_fields=["enabled"])
         reconcile.assert_called_once_with(orphan, job_result=job_result)
-        workflow_manager.filter.assert_called_once_with(source_repo=repository_record, enabled=True)
+        workflow_manager.filter.assert_called_once_with(source_repo=repository_record, managed_by="git", enabled=True)
         qs.exclude.assert_called_once_with(key__in={"still-present"})
 
 

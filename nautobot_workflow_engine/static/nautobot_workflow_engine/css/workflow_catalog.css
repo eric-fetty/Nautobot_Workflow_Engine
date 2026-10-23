@@ -1,0 +1,93 @@
+/* Workflows list. Shared pieces (pills, segmented control, buttons) come from nwe.css. */
+
+.nwe-catalog-page h1 {
+    margin-bottom: 0.15rem;
+    font-size: 1.6rem;
+    font-weight: 600;
+}
+
+.nwe-catalog-page .card {
+    border-color: var(--nwe-line);
+    border-radius: var(--nwe-radius-lg);
+    background: var(--nwe-surface);
+    box-shadow: var(--nwe-shadow);
+}
+
+.nwe-stat {
+    min-width: 0;
+}
+
+.nwe-stat .nwe-stat-label {
+    color: var(--nwe-muted);
+    font-size: 0.8rem;
+}
+
+.nwe-stat .nwe-stat-value {
+    font-size: 1.55rem;
+    font-weight: 650;
+    line-height: 1.2;
+    color: var(--bs-emphasis-color);
+}
+
+.nwe-stat .nwe-stat-value small {
+    color: var(--nwe-muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.nwe-wf-name {
+    color: var(--bs-emphasis-color);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.nwe-wf-name:hover {
+    color: var(--bs-emphasis-color);
+    text-decoration: underline;
+}
+
+.nwe-wf-flag {
+    margin-left: 0.25rem;
+    color: var(--nwe-muted);
+}
+
+.nwe-wf-desc {
+    max-width: 28rem;
+    color: var(--nwe-muted);
+    font-size: 0.84rem;
+}
+
+.nwe-catalog-table {
+    --bs-table-bg: transparent;
+}
+
+.nwe-catalog-table th {
+    color: var(--nwe-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-bottom-color: var(--nwe-line);
+}
+
+.nwe-catalog-table td {
+    vertical-align: middle;
+    border-bottom-color: var(--nwe-line-soft);
+}
+
+.nwe-catalog-table tbody tr:hover td {
+    background: var(--nwe-hover);
+}
+
+.nwe-row-acts {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.nwe-pill-sub {
+    margin-top: 0.25rem;
+    color: var(--nwe-muted);
+    font-size: 0.76rem;
+}

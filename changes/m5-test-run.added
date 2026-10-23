@@ -1,0 +1,1 @@
+Rebuilt the workflow builder around one shared draft, Publish changes, and a single Workflows list. Preview run and Edit YAML stay, and table CSV import is checked again on the server.

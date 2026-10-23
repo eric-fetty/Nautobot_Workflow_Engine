@@ -1,0 +1,1034 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nautobot.example/workflow-engine/workflow.schema.json",
+  "title": "Workflow",
+  "description": "Canonical Nautobot Workflow Engine definition. Unknown keys are kept.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "key",
+    "name"
+  ],
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "pattern": "^[-a-zA-Z0-9_]+$",
+      "title": "Key",
+      "description": "Stable slug. It does not change after the first publish.",
+      "x-ui": {
+        "label": "Workflow ID",
+        "help": "Used in URLs, the Git file name, and approvals. Generated from the name. Can't be changed after the first publish. YAML key: key.",
+        "widget": "text",
+        "group": "details",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "title": "Name",
+      "description": "Name shown on the launch page.",
+      "x-ui": {
+        "label": "Name",
+        "help": "Name shown on the launch page. YAML key: name.",
+        "widget": "text",
+        "group": "details",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "description": {
+      "type": "string",
+      "title": "Description",
+      "description": "What this workflow does. Trailing newlines are kept.",
+      "x-ui": {
+        "label": "Description",
+        "help": "One or two sentences shown to people launching the workflow. YAML key: description.",
+        "widget": "textarea",
+        "group": "details",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "category": {
+      "type": "string",
+      "maxLength": 100,
+      "title": "Category",
+      "description": "Groups the workflow on the launch page.",
+      "x-ui": {
+        "label": "Category",
+        "help": "Groups workflows on the launch page. YAML key: category.",
+        "widget": "text",
+        "group": "details",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "approval_required": {
+      "type": "boolean",
+      "title": "Approval required",
+      "description": "When true on Nautobot 3.2+, launches can enter the approval pipeline.",
+      "x-ui": {
+        "label": "Require approval before running",
+        "help": "Needs Nautobot 3.2 or newer and at least one approval stage. YAML key: approval_required.",
+        "widget": "checkbox",
+        "group": "details",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "manual_duration_minutes": {
+      "type": "integer",
+      "minimum": 0,
+      "title": "Manual duration",
+            "description": "Minutes this work takes by hand. The dashboard subtracts the automated run time.",
+      "x-ui": {
+        "label": "Manual effort per run (minutes)",
+        "help": "The time to do this task by hand. The dashboard subtracts the run time from this. YAML key: manual_duration_minutes.",
+        "widget": "number",
+        "group": "details",
+        "advanced": true,
+        "code": false
+      }
+    },
+    "schedule": {
+      "$ref": "#/$defs/schedule",
+      "x-ui": {
+        "label": "ServiceNow change window",
+        "help": "Lets people run this workflow inside an approved ServiceNow change window. YAML key: schedule.servicenow.",
+        "widget": "schedule",
+        "group": "schedule",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/input"
+      },
+      "title": "Inputs",
+      "x-ui": {
+        "label": "Inputs",
+        "help": "Fields the person launching the workflow fills in. YAML key: inputs.",
+        "widget": "list",
+        "group": "inputs",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "pre_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      },
+      "title": "Pre-actions",
+      "x-aliases": [
+        "pre-actions",
+        "before_actions",
+        "before-actions"
+      ],
+      "x-ui": {
+        "label": "Before",
+        "help": "Runs first, and also when a scheduled run is created. If one fails, nothing else runs. YAML key: pre_actions.",
+        "widget": "list",
+        "group": "steps",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      },
+      "title": "Actions",
+      "x-aliases": [
+        "main_actions",
+        "main-actions"
+      ],
+      "x-ui": {
+        "label": "Main",
+        "help": "Runs in order. A failure is recorded and the remaining main steps still run. YAML key: actions.",
+        "widget": "list",
+        "group": "steps",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "post_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      },
+      "title": "Post-actions",
+      "x-aliases": [
+        "post-actions",
+        "after_actions",
+        "after-actions"
+      ],
+      "x-ui": {
+        "label": "Always after",
+        "help": "Always runs last, even after failures. Its failure does not fail the run. YAML key: post_actions.",
+        "widget": "list",
+        "group": "steps",
+        "advanced": false,
+        "code": false
+      }
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "key",
+        "type"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "pattern": "^[-a-zA-Z0-9_]+$",
+          "title": "Key",
+          "x-ui": {
+            "label": "Variable name",
+            "help": "Use it as {{ inputs.<name> }}. Generated from the label. YAML key: key.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Label",
+          "x-ui": {
+            "label": "Label",
+            "help": "Text shown beside the field on the launch form. YAML key: label.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "choice",
+            "multichoice",
+            "object",
+            "multiobject",
+            "list",
+            "listdict"
+          ],
+          "title": "Type",
+          "x-ui": {
+            "label": "Field type",
+            "help": "Text, whole number, yes/no, pick one, pick many, Nautobot object, list of text, or table. YAML key: type.",
+            "widget": "select",
+            "group": "inputs",
+            "advanced": false,
+            "code": false,
+            "labels": {
+              "string": "Text",
+              "integer": "Whole number",
+              "boolean": "Yes/No",
+              "choice": "Pick one",
+              "multichoice": "Pick many",
+              "object": "Nautobot object",
+              "multiobject": "Nautobot objects",
+              "list": "List of text",
+              "listdict": "Table"
+            }
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "title": "Required",
+          "x-ui": {
+            "label": "Required",
+            "help": "The person launching the workflow must fill this in. YAML key: required.",
+            "widget": "checkbox",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "default": {
+          "title": "Default",
+          "description": "A scalar, list, or object, matching the input type.",
+          "x-ui": {
+            "label": "Default",
+            "help": "Value used when the field is left empty. YAML key: default.",
+            "widget": "default",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "help_text": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Help text",
+          "x-ui": {
+            "label": "Help text",
+            "help": "Shown under the field on the launch form. YAML key: help_text.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Placeholder",
+          "x-ui": {
+            "label": "Placeholder",
+            "help": "Grey hint inside the empty field. YAML key: placeholder.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends on",
+          "x-ui": {
+            "label": "Wait for these fields",
+            "help": "This field stays hidden until the listed fields have values. Their values can be used in this field's filter. Select more than one, or clear the list. YAML key: depends_on.",
+            "widget": "multiselect",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          },
+          "uniqueItems": true
+        },
+        "show_if": {
+          "title": "Show if",
+          "x-ui": {
+            "label": "Show only when",
+            "help": "Show this field only when the condition is true. Every row must match, or write a Jinja template. Jinja2 is allowed. YAML key: show_if.",
+            "widget": "conditions",
+            "group": "inputs",
+            "advanced": false,
+            "code": true
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": true
+            },
+            {
+              "type": "string",
+              "maxLength": 10240
+            }
+          ]
+        },
+        "choices": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/choice"
+              }
+            }
+          ],
+          "title": "Choices",
+          "x-ui": {
+            "label": "Options",
+            "help": "A list of value and label options, or a Jinja template that returns them. Jinja2 is allowed. YAML key: choices.",
+            "widget": "choices",
+            "group": "inputs",
+            "advanced": false,
+            "code": true
+          }
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][\\w]*\\.[A-Za-z_][\\w]*$",
+          "title": "Model",
+          "x-ui": {
+            "label": "Object type",
+            "help": "Which Nautobot object this field picks, for example a device. YAML key: model.",
+            "widget": "select",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "filter": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "query": {
+              "title": "Filter query",
+              "x-ui": {
+                "label": "Only show objects where",
+                "help": "Limit the objects offered. A Jinja template is allowed. Jinja2 is allowed. YAML key: filter.query.",
+                "widget": "filter",
+                "group": "inputs",
+                "advanced": false,
+                "code": true
+              }
+            }
+          },
+          "title": "Filter",
+          "x-ui": {
+            "label": "Filter",
+            "help": "Limit which objects are offered. YAML key: filter.",
+            "widget": "filter",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/column"
+          },
+          "title": "Columns",
+          "x-ui": {
+            "label": "Columns",
+            "help": "Columns of a table input. YAML key: columns.",
+            "widget": "columns",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "validators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validator"
+          },
+          "title": "Validators",
+          "x-ui": {
+            "label": "Validation rules",
+            "help": "A pattern the value must match, plus the error text people see. YAML key: validators.",
+            "widget": "validators",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "min_value": {
+          "type": "number",
+          "title": "Minimum",
+          "x-ui": {
+            "label": "Minimum",
+            "help": "Smallest allowed number, inclusive. YAML key: min_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_value": {
+          "type": "number",
+          "title": "Maximum",
+          "x-ui": {
+            "label": "Maximum",
+            "help": "Largest allowed number, inclusive. YAML key: max_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "min_items": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Minimum items",
+          "x-ui": {
+            "label": "At least",
+            "help": "Minimum number of lines in a list. YAML key: min_items.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Maximum items",
+          "x-ui": {
+            "label": "At most",
+            "help": "Maximum number of lines in a list. YAML key: max_items.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "min_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Minimum rows",
+          "x-ui": {
+            "label": "At least",
+            "help": "Minimum number of table rows. YAML key: min_rows.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Maximum rows",
+          "x-ui": {
+            "label": "At most",
+            "help": "Maximum number of table rows. Extra CSV rows are skipped. YAML key: max_rows.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "csv_import": {
+          "type": "boolean",
+          "title": "CSV import",
+          "x-ui": {
+            "label": "Allow CSV import",
+            "help": "On by default. Set false to hide Import CSV and Download template. The file is read in the browser and is not stored. YAML key: csv_import.",
+            "widget": "checkbox",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        }
+      }
+    },
+    "choice": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "title": "Value",
+          "x-ui": {
+            "label": "Value",
+            "help": "Value stored when this option is picked. YAML key: value.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "label": {
+          "type": "string",
+          "title": "Label",
+          "x-ui": {
+            "label": "Label",
+            "help": "Text shown for this option. YAML key: label.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "key",
+        "type"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "pattern": "^[-a-zA-Z0-9_]+$",
+          "title": "Key",
+          "x-ui": {
+            "label": "Key",
+            "help": "Column name stored on each row. YAML key: key.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Label",
+          "x-ui": {
+            "label": "Label",
+            "help": "Column heading. YAML key: label.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "choice"
+          ],
+          "title": "Type",
+          "x-ui": {
+            "label": "Type",
+            "help": "Text, whole number, decimal number, yes/no, or choice. integer rejects decimals. number keeps them. YAML key: type.",
+            "widget": "select",
+            "group": "inputs",
+            "advanced": false,
+            "code": false,
+            "labels": {
+              "string": "String",
+              "integer": "Integer",
+              "number": "Number",
+              "boolean": "Boolean",
+              "choice": "Choice"
+            }
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "title": "Required",
+          "x-ui": {
+            "label": "Required",
+            "help": "The row must include this column. YAML key: required.",
+            "widget": "checkbox",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "unique": {
+          "type": "boolean",
+          "title": "Unique",
+          "x-ui": {
+            "label": "Unique",
+            "help": "Values in this column cannot repeat. YAML key: unique.",
+            "widget": "checkbox",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "choices": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/choice"
+              }
+            }
+          ],
+          "title": "Choices",
+          "x-ui": {
+            "label": "Options",
+            "help": "Options for a choice column, or a Jinja template. Jinja2 is allowed. YAML key: choices.",
+            "widget": "choices",
+            "group": "inputs",
+            "advanced": false,
+            "code": true
+          }
+        },
+        "validators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validator"
+          },
+          "title": "Validators",
+          "x-ui": {
+            "label": "Validators",
+            "help": "Patterns a column value must match. YAML key: validators.",
+            "widget": "validators",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "min_value": {
+          "type": "number",
+          "title": "Minimum",
+          "x-ui": {
+            "label": "Minimum",
+            "help": "Smallest allowed value in this column, inclusive. YAML key: min_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "max_value": {
+          "type": "number",
+          "title": "Maximum",
+          "x-ui": {
+            "label": "Maximum",
+            "help": "Largest allowed value in this column, inclusive. YAML key: max_value.",
+            "widget": "number",
+            "group": "inputs",
+            "advanced": false,
+            "code": false
+          }
+        }
+      }
+    },
+    "validator": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "regex": {
+          "type": "string",
+          "title": "Pattern",
+          "x-ui": {
+            "label": "Pattern",
+            "help": "Regular expression the value must match. YAML key: regex.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "message": {
+          "type": "string",
+          "title": "Message",
+          "x-ui": {
+            "label": "Message",
+            "help": "Error shown when the value does not match. YAML key: message.",
+            "widget": "text",
+            "group": "inputs",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "IGNORECASE",
+              "MULTILINE",
+              "DOTALL",
+              "VERBOSE"
+            ]
+          },
+          "title": "Flags",
+          "x-ui": {
+            "label": "Flags",
+            "help": "Regex flags. Case-insensitive ignores letter case. Multi-line, dot matches newline, and verbose are the other options. YAML key: flags.",
+            "widget": "checkboxes",
+            "group": "inputs",
+            "advanced": true,
+            "code": false,
+            "labels": {
+              "IGNORECASE": "Case-insensitive",
+              "MULTILINE": "Multi-line",
+              "DOTALL": "Dot matches newline",
+              "VERBOSE": "Verbose"
+            }
+          }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "nautobot",
+            "awx"
+          ],
+          "title": "Type",
+          "x-ui": {
+            "label": "Type",
+            "help": "Run a Nautobot script or launch an AWX job template. YAML key: type.",
+            "widget": "select",
+            "group": "steps",
+            "advanced": false,
+            "code": false,
+            "labels": {
+              "nautobot": "Run Nautobot script",
+              "awx": "Launch AWX job template"
+            }
+          }
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Label",
+          "x-ui": {
+            "label": "Step name",
+            "help": "The name on the card. Defaults to name, and is written only when it differs. YAML key: label.",
+            "widget": "text",
+            "group": "steps",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "title": "Name",
+          "x-ui": {
+            "label": "Step name",
+            "help": "Results are available as {{ results.<name> }}. The name is the key and locks after the first publish. YAML key: name.",
+            "widget": "text",
+            "group": "steps",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 10240,
+          "title": "Condition",
+          "x-ui": {
+            "label": "Run only if",
+            "help": "Run this step only when the condition is true. Jinja2 is allowed, for example {{ inputs.confirm }}. YAML key: when.",
+            "widget": "template",
+            "group": "steps",
+            "advanced": false,
+            "code": true,
+            "placeholder": "{{ inputs.confirm }}"
+          }
+        },
+        "script": {
+          "type": "string",
+          "maxLength": 254,
+          "title": "Script",
+          "x-ui": {
+            "label": "Script",
+            "help": "Script path under the scripts directory. YAML key: script.",
+            "widget": "select",
+            "group": "steps",
+            "advanced": false,
+            "code": true
+          }
+        },
+        "with": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Parameters",
+          "x-ui": {
+            "label": "Script parameters",
+            "help": "Values passed to the script. Each value can be a Jinja template. Jinja2 is allowed. YAML key: with.",
+            "widget": "mapping",
+            "group": "steps",
+            "advanced": false,
+            "code": true
+          }
+        },
+        "template_id": {
+          "type": "integer",
+          "minimum": 1,
+          "title": "AWX template",
+          "x-ui": {
+            "label": "Job template",
+            "help": "The numeric job template ID from AWX. YAML key: template_id.",
+            "widget": "number",
+            "group": "steps",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "extra_vars": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Extra vars",
+          "x-ui": {
+            "label": "Extra variables",
+            "help": "Variables passed to the AWX job. Each value can be a Jinja template. Jinja2 is allowed. YAML key: extra_vars.",
+            "widget": "mapping",
+            "group": "steps",
+            "advanced": false,
+            "code": true
+          }
+        },
+        "monitor": {
+          "type": "boolean",
+          "title": "Monitor",
+          "x-ui": {
+            "label": "Wait for the AWX job to finish",
+            "help": "The step waits until AWX reports the job is done. YAML key: monitor.",
+            "widget": "checkbox",
+            "group": "steps",
+            "advanced": false,
+            "code": false
+          }
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "Schedule",
+      "properties": {
+        "servicenow": {
+          "$ref": "#/$defs/servicenow"
+        }
+      },
+      "x-ui": {
+        "label": "ServiceNow change window",
+        "help": "Lets people run this workflow inside an approved ServiceNow change window. YAML key: schedule.servicenow.",
+        "widget": "schedule",
+        "group": "schedule",
+        "advanced": false,
+        "code": false
+      }
+    },
+    "servicenow": {
+      "type": "object",
+      "additionalProperties": true,
+      "title": "ServiceNow",
+      "properties": {
+        "integration_name": {
+          "type": "string",
+          "title": "Integration",
+          "x-ui": {
+            "label": "Integration",
+            "help": "External Integration to use. Defaults to ServiceNow. YAML key: integration_name.",
+            "widget": "select",
+            "group": "schedule",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "change_input_key": {
+          "type": "string",
+          "title": "Change ticket input",
+          "x-ui": {
+            "label": "Change ticket input",
+            "help": "Input that holds the change ticket number. YAML key: change_input_key.",
+            "widget": "select",
+            "group": "schedule",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "allowed_states": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed states",
+          "x-ui": {
+            "label": "Allowed states",
+            "help": "Change states that allow the run, for example Scheduled or Implement. YAML key: allowed_states.",
+            "widget": "chips",
+            "group": "schedule",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "timezone": {
+          "type": "string",
+          "title": "Timezone",
+          "x-ui": {
+            "label": "Timezone",
+            "help": "IANA timezone of the change window, or UTC. YAML key: timezone.",
+            "widget": "text",
+            "group": "schedule",
+            "advanced": false,
+            "code": false
+          }
+        },
+        "start_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "Start fields",
+          "x-ui": {
+            "label": "Start fields",
+            "help": "ServiceNow fields to read the window start from, tried in order. YAML key: start_fields.",
+            "widget": "chips",
+            "group": "schedule",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "end_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "End fields",
+          "x-ui": {
+            "label": "End fields",
+            "help": "ServiceNow fields to read the window end from, tried in order. YAML key: end_fields.",
+            "widget": "chips",
+            "group": "schedule",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "ticket_regex": {
+          "type": "string",
+          "title": "Ticket pattern",
+          "x-ui": {
+            "label": "Ticket pattern",
+            "help": "Pattern the ticket number must match, for example CHG\\d{7}. YAML key: ticket_regex.",
+            "widget": "text",
+            "group": "schedule",
+            "advanced": true,
+            "code": false
+          }
+        },
+        "require_approved": {
+          "type": "boolean",
+          "title": "Require approved",
+          "x-ui": {
+            "label": "Require approved",
+            "help": "Only accept changes that are already approved. YAML key: require_approved.",
+            "widget": "checkbox",
+            "group": "schedule",
+            "advanced": false,
+            "code": false
+          }
+        }
+      },
+      "x-ui": {
+        "label": "ServiceNow",
+        "help": "Run inside a ServiceNow change window. YAML key: schedule.servicenow.",
+        "widget": "servicenow",
+        "group": "schedule",
+        "advanced": false,
+        "code": false
+      }
+    }
+  }
+}

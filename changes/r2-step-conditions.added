@@ -1,0 +1,1 @@
+Step conditions can test earlier steps: succeeded, failed, was skipped, or output is / is not a value. Skipped steps are now recorded in results, and Preview run follows these conditions.

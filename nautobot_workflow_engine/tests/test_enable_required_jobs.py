@@ -11,8 +11,14 @@ class EnableRequiredJobsTestCase(unittest.TestCase):
 
     def _call_handler(self, update_return=2):
         Job = MagicMock()
+        scheduled = MagicMock()
+        scheduled.objects.filter.return_value.exists.return_value = True
         apps = MagicMock()
-        apps.get_model.return_value = Job
+
+        def get_model(_app, name):
+            return scheduled if name == "ScheduledJob" else Job
+
+        apps.get_model.side_effect = get_model
         filter_qs = MagicMock()
         Job.objects.filter.return_value = filter_qs
         filter_qs.update.return_value = update_return
@@ -23,7 +29,7 @@ class EnableRequiredJobsTestCase(unittest.TestCase):
     def test_enables_executor_and_orphan_cleaner_only(self):
         Job, apps, filter_qs = self._call_handler(update_return=2)
 
-        apps.get_model.assert_called_once_with("extras", "Job")
+        apps.get_model.assert_any_call("extras", "Job")
         Job.objects.filter.assert_called_once_with(
             module_name="nautobot_workflow_engine.jobs",
             job_class_name__in=REQUIRED_JOB_CLASS_NAMES,
@@ -32,7 +38,12 @@ class EnableRequiredJobsTestCase(unittest.TestCase):
         filter_qs.update.assert_called_once_with(enabled=True)
         self.assertEqual(
             set(REQUIRED_JOB_CLASS_NAMES),
-            {"ScheduledWorkflowExecutorJob", "OrphanedWorkflowRunCleaner"},
+            {
+                "ScheduledWorkflowExecutorJob",
+                "OrphanedWorkflowRunCleaner",
+                "PublishWorkflowsToGit",
+                "WorkflowGitMaintenance",
+            },
         )
         self.assertNotIn("SyncServiceNowScheduledWorkflowsJob", REQUIRED_JOB_CLASS_NAMES)
 

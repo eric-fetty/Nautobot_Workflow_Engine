@@ -1,0 +1,1 @@
+Added "New script…" to the builder. It writes a script from the step's parameters and commits it to the repository's scripts folder, switched off with ENABLED = False until an admin enables it. Creating scripts needs the new Write scripts permission (write_script); others see the file read-only with Copy code. The builder only parses the code and never runs it.

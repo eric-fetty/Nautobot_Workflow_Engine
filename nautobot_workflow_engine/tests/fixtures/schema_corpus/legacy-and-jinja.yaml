@@ -1,0 +1,32 @@
+key: legacy-flow
+name: Legacy
+description: |
+  Line one
+  Line two
+inputs:
+  - key: hostname
+    type: string
+    regex: "^[a-z]+$"
+    message: letters
+    flags:
+      - IGNORECASE
+    depends_on:
+      - site
+      - role
+  - key: site
+    type: string
+  - key: role
+    type: string
+  - key: note
+    type: string
+    show_if: "{{ inputs.hostname }}"
+actions:
+  - type: awx
+    name: run
+    template_id: 5
+    when: "{{ inputs.hostname }}"
+    extra_vars:
+      host: "{{ inputs.hostname }}"
+schedule:
+  change_ticket_input_key: hostname
+  timezone: UTC

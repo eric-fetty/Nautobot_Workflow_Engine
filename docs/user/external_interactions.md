@@ -62,7 +62,10 @@ inputs:
 When the user chooses **Use ServiceNow Change Window**, the engine validates the
 ticket and its usable change window. Field names and state values must match the
 instance's configuration. The timezone applies to timestamps without an explicit
-offset; verify that it matches the source data. Scheduling validation also occurs
+offset; verify that it matches the source data. It must be an IANA name that
+Python's `zoneinfo` knows (for example `Europe/Amsterdam`) or `UTC`, and defaults
+to UTC when empty. In the builder it is a searchable list under **Schedule &
+approval → Advanced**. Scheduling validation also occurs
 in later scheduling/execution phases, so a change in ticket state can affect a run.
 The value of the `change_input_key` input also appears in the scheduled job title
 shown to approvers (see [Requiring Nautobot Approval](app_use_cases.md#requiring-nautobot-approval-32)).

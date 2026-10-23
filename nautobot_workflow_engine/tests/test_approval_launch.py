@@ -17,7 +17,13 @@ class ApprovalGatedLaunchTestCase(unittest.TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.view = WorkflowRunCreateView.as_view()
-        self.user = SimpleNamespace(username="operator", is_authenticated=True, pk=1)
+        self.user = SimpleNamespace(
+            username="operator",
+            is_authenticated=True,
+            is_superuser=True,
+            pk=1,
+            has_perms=lambda _perms: True,
+        )
 
     def _request(self, data):
         request = self.factory.post("/plugins/workflow-engine/workflows/sample/launch/", data)

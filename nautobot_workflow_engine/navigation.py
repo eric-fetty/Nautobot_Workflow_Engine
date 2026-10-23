@@ -5,12 +5,9 @@ from nautobot.apps.ui import NavMenuGroup, NavMenuItem, NavMenuTab
 workflow_items = (
     NavMenuItem(
         link="plugins:nautobot_workflow_engine:workflows_list",
-        name="Launch",
+        name="Workflows",
         permissions=["nautobot_workflow_engine.view_workflow"],
     ),
-)
-
-reporting_items = (
     NavMenuItem(
         link="plugins:nautobot_workflow_engine:workflow_report",
         name="Dashboard",
@@ -18,7 +15,7 @@ reporting_items = (
     ),
     NavMenuItem(
         link="plugins:nautobot_workflow_engine:workflow_run_list",
-        name="Run History",
+        name="Run history",
         permissions=["nautobot_workflow_engine.view_workflowrun"],
     ),
 )
@@ -28,9 +25,6 @@ menu_items = (
         name="Workflows",
         weight=50,
         icon="rocket-2",
-        groups=(
-            NavMenuGroup(name="Workflows", items=workflow_items),
-            NavMenuGroup(name="Reporting", items=reporting_items),
-        ),
+        groups=(NavMenuGroup(name="Workflows", items=workflow_items),),
     ),
 )
