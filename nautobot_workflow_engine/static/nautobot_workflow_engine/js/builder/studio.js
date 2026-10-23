@@ -3180,15 +3180,16 @@ function confirmDiscard() {
     modal.show();
 }
 
-const REVISION_STATE = { published: "Published", superseded: "Earlier version", draft: "Draft", discarded: "Discarded draft" };
+const REVISION_STATE = { published: "Live now", superseded: "Earlier version", draft: "Not published", discarded: "Discarded, never published" };
 
 function revisionTitle(revision) {
-    if (revision.state === "draft") return "Saved draft";
-    const when = revision.published_at || revision.created;
+    const published = revision.state === "published" || revision.state === "superseded";
+    const when = published ? revision.published_at || revision.created : revision.created;
     const stamp = when ? new Date(when) : null;
-    return stamp && !Number.isNaN(stamp.getTime())
-        ? `Published ${stamp.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
-        : "Published version";
+    const date = stamp && !Number.isNaN(stamp.getTime()) ? stamp.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+    if (revision.state === "draft") return date ? `Current draft · started ${date}` : "Current draft";
+    if (!published) return date ? `Draft from ${date}` : "Earlier draft";
+    return date ? `Published ${date}` : "Published version";
 }
 
 async function openVersions() {
