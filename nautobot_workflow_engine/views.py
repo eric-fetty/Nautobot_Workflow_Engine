@@ -1,17 +1,24 @@
 """Views for the workflow engine plugin."""
 
+import copy
+import json
 import logging
+import uuid
 from datetime import timedelta
 from datetime import timezone as dt_timezone
 from math import ceil, floor
 from urllib.parse import urlencode
 
+from django.apps import apps
 from django.contrib import messages
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDay, TruncWeek
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -25,16 +32,52 @@ from nautobot.apps.views import (
     ObjectPermissionRequiredMixin,
     ObjectView,
 )
+from nautobot.extras.models import ExternalIntegration, GitRepository
 
-from .approvals import nautobot_supports_approval_workflows
-from .executors import _get_workflow_queryset, run_workflow
+from .approvals import (
+    approval_stage_summary,
+    nautobot_supports_approval_workflows,
+    pending_approval_count,
+)
+from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet
-from .forms import DynamicWorkflowForm, WorkflowEngineConfigForm
-from .models import Workflow, WorkflowInput, WorkflowRun
+from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
+from .launch_ui import launch_context, option_meta, related_for_meta
+from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
+from .run_permissions import can_cancel, can_run
 from .scheduling import create_approval_gated_immediate_schedule
-from .servicenow import ServiceNowValidationError, get_change_window
-from .settings_helpers import constance_key, content_type_matches_add_new_item, get_setting
+from .schema.builder_payload import (
+    actions_require_repository,
+    builder_from_definition,
+    definition_from_builder,
+    definition_to_yaml,
+    empty_builder_payload,
+)
+from .schema.errors import BuilderValidationError
+from .schema.filters import expanded_lookups, split_filter
+from .schema.policy import (
+    AUTHOR_CODE_MESSAGE,
+    builder_policy_errors,
+    can_build,
+    code_changes,
+    content_type_allowed,
+    lookup_allowed,
+    script_path_allowed,
+)
+from .script_params import script_parameters
+from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
+from .services import (
+    STATUS_HELP,
+    ServiceError,
+    duplicate_workflow,
+    git_stale_banner,
+    publish,
+    status_label,
+    update_draft,
+)
+from .settings_helpers import apply_git_sync_interval, constance_key, content_type_matches, get_setting
 from .tables import WorkflowTable
+from .timezones import timezone_choices
 
 logger = logging.getLogger(__name__)
 
@@ -221,11 +264,50 @@ class WorkflowUIViewSet(NautobotUIViewSet):
         return _get_workflow_queryset()
 
 
-class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
-    """List all workflows with category filtering and grouping."""
+def _relative_time(moment):
+    """Short age for the draft subtitle on the workflows list."""
+    if moment is None:
+        return ""
+    seconds = max(0, int((timezone.now() - moment).total_seconds()))
+    if seconds < 45:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    if hours < 48:
+        return "1 hour ago" if hours == 1 else f"{hours} hours ago"
+    days = hours // 24
+    return "1 day ago" if days == 1 else f"{days} days ago"
+
+
+def _catalog_stats():
+    """Runs, success rate, and time saved for the last 30 days."""
+    since = timezone.now() - timedelta(days=30)
+    recent = WorkflowRun.objects.filter(started__gte=since)
+    total = recent.count()
+    success = recent.filter(status="success").count()
+    saved_minutes = 0
+    for run in recent.filter(status="success").select_related("workflow"):
+        manual = run.workflow.manual_duration_minutes or 0
+        if not manual or not run.started or not run.finished or run.finished < run.started:
+            continue
+        form_seconds = 60 if run.form_duration_seconds in (None, "") else int(run.form_duration_seconds)
+        automated = ceil((int((run.finished - run.started).total_seconds()) + form_seconds) / 60.0)
+        saved_minutes += max(manual - automated, 0)
+    return {
+        "runs_30d": total,
+        "success_rate": round(100 * success / total) if total else None,
+        "time_saved_hours": floor(saved_minutes / 60),
+    }
+
+
+class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
+    """One workflows list: Run, Edit, and the Enabled switch."""
 
     template_name = "nautobot_workflow_engine/workflow_list.html"
     permission_required = "nautobot_workflow_engine.view_workflow"
+    raise_exception = True
     queryset = _get_workflow_queryset().order_by("category", "name")  # Only show enabled workflows
 
     def get_required_permission(self):
@@ -233,14 +315,26 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
         return self.permission_required
 
     def get_queryset(self):
-        """Get workflows queryset with optional category filtering."""
-        qs = _get_workflow_queryset().order_by("category", "name")
+        """Get workflows queryset with optional category filtering.
+
+        Editors see unpublished and disabled workflows so they can edit and turn
+        them on. Everyone else sees enabled workflows, which is what Run uses.
+        """
+        user = self.request.user
+        if user.has_perm("nautobot_workflow_engine.change_workflow"):
+            qs = Workflow.objects.filter(archived=False)
+        else:
+            qs = _get_workflow_queryset().filter(archived=False)
+        qs = qs.select_related("published_revision", "source_repo").order_by("category", "name")
         permitted_ids = [wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflow", wf)]
         qs = qs.filter(id__in=permitted_ids)
         # Filter by category if specified
         category = self.request.GET.get("category")
         if category:
             qs = qs.filter(category=category)
+        git_status = self.request.GET.get("git_status")
+        if git_status:
+            qs = qs.filter(git_status=git_status)
 
         latest_workflow_run = WorkflowRun.objects.filter(workflow_id=OuterRef("pk")).order_by("-started", "-id")
         qs = qs.annotate(
@@ -262,8 +356,11 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
             display = "list"
 
         # Check if user can execute workflows
-        can_execute = self.request.user.has_perm("nautobot_workflow_engine.add_workflowrun")
+        can_execute = can_run(self.request.user)
         context["can_execute_workflows"] = can_execute
+        can_change_workflows = self.request.user.has_perm("nautobot_workflow_engine.change_workflow")
+        context["can_change_workflows"] = can_change_workflows
+        context["can_add_workflows"] = self.request.user.has_perm("nautobot_workflow_engine.add_workflow")
         context["display"] = display
         context["is_tiles_display"] = display == "tiles"
 
@@ -274,6 +371,9 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
         # Group workflows by category
         workflows_by_category = {}
         for workflow in workflows:
+            workflow.can_change = can_change_workflows and self.request.user.has_perm(
+                "nautobot_workflow_engine.change_workflow", workflow
+            )
             category = workflow.category or "Uncategorized"
             if category not in workflows_by_category:
                 workflows_by_category[category] = []
@@ -293,6 +393,68 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
         )
         context["categories"] = list(all_categories)
         context["selected_category"] = selected_category
+        context["manage"] = False
+        drafts = {
+            revision.workflow_id: revision
+            for revision in WorkflowRevision.objects.filter(
+                workflow__in=workflows, state=WorkflowRevision.STATE_DRAFT
+            ).select_related("created_by")
+        }
+        since = timezone.now() - timedelta(days=30)
+        workflows = workflows.annotate(runs_30d=Count("runs", filter=Q(runs__started__gte=since)))
+        catalog = []
+        counts = {"all": 0, "live": 0, "draft": 0, "new": 0}
+        for workflow in workflows:
+            text, kind = status_label(workflow, drafts.get(workflow.id))
+            workflow.status_label = text
+            workflow.status_kind = kind
+            workflow.status_help = STATUS_HELP[kind]
+            draft = drafts.get(workflow.id)
+            workflow.draft_row = draft
+            editor = ""
+            when = ""
+            if draft is not None and kind == "draft":
+                editor = getattr(getattr(draft, "created_by", None), "username", "") or "Someone"
+                if editor == self.request.user.username:
+                    editor = "You"
+                when = _relative_time(draft.created)
+            workflow.draft_editor = editor
+            workflow.draft_when = when
+            definition = workflow.raw_definition if isinstance(workflow.raw_definition, dict) else {}
+            schedule = definition.get("schedule") if isinstance(definition.get("schedule"), dict) else {}
+            snow = schedule.get("servicenow") if isinstance(schedule.get("servicenow"), dict) else {}
+            workflow.needs_approval = bool(workflow.approval_required)
+            workflow.uses_snow = bool(snow.get("enabled") or snow.get("integration_name"))
+            workflow.can_publish = self.request.user.has_perm("nautobot_workflow_engine.publish_workflow", workflow)
+            workflow.can_delete = self.request.user.has_perm("nautobot_workflow_engine.delete_workflow", workflow)
+            counts["all"] += 1
+            if kind == "new":
+                counts["new"] += 1
+            else:
+                counts["live"] += 1
+            if kind == "draft":
+                counts["draft"] += 1
+            catalog.append(workflow)
+        selected_status = self.request.GET.get("status") or "all"
+        if selected_status not in {"all", "live", "draft", "new"}:
+            selected_status = "all"
+        if selected_status == "live":
+            catalog = [workflow for workflow in catalog if workflow.status_kind != "new"]
+        elif selected_status != "all":
+            catalog = [workflow for workflow in catalog if workflow.status_kind == selected_status]
+        context["catalog"] = catalog
+        context["status_counts"] = counts
+        context["selected_status"] = selected_status
+        context["unsynced"] = [
+            workflow for workflow in workflows if workflow.git_status in ("not_synced", "git_invalid")
+        ]
+        context["selected_git_status"] = self.request.GET.get("git_status", "")
+        context["git_status_choices"] = GIT_STATUS_CHOICES
+        cutoff = timezone.now() - timedelta(minutes=60)
+        context["git_attention_count"] = workflows.filter(
+            git_status__in=["not_synced", "git_invalid"],
+            last_updated__lt=cutoff,
+        ).count()
 
         list_display_params = {}
         tiles_display_params = {"display": "tiles"}
@@ -319,20 +481,36 @@ class WorkflowListView(TemplateView, ObjectPermissionRequiredMixin):
                 params["display"] = "tiles"
             categories_with_query.append({"name": category, "query": urlencode(params)})
         context["categories_with_query"] = categories_with_query
+        context["catalog_stats"] = _catalog_stats()
+        context["can_publish_workflows"] = self.request.user.has_perm("nautobot_workflow_engine.publish_workflow")
+        context["can_delete_workflows"] = self.request.user.has_perm("nautobot_workflow_engine.delete_workflow")
+        if any(item.git_status in ("not_synced", "git_invalid") for item in workflows):
+            context["git_indicator"] = "Not synced"
+        elif any(item.git_status == "pending" for item in workflows):
+            context["git_indicator"] = "Syncing…"
+        elif any(item.git_status == "in_sync" for item in workflows):
+            context["git_indicator"] = "Synced"
+        else:
+            context["git_indicator"] = ""
 
         return context
 
 
-class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
+class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
     """View for launching workflows with dynamic forms."""
 
     template_name = "nautobot_workflow_engine/workflow_launch.html"
     permission_required = "nautobot_workflow_engine.add_workflowrun"
+    raise_exception = True
     queryset = WorkflowRun.objects.all()
 
     def get_required_permission(self):
         """Return the permission required to launch a workflow."""
         return self.permission_required
+
+    def has_permission(self):
+        """Run workflows (``run`` on a workflow) or the older ``add_workflowrun``."""
+        return can_run(self.request.user)
 
     def get_context_data(self, **kwargs):
         """Add workflow and form to context.
@@ -345,6 +523,8 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
         context = super().get_context_data(**kwargs)
         qs = _get_workflow_queryset()
         wf = get_object_or_404(qs, key=kwargs["key"])
+        if not can_run(self.request.user, wf):
+            raise Http404
 
         initial = {}
         from_run = self.request.GET.get("from_run")
@@ -397,8 +577,7 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
                 pass
 
         form = DynamicWorkflowForm(wf, initial=initial)
-        context["workflow"] = wf
-        context["form"] = form
+        context.update(launch_context(self.request, wf, form))
         return context
 
     def post(self, request, key):
@@ -422,8 +601,13 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
             if execution_type == "servicenow":
                 change_input_key = wf.servicenow_change_input_key
                 change_ticket = form.cleaned_data.get(change_input_key) if change_input_key else ""
+                integration_name = integration_name_for_workflow(wf)
                 try:
-                    change_window = get_change_window(change_ticket=change_ticket, workflow=wf)
+                    change_window = get_change_window(
+                        change_ticket=change_ticket,
+                        workflow=wf,
+                        integration_name=integration_name,
+                    )
                 except ServiceNowValidationError as exc:
                     if change_input_key and change_input_key in form.fields:
                         form.add_error(change_input_key, str(exc))
@@ -432,13 +616,13 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
                     return render(
                         request,
                         "nautobot_workflow_engine/workflow_launch.html",
-                        {"workflow": wf, "form": form},
+                        launch_context(request, wf, form),
                     )
 
                 execution_type = "scheduled"
                 scheduled_datetime = change_window.window_start
                 schedule_source = "servicenow"
-                schedule_external_system = "ServiceNow"
+                schedule_external_system = integration_name
                 schedule_change_ticket = change_window.change_number
                 schedule_external_record_id = change_window.sys_id
                 schedule_window_start = change_window.window_start
@@ -543,7 +727,7 @@ class WorkflowRunCreateView(TemplateView, ObjectPermissionRequiredMixin):
                     )
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
 
-        return render(request, "nautobot_workflow_engine/workflow_launch.html", {"workflow": wf, "form": form})
+        return render(request, "nautobot_workflow_engine/workflow_launch.html", launch_context(request, wf, form))
 
 
 class InputOptionsView(View):
@@ -552,6 +736,11 @@ class InputOptionsView(View):
     def _build_enhanced_context(self, workflow, form_data):
         """Build context with both IDs and resolved object properties."""
         context = {"inputs": {}}
+        request_user = getattr(self.request, "user", None)
+        if request_user is not None and getattr(request_user, "is_authenticated", False):
+            from nautobot_workflow_engine.executors import SafeUser
+
+            context["user"] = SafeUser.from_user(request_user)
 
         for key, value in form_data.items():
             if not value:
@@ -562,7 +751,7 @@ class InputOptionsView(View):
                 wi = workflow.inputs.get(key=key)
                 if wi.content_type:
                     model = wi.content_type.model_class()
-                    obj = model.objects.get(pk=value)
+                    obj = model.objects.restrict(self.request.user, "view").get(pk=value)
 
                     # Add object with all useful properties
                     context["inputs"][key] = {
@@ -587,7 +776,7 @@ class InputOptionsView(View):
 
     def get(self, request, key, child):
         """Get filtered options for a dependent field (object or choice with Jinja)."""
-        qs = _get_workflow_queryset()
+        qs = _get_workflow_queryset().restrict(request.user, "view")
         wf = get_object_or_404(qs, key=key)
         try:
             wi = wf.inputs.get(key=child)
@@ -669,23 +858,29 @@ class InputOptionsView(View):
             results = api_data.get("results", [])
             id_list = [item["id"] for item in results]
             model = wi.content_type.model_class()
-            qs = model.objects.filter(id__in=id_list)
+            denied = _options_model_denied(model)
+            if denied is not None:
+                return denied
+            qs = model.objects.restrict(request.user, "view").filter(id__in=id_list)
 
             # Apply additional filters from wi.filter_query
             context = self._build_enhanced_context(wf, request.GET)
-            from .executors import _render
-
             rendered_filters = {}
             if wi.filter_query:
                 try:
-                    rendered_filters = _render(wi.filter_query, context, repo=wf.source_repo)
-                except Exception as e:
-                    logger.error(f"Error rendering filter query for API search: {e}")
+                    rendered_filters = _render(
+                        wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT
+                    )
+                except Exception as exc:
+                    logger.error(f"Error rendering filter query for API search: {exc}")
+                    return _options_error(str(exc))
 
             # Clean filters and apply
             clean_filters = {k: v for k, v in rendered_filters.items() if v not in (None, "")}
-            if clean_filters:
-                qs = qs.filter(**clean_filters)
+            denied = _options_lookup_denied(model, clean_filters)
+            if denied is not None:
+                return denied
+            qs = _apply_option_filters(qs, clean_filters)
 
             # Use distinct() to prevent duplicates from JOIN operations (e.g., filtering by related models)
             qs = qs.distinct()
@@ -704,7 +899,7 @@ class InputOptionsView(View):
                     or getattr(obj, "hostname", None)
                     or str(obj)
                 )
-                data.append({"value": str(obj.pk), "label": display_name})
+                data.append({"value": str(obj.pk), "label": display_name, "meta": option_meta(obj)})
 
             response_data = {
                 "options": data,
@@ -717,14 +912,12 @@ class InputOptionsView(View):
             logger.info(f"API search returned {len(data)} results")
             return JsonResponse(response_data)
 
-        except requests.RequestException as e:
-            logger.error(f"API request failed: {e}")
-            # Fallback to ORM query
-            return self._handle_orm_query(request, wf, wi)
-        except Exception as e:
-            logger.error(f"Error in API search: {e}")
-            # Fallback to ORM query
-            return self._handle_orm_query(request, wf, wi)
+        except requests.RequestException as exc:
+            logger.error(f"API request failed: {exc}")
+            return _options_error("The search request failed.")
+        except Exception as exc:
+            logger.error(f"Error in API search: {exc}")
+            return _options_error("The search request failed.")
 
     def _handle_orm_query(self, request, wf, wi, default_limit=50):
         """Handle object field options using direct ORM queries."""
@@ -733,24 +926,27 @@ class InputOptionsView(View):
 
         # Render filter queries with enhanced context
         if wi.filter_query:
-            from .executors import _render
-
             try:
-                rendered_filters = _render(wi.filter_query, context, repo=wf.source_repo)
-            except Exception as e:
-                logger.error(f"Error rendering filter query for {wi.key}: {e}")
-                rendered_filters = {}
+                rendered_filters = _render(wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT)
+            except Exception as exc:
+                logger.error(f"Error rendering filter query for {wi.key}: {exc}")
+                return _options_error(str(exc))
         else:
             rendered_filters = {}
 
         # Apply filters to queryset
         model = wi.content_type.model_class()
-        qs = model.objects.all()
+        denied = _options_model_denied(model)
+        if denied is not None:
+            return denied
+        qs = model.objects.restrict(request.user, "view")
         if rendered_filters:
             # Filter out None values and empty strings
             clean_filters = {k: v for k, v in rendered_filters.items() if v not in (None, "")}
-            if clean_filters:
-                qs = qs.filter(**clean_filters)
+            denied = _options_lookup_denied(model, clean_filters)
+            if denied is not None:
+                return denied
+            qs = _apply_option_filters(qs, clean_filters)
 
         # Use distinct() to prevent duplicates from JOIN operations (e.g., filtering by related models like devices__isnull)
         qs = qs.distinct()
@@ -761,6 +957,9 @@ class InputOptionsView(View):
         total_count = qs.count()
 
         # Apply pagination
+        related = related_for_meta(model)
+        if related:
+            qs = qs.select_related(*related)
         qs = qs[offset : offset + limit]
 
         # Use display field for consistency with API search results
@@ -777,10 +976,10 @@ class InputOptionsView(View):
                 or getattr(obj, "hostname", None)  # For device objects
                 or str(obj)  # Fallback to string representation
             )
-            data.append({"value": str(obj.pk), "label": display_name})
+            data.append({"value": str(obj.pk), "label": display_name, "meta": option_meta(obj)})
 
         # Check if we're supposed to prepend a "Create New XXX" to the dropdown
-        if content_type_matches_add_new_item(wi.content_type, get_setting("show_add_new_item", fallback=[])):
+        if content_type_matches(wi.content_type, get_setting("show_add_new_item", [])):
             data.insert(0, {"value": "__create__", "label": f"Create New {wi.content_type.name.title()}"})
 
         response_data = {
@@ -801,25 +1000,22 @@ class InputOptionsView(View):
         try:
             import json
 
-            from .executors import _render
-
             # Handle choices - could be a string (JSON) or already parsed list
             choices_value = wi.choices
 
             # If choices is a string, try to render it as Jinja template first
             if isinstance(choices_value, str):
-                rendered_choices_str = _render(choices_value, context, repo=wf.source_repo)
+                rendered_choices_str = _render(choices_value, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT)
 
                 # Try to parse as JSON
                 try:
                     rendered_choices = json.loads(rendered_choices_str)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse choices as JSON for {wi.key}: {e}")
-                    logger.error(f"Choices string was: {rendered_choices_str}")
-                    return JsonResponse({"options": []})
+                except json.JSONDecodeError as exc:
+                    logger.error(f"Failed to parse choices as JSON for {wi.key}: {exc}")
+                    return _options_error("Choices did not render as a list.")
             else:
                 # Choices is already a list/object, render it directly
-                rendered_choices = _render(choices_value, context, repo=wf.source_repo)
+                rendered_choices = _render(choices_value, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT)
 
             # Convert to options format
             if isinstance(rendered_choices, list):
@@ -835,16 +1031,13 @@ class InputOptionsView(View):
                         data.append({"value": str(choice), "label": str(choice)})
             else:
                 logger.error(f"Rendered choices is not a list for {wi.key}: {rendered_choices}")
-                data = []
+                return _options_error("Choices did not render as a list.")
 
             return JsonResponse({"options": data})
 
-        except Exception as e:
-            logger.error(f"Error rendering choices for {wi.key}: {e}")
-            import traceback
-
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            return JsonResponse({"options": []})
+        except Exception as exc:
+            logger.error(f"Error rendering choices for {wi.key}: {exc}")
+            return _options_error(str(exc))
 
 
 class WorkflowRunDetailView(ObjectView):
@@ -858,6 +1051,7 @@ class WorkflowRunDetailView(ObjectView):
         context = super().get_extra_context(request, instance)
         # Show workflow info in run view even if workflow is now disabled
         context["workflow_available"] = instance.workflow.enabled if instance.workflow else False
+        context["can_cancel_run"] = can_cancel(request.user, instance)
         return context
 
 
@@ -872,7 +1066,7 @@ class WorkflowRunCancelView(View):
         if not request.user.has_perm("nautobot_workflow_engine.view_workflowrun", workflow_run):
             raise Http404
 
-        if not request.user.has_perm("nautobot_workflow_engine.change_workflowrun", workflow_run):
+        if not can_cancel(request.user, workflow_run):
             messages.error(request, "You do not have permission to cancel this workflow run.")
             return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=workflow_run.pk)
 
@@ -1423,43 +1617,696 @@ class WorkflowReportView(TemplateView):
         return monthly
 
 
-class WorkflowEngineConfigView(AdminRequiredMixin, GenericView):
-    """Admin-only configuration page linked from Installed Apps."""
+def _options_error(message):
+    """Return an empty options payload instead of an unrestricted queryset."""
+    return JsonResponse({"options": [], "error": message})
 
-    template_name = "nautobot_workflow_engine/config.html"
 
-    def get(self, request):
-        """Render the configuration form with current settings."""
-        form = WorkflowEngineConfigForm(initial=WorkflowEngineConfigForm.initial_from_settings())
-        return render(
-            request,
-            self.template_name,
+def _options_model_denied(model):
+    """Refuse models on the builder denylist, including ones already stored on an input."""
+    if model is None:
+        return _options_error("That model is not available.")
+    label = f"{model._meta.app_label}.{model.__name__}"
+    if not content_type_allowed(label):
+        return _options_error("That model is not available.")
+    return None
+
+
+def _options_lookup_denied(model, clean_filters):
+    """Reject lookups that traverse off the allowlist or use an unsupported transform."""
+    for lookup in expanded_lookups(clean_filters):
+        if not isinstance(lookup, str) or "{{" in lookup or "{%" in lookup:
+            return _options_error(f"Filter lookup '{lookup}' is not allowed.")
+        if not lookup_allowed(model, lookup):
+            return _options_error(f"Filter lookup '{lookup}' is not allowed.")
+    return None
+
+
+def _apply_option_filters(queryset, clean_filters):
+    """Apply a filter.query, translating the visual-builder abbreviations."""
+    include, exclude = split_filter(clean_filters or {})
+    if include:
+        queryset = queryset.filter(**include)
+    if exclude:
+        queryset = queryset.exclude(**exclude)
+    return queryset
+
+
+def _editor_base_number(workflow):
+    """Return the revision number a save must name, or None when nothing is stored yet."""
+    if workflow is None:
+        return None
+    draft = workflow.draft_revision
+    if draft is not None:
+        return draft.number
+    if workflow.published_revision_id and workflow.published_revision is not None:
+        return workflow.published_revision.number
+    return None
+
+
+def _posted_enable(request):
+    """Return the enable flag when the form sent one. Omitted means leave it unchanged."""
+    if "enable" not in request.POST:
+        return None
+    return request.POST.get("enable") in ("1", "true", "True", "on")
+
+
+def _payload_from_request(request):
+    """Return the posted builder payload and an optional error object."""
+    if request.content_type == "application/json":
+        try:
+            raw = request.body.decode() or "{}"
+        except UnicodeDecodeError:
+            return None, {"path": "", "message": "The builder payload was not valid text."}
+    else:
+        raw = request.POST.get("payload") or ""
+        if not raw:
+            return None, {"path": "", "message": "The builder did not submit a workflow."}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, {"path": "", "message": "The builder payload was not valid JSON."}
+    if not isinstance(payload, dict):
+        return None, {"path": "", "message": "The builder payload must be an object."}
+    return payload, None
+
+
+def _repository_for_payload(payload, definition, user=None):
+    """Resolve the source Git repository required by Nautobot script actions."""
+    repo_id = str(payload.get("source_repo") or "").strip()
+    if actions_require_repository(definition) and not repo_id:
+        return None, [
             {
-                "form": form,
-                "file_locked_keys": form.file_locked_keys,
-            },
+                "path": "source_repo",
+                "message": "Select the Git repository that contains the Nautobot action scripts.",
+            }
+        ]
+    if not repo_id:
+        return None, []
+    try:
+        uuid.UUID(repo_id)
+    except ValueError:
+        return None, [{"path": "source_repo", "message": "That Git repository no longer exists."}]
+    repositories = GitRepository.objects.all()
+    if user is not None:
+        repositories = repositories.restrict(user, "view")
+    repository = repositories.filter(pk=repo_id).first()
+    if repository is None:
+        return None, [{"path": "source_repo", "message": "That Git repository no longer exists."}]
+    return repository, []
+
+
+def _tag_choices(user):
+    """Tag names this user can attach. Tags stay in the database, not the YAML."""
+    from nautobot.extras.models import Tag
+
+    queryset = Tag.objects.all()
+    restrict = getattr(queryset, "restrict", None)
+    if callable(restrict):
+        queryset = restrict(user, "view")
+    return list(queryset.order_by("name").values_list("name", flat=True)[:200])
+
+
+def _script_label(path):
+    """Turn ``scripts/check_reachability.py`` into ``Check reachability``."""
+    stem = str(path or "").rsplit("/", 1)[-1]
+    if stem.endswith(".py"):
+        stem = stem[:-3]
+    words = stem.replace("_", " ").replace("-", " ").strip()
+    return words[:1].upper() + words[1:] if words else path
+
+
+def _builder_config(request, payload, workflow=None, is_edit=False):
+    """Return JSON-serializable data for the builder page.
+
+    Repositories, integrations, scripts, and models are limited to what this user
+    is allowed to see. Helper source is parsed here for parameter names; only those
+    names and hints reach the page.
+    """
+    user = request.user
+    from nautobot_workflow_engine.utilities.git_publish import publish_blocker
+
+    repositories = [
+        {"id": str(repo.pk), "name": repo.name, "problem": publish_blocker(repo)}
+        for repo in GitRepository.objects.restrict(user, "view").select_related("secrets_group").order_by("name")
+    ]
+    visible_repo_ids = [repo["id"] for repo in repositories]
+    scripts_by_repo = {}
+    script_params = {}
+    from nautobot_workflow_engine.script_files import SCRIPT_PERMISSION, scripts_dir
+
+    helper_rows = WorkflowHelper.objects.filter(source_repo_id__in=visible_repo_ids).values_list(
+        "source_repo_id", "file_path", "content"
+    )
+    for repo_id, file_path, content in helper_rows:
+        if not script_path_allowed(file_path):
+            continue
+        scripts_by_repo.setdefault(str(repo_id), []).append(file_path)
+        # Only parameter names and hints are sent to the page, never the source.
+        script_params[(str(repo_id), file_path)] = script_parameters(content)
+    scripts = []
+    for repo_id, paths in scripts_by_repo.items():
+        for file_path in paths:
+            meta = script_params.get((repo_id, file_path)) or {"declared": False, "params": []}
+            scripts.append(
+                {
+                    "repo": repo_id,
+                    "path": file_path,
+                    "name": _script_label(file_path),
+                    "params": meta["params"],
+                    "declared": meta["declared"],
+                }
+            )
+    content_types = []
+    for content_type in ContentType.objects.order_by("app_label", "model"):
+        model = content_type.model_class()
+        if model is None:
+            continue
+        label = f"{content_type.app_label}.{model.__name__}"
+        if not content_type_allowed(label):
+            continue
+        verbose = str(model._meta.verbose_name)
+        friendly = verbose[:1].upper() + verbose[1:]
+        try:
+            app_name = str(apps.get_app_config(content_type.app_label).verbose_name)
+        except LookupError:
+            app_name = content_type.app_label
+        content_types.append(
+            {
+                "value": label,
+                "label": friendly,
+                "app": str(app_name),
+            }
+        )
+    read_only = workflow is not None and not user.has_perm("nautobot_workflow_engine.change_workflow", workflow)
+    duplicate_url = ""
+    if workflow is not None and user.has_perm("nautobot_workflow_engine.add_workflow"):
+        duplicate_url = reverse(
+            "plugins:nautobot_workflow_engine:workflow_builder_duplicate", kwargs={"key": workflow.key}
+        )
+    target = workflow
+    if target is None:
+        can_author_code = can_build(user)
+        can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow")
+    else:
+        can_author_code = can_build(user, target)
+        can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow", target)
+    if isinstance(payload, dict):
+        if workflow is not None and not payload.get("tags"):
+            payload["tags"] = list(workflow.tags.values_list("name", flat=True))
+        payload.setdefault("tags", [])
+    stages = approval_stage_summary(workflow) if workflow is not None else []
+    draft = workflow.draft_revision if workflow is not None else None
+    published = workflow.published_revision if workflow is not None and workflow.published_revision_id else None
+    label, kind = status_label(workflow, draft) if workflow is not None else ("Draft", "new")
+    published_definition = (
+        published.definition if published is not None and isinstance(published.definition, dict) else {}
+    )
+    published_keys = [
+        item.get("key")
+        for item in (published_definition.get("inputs") or [])
+        if isinstance(item, dict) and item.get("key")
+    ]
+    published_steps = []
+    for phase_key in ("pre_actions", "actions", "post_actions"):
+        for item in published_definition.get(phase_key) or []:
+            if isinstance(item, dict) and item.get("name"):
+                published_steps.append(item.get("name"))
+    draft_user = getattr(draft, "created_by", None) if draft is not None else None
+    return {
+        "payload": payload,
+        "repositories": repositories,
+        "scripts_by_repo": scripts_by_repo,
+        "scripts": scripts,
+        "content_types": content_types,
+        "timezones": timezone_choices(),
+        "snow_states": [
+            "New",
+            "Assess",
+            "Authorize",
+            "Scheduled",
+            "Implement",
+            "Review",
+            "Closed",
+            "Canceled",
+        ],
+        "integrations": [
+            {"name": item.name, "url": getattr(item, "remote_url", "") or ""}
+            for item in ExternalIntegration.objects.restrict(user, "view").order_by("name")
+        ],
+        "yaml_url": reverse("plugins:nautobot_workflow_engine:workflow_builder_yaml"),
+        "list_url": reverse("plugins:nautobot_workflow_engine:workflows_list"),
+        "schema_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-schema"),
+        "validate_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-validate"),
+        "refactor_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-refactor"),
+        "launch_preview_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-launch-preview"),
+        "dry_run_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-dry-run"),
+        "render_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-render"),
+        "yaml_apply_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-yaml-apply"),
+        "tag_choices": _tag_choices(user),
+        "csrf_token": get_token(request),
+        "create_api_url": reverse("plugins-api:nautobot_workflow_engine-api:workflow-list"),
+        "draft_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-draft", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "publish_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-publish", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "publish_url_template": reverse(
+            "plugins-api:nautobot_workflow_engine-api:workflow-publish", kwargs={"key": "__KEY__"}
+        ),
+        "edit_url_template": reverse(
+            "plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": "__KEY__"}
+        ),
+        "base_revision": _editor_base_number(workflow),
+        "base_git_commit": workflow.git_commit if workflow is not None else "",
+        "base_content_hash": workflow.git_content_hash if workflow is not None else "",
+        "refresh_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-refresh", kwargs={"key": workflow.key})
+            if workflow is not None and workflow.source_repo_id
+            else ""
+        ),
+        "git_status_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-status", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "key": workflow.key if workflow is not None else "",
+        "git_status": workflow.git_status if workflow is not None else "",
+        "git_error": workflow.git_error if workflow is not None else "",
+        "git_next_retry_at": (
+            workflow.git_next_retry_at.isoformat() if workflow is not None and workflow.git_next_retry_at else ""
+        ),
+        "enabled": bool(workflow.enabled) if workflow is not None else False,
+        "username": getattr(user, "username", "") or "",
+        "status_text": label,
+        "status_kind": kind,
+        "status_help": STATUS_HELP,
+        "has_draft_changes": kind != "live",
+        "draft_by": getattr(draft_user, "username", "") or "",
+        "draft_at": draft.created.isoformat() if draft is not None and draft.created else "",
+        "published_yaml": published.yaml if published is not None else "",
+        "published_payload": builder_from_definition(published_definition, enabled=workflow.enabled)
+        if published is not None
+        else None,
+        "published_input_keys": published_keys,
+        "published_step_names": published_steps,
+        "stale": git_stale_banner(workflow, draft) if workflow is not None else None,
+        "repository_name": workflow.source_repo.name if workflow is not None and workflow.source_repo_id else "",
+        "draft_number": draft.number if draft is not None else None,
+        "published_number": (
+            workflow.published_revision.number if workflow is not None and workflow.published_revision_id else None
+        ),
+        "push_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-git-push", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "is_edit": is_edit,
+        "read_only": read_only,
+        "banner": "",
+        "duplicate_url": duplicate_url,
+        "adopt_url": "",
+        "filter_count_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-filter-count"),
+        "filter_fields_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-filter-fields"),
+        "load_git_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-load-git", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "revisions_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-revisions", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "enable_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-enable", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "disable_url": (
+            reverse("plugins-api:nautobot_workflow_engine-api:workflow-disable", kwargs={"key": workflow.key})
+            if workflow is not None
+            else ""
+        ),
+        "restore_url_template": (
+            reverse(
+                "plugins-api:nautobot_workflow_engine-api:workflow-revision-restore",
+                kwargs={"key": workflow.key, "number": 0},
+            ).replace("/0/", "/__N__/")
+            if workflow is not None
+            else ""
+        ),
+        "can_author_code": can_author_code,
+        "can_write_scripts": user.has_perm(SCRIPT_PERMISSION),
+        "scripts_dir": scripts_dir(),
+        "script_preview_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-script-preview"),
+        "script_create_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-script-create"),
+        "can_publish": can_publish,
+        "approval_stages": stages,
+        "pending_approvals": pending_approval_count(workflow) if workflow is not None else 0,
+        "approval_was_required": bool(workflow.approval_required) if workflow is not None else False,
+        "approvals_supported": nautobot_supports_approval_workflows(),
+    }
+
+
+class WorkflowBuilderView(ObjectPermissionRequiredMixin, TemplateView):
+    """Create or edit a workflow without a Git sync."""
+
+    template_name = "nautobot_workflow_engine/workflow_builder.html"
+    permission_required = "nautobot_workflow_engine.add_workflow"
+    raise_exception = True
+    queryset = Workflow.objects.all()
+
+    def dispatch(self, request, *args, **kwargs):
+        """Hide missing and out-of-scope workflows before the permission check."""
+        self.request = request
+        key = kwargs.get("key")
+        if key:
+            action = "change" if request.method == "POST" else "view"
+            if not Workflow.objects.restrict(request.user, action).filter(key=key).exists():
+                raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_required_permission(self):
+        """Creating needs add. Editing needs change. Opening a page needs view."""
+        if not self.kwargs.get("key"):
+            return "nautobot_workflow_engine.add_workflow"
+        if self.request.method == "POST":
+            return "nautobot_workflow_engine.change_workflow"
+        return "nautobot_workflow_engine.view_workflow"
+
+    def get_object(self):
+        """Return the workflow being edited, or None when creating one."""
+        key = self.kwargs.get("key")
+        if not key:
+            return None
+        action = "change" if self.request.method == "POST" else "view"
+        try:
+            return Workflow.objects.restrict(self.request.user, action).get(key=key)
+        except Workflow.DoesNotExist:
+            raise Http404
+
+    def has_permission(self):
+        """Model-level gate. Object scope is applied by ``get_object``."""
+        return self.request.user.has_perm(self.get_required_permission())
+
+    def get_context_data(self, **kwargs):
+        """Add the builder payload and reference data to the template."""
+        context = super().get_context_data(**kwargs)
+        workflow = self.get_object()
+        if workflow is None:
+            payload = empty_builder_payload()
+        else:
+            source = (
+                workflow.draft_revision.definition if workflow.draft_revision is not None else workflow.raw_definition
+            )
+            payload = builder_from_definition(source, enabled=workflow.enabled)
+        if workflow is not None and workflow.source_repo_id:
+            payload["source_repo"] = str(workflow.source_repo_id)
+        context.update(self._page_context(workflow, payload, [], is_edit=workflow is not None))
+        return context
+
+    def post(self, request, key=None):
+        """Validate the builder payload and save both workflow representations."""
+        workflow = self.get_object()
+        payload, parse_error = _payload_from_request(request)
+        if parse_error:
+            return self._render(workflow, empty_builder_payload(), [parse_error], is_edit=bool(key), status=400)
+
+        try:
+            definition = definition_from_builder(payload)
+        except BuilderValidationError as exc:
+            return self._render(workflow, payload, exc.errors, is_edit=bool(key))
+
+        if key and definition["key"] != key:
+            return self._render(
+                workflow,
+                payload,
+                [{"path": "key", "message": "The workflow key cannot be changed."}],
+                is_edit=True,
+            )
+        if not key and Workflow.objects.filter(key=definition["key"]).exists():
+            return self._render(
+                workflow,
+                payload,
+                [{"path": "key", "message": "A workflow with this key already exists."}],
+                is_edit=False,
+            )
+
+        policy_errors = builder_policy_errors(definition)
+        if policy_errors:
+            return self._render(workflow, payload, policy_errors, is_edit=bool(key))
+
+        if workflow is not None and workflow.draft_revision is not None:
+            prior_definition = copy.deepcopy(workflow.draft_revision.definition or {})
+        elif workflow is not None and workflow.raw_definition:
+            prior_definition = copy.deepcopy(workflow.raw_definition)
+        else:
+            prior_definition = {}
+        permission_errors = self._permission_errors(request, workflow, payload, definition, prior_definition)
+        if permission_errors:
+            return self._render(workflow, payload, permission_errors, is_edit=bool(key), status=403)
+
+        repository, repo_errors = _repository_for_payload(payload, definition, user=request.user)
+        if repo_errors:
+            return self._render(workflow, payload, repo_errors, is_edit=bool(key), status=400)
+
+        action = request.POST.get("action") or "publish"
+        sent_base = "base_revision" in request.POST
+        base_revision = request.POST.get("base_revision")
+        enable = _posted_enable(request)
+        try:
+            if action == "draft":
+                if workflow is None:
+                    from .services import create_draft
+
+                    saved, _revision = create_draft(
+                        user=request.user,
+                        definition=definition,
+                        repository=repository,
+                        source="builder",
+                    )
+                else:
+                    _revision = update_draft(
+                        user=request.user,
+                        workflow=workflow,
+                        definition=definition,
+                        base_revision=base_revision,
+                        require_base=sent_base,
+                    )
+                    saved = workflow
+            else:
+                saved, _revision = publish(
+                    user=request.user,
+                    workflow=workflow,
+                    definition=definition,
+                    base_revision=base_revision,
+                    enable=enable,
+                    approval_confirm=_approval_confirmed(request, payload),
+                    repository=repository,
+                    require_base=sent_base,
+                    source="builder",
+                )
+        except ServiceError as exc:
+            errors = exc.payload.get("errors") or [{"path": "", "message": exc.payload.get("detail") or str(exc)}]
+            return self._render(workflow, payload, errors, is_edit=bool(key), status=exc.status)
+        except Exception as exc:
+            logger.exception("Workflow builder save failed")
+            return self._render(
+                workflow,
+                payload,
+                [{"path": "", "message": f"Could not save the workflow: {exc}"}],
+                is_edit=bool(key),
+                status=400,
+            )
+
+        messages.success(request, f"Saved workflow {saved.name}.")
+        return redirect("plugins:nautobot_workflow_engine:workflow_builder_edit", key=saved.key)
+
+    def _permission_errors(self, request, workflow, payload, definition, prior_definition):
+        """Return 403 field errors for publish and author_code denials."""
+        errors = []
+        user = request.user
+        old_enabled = bool(workflow.enabled) if workflow is not None else False
+        new_enabled = bool(definition.get("enabled"))
+        enabled_changed = workflow is None and new_enabled or workflow is not None and old_enabled != new_enabled
+        old_approval = bool(workflow.approval_required) if workflow is not None else False
+        new_approval = bool(definition.get("approval_required"))
+        turning_approval_off = workflow is not None and old_approval and not new_approval
+        if enabled_changed or turning_approval_off:
+            if workflow is None:
+                allowed = user.has_perm("nautobot_workflow_engine.publish_workflow")
+            else:
+                allowed = user.has_perm("nautobot_workflow_engine.publish_workflow", workflow)
+            if not allowed:
+                errors.append(
+                    {
+                        "path": "enabled" if enabled_changed else "approval_required",
+                        "message": "You need the *Publish workflows* permission to change this field.",
+                    }
+                )
+        if turning_approval_off:
+            pending = pending_approval_count(workflow)
+            if pending:
+                errors.append(
+                    {
+                        "path": "approval_required",
+                        "message": f"{pending} runs are waiting for approval. Resolve them first.",
+                    }
+                )
+            elif approval_stage_summary(workflow) and not _approval_confirmed(request, payload):
+                errors.append(
+                    {
+                        "path": "approval_required",
+                        "message": "Confirm turning approval off. Stages will be saved and restored if you turn it back on.",
+                    }
+                )
+        for pointer in code_changes(prior_definition, definition):
+            if not can_build(user, workflow):
+                errors.append({"path": pointer, "message": AUTHOR_CODE_MESSAGE})
+        return errors
+
+    def _render(self, workflow, payload, errors, is_edit=False, status=200):
+        """Re-render the builder with validation errors."""
+        return render(
+            self.request,
+            self.template_name,
+            self._page_context(workflow, payload, errors, is_edit=is_edit),
+            status=status,
+        )
+
+    def _page_context(self, workflow, payload, errors, is_edit=False):
+        """Build the template context for a create or edit page."""
+        return {
+            "workflow": workflow,
+            "errors": errors,
+            "builder_config": _builder_config(self.request, payload, workflow=workflow, is_edit=is_edit),
+        }
+
+
+class WorkflowDuplicateView(ObjectPermissionRequiredMixin, View):
+    """Copy a Git-managed workflow into a disabled Nautobot-managed workflow."""
+
+    permission_required = "nautobot_workflow_engine.add_workflow"
+    raise_exception = True
+    queryset = Workflow.objects.all()
+
+    def get_required_permission(self):
+        """Duplicating creates a workflow, so it requires add."""
+        return self.permission_required
+
+    def post(self, request, key):
+        """Create ``{key}-copy`` from a workflow the user can view."""
+        try:
+            source = Workflow.objects.restrict(request.user, "view").get(key=key)
+        except Workflow.DoesNotExist:
+            raise Http404
+        try:
+            saved, _revision = duplicate_workflow(
+                user=request.user,
+                source=source,
+                key=_duplicate_key(source.key),
+                name=f"Copy of {source.name}"[:200],
+            )
+        except ServiceError as exc:
+            raise PermissionDenied(exc.payload.get("detail") or str(exc))
+        messages.success(request, f"Duplicated {source.name} as {saved.name}.")
+        return redirect("plugins:nautobot_workflow_engine:workflow_builder_edit", key=saved.key)
+
+
+def _duplicate_key(source_key):
+    """Return a free ``{key}-copy`` slug, truncated to the field limit."""
+    suffix = "-copy"
+    base = source_key or "workflow"
+    candidate = (base[: 50 - len(suffix)] + suffix)[:50]
+    if not Workflow.objects.filter(key=candidate).exists():
+        return candidate
+    for number in range(2, 100):
+        extra = f"-{number}"
+        trimmed = base[: 50 - len(suffix) - len(extra)]
+        candidate = f"{trimmed}{suffix}{extra}"
+        if not Workflow.objects.filter(key=candidate).exists():
+            return candidate
+    raise ValueError("Could not choose a key for the duplicate workflow.")
+
+
+def _approval_confirmed(request, payload):
+    """Return True when the confirm modal set the hidden approval flag."""
+    if request.POST.get("approval_confirm") == "1":
+        return True
+    return payload.get("approval_confirm") in (1, "1", True)
+
+
+class WorkflowBuilderYamlView(ObjectPermissionRequiredMixin, View):
+    """Return the YAML generated from a builder payload."""
+
+    permission_required = "nautobot_workflow_engine.add_workflow"
+    raise_exception = True
+    queryset = Workflow.objects.all()
+
+    def get_required_permission(self):
+        """Return the permission required to export workflow YAML."""
+        return self.permission_required
+
+    def has_permission(self):
+        """Creators and editors can both preview YAML."""
+        user = self.request.user
+        return user.has_perm("nautobot_workflow_engine.add_workflow") or user.has_perm(
+            "nautobot_workflow_engine.change_workflow"
         )
 
     def post(self, request):
-        """Persist unlocked settings to Constance."""
-        from constance import config
+        """Serialize the posted builder payload to YAML text."""
+        payload, parse_error = _payload_from_request(request)
+        if parse_error:
+            return JsonResponse({"errors": [parse_error]}, status=400)
+        try:
+            definition = definition_from_builder(payload)
+        except BuilderValidationError as exc:
+            return JsonResponse({"errors": exc.errors}, status=400)
 
-        # Pass initial so disabled (file-locked) fields retain their current values.
-        form = WorkflowEngineConfigForm(
-            request.POST,
-            initial=WorkflowEngineConfigForm.initial_from_settings(),
-        )
-        if form.is_valid():
-            for key, value in form.cleaned_settings().items():
-                setattr(config, constance_key(key), value)
-            messages.success(request, "Workflow Engine configuration updated.")
-            return redirect(reverse("plugins:nautobot_workflow_engine:config"))
+        response = HttpResponse(definition_to_yaml(definition), content_type="text/plain; charset=utf-8")
+        if request.GET.get("download") == "1":
+            filename = definition.get("key") or "workflow"
+            response["Content-Disposition"] = f'attachment; filename="{filename}.yaml"'
+        return response
 
+
+class WorkflowEngineSettingsView(AdminRequiredMixin, GenericView):
+    """The Settings page, opened from the gear next to Workflow Engine under Installed Apps."""
+
+    template_name = "nautobot_workflow_engine/settings.html"
+
+    def _render(self, request, form):
         return render(
             request,
             self.template_name,
-            {
-                "form": form,
-                "file_locked_keys": form.file_locked_keys,
-            },
+            {"form": form, "groups": form.grouped_fields(), "file_locked_keys": form.file_locked_keys},
         )
+
+    def get(self, request):
+        """Show every setting with its current value."""
+        return self._render(request, WorkflowEngineSettingsForm())
+
+    def post(self, request):
+        """Save the settings that changed. Settings set in nautobot_config.py stay as they are."""
+        from constance import config
+
+        form = WorkflowEngineSettingsForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, form)
+        changed = form.changed_settings()
+        for key, value in changed.items():
+            setattr(config, constance_key(key), value)
+        if "git_sync_interval_minutes" in changed:
+            apply_git_sync_interval(changed["git_sync_interval_minutes"])
+        if changed:
+            messages.success(request, "Settings saved.")
+        else:
+            messages.info(request, "Nothing changed.")
+        return redirect(reverse("plugins:nautobot_workflow_engine:config"))

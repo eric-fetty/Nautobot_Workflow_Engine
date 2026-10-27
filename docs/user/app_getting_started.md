@@ -58,28 +58,32 @@ ServiceNow configuration are needed for this walkthrough.
 
     ![Git Repository with Workflow Engine content selected](../assets/images/getting-started/01-git-repo-workflow-content.png)
 
-2. Synchronize it and confirm that **Echo Hostname** appears under **Workflows → Launch**.
+2. Synchronize it and confirm that **Echo Hostname** appears on the **Workflows** list.
 
-    ![Available workflows list showing Echo Hostname under Examples](../assets/images/getting-started/02-launch-list-echo-hostname.png)
+    ![The Workflows list, with Run and Edit on each row](../assets/images/builder/01-workflows-list.png)
 
 3. Use an account with permission to view workflows, add workflow runs, and view run results.
-4. Open the workflow, enter `router.example.com`, and choose immediate execution.
+4. Choose **Run** on its row, enter `router.example.com`, leave **When should it run?** on **Run now**, and submit.
 
-    ![Echo Hostname launch form with Execute Immediately selected](../assets/images/getting-started/03-launch-form-immediate.png)
+    ![When should it run? with Run now selected](../assets/images/launch/02-when-should-it-run.png)
 
 5. Open the resulting run and inspect its status, returned hostname, and execution logs.
 
     ![Successful Echo Hostname run detail with status, results, and logs](../assets/images/getting-started/04-run-detail-success.png)
 
 If the workflow does not appear, check the repository synchronization result and the
-configured **Workflow directory** on the
-[Installed Apps configuration page](../admin/install.md#configure-the-app). If a run
+configured **Workflows folder** on the
+[Settings page](../admin/install.md#settings-page). If a run
 remains pending, check worker availability through your normal Nautobot operations
 process.
 
+## Or build it in the builder
+
+The same workflow can be made without writing YAML. Choose **New workflow** on the Workflows list, name it *Echo Hostname*, add a text input *Hostname*, add a **Nautobot script** step that runs `scripts/echo_hostname.py` with `hostname` **From an input**, check it with [Preview run](preview_run.md), and publish. See [The workflow builder](builder.md).
+
 ## Next Steps
 
-Use the [authoring reference](app_use_cases.md) for dependent inputs and multiple
+Use the [builder guide](builder.md) or the [YAML reference](app_use_cases.md) for dependent inputs and multiple
 actions, or the [integration guide](external_interactions.md) for optional services.
 Review [data handling](../admin/security.md) before submitting real operational data.
 

@@ -2,117 +2,92 @@
 
 # pylint: disable=protected-access
 
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
+from django.test import TestCase
+from nautobot.extras.models import GitRepository
+
 from nautobot_workflow_engine import datasources
+from nautobot_workflow_engine.models import MANAGED_BY_GIT, MANAGED_BY_NAUTOBOT, WORKFLOWS_CONTENT, Workflow
 
 
-class DisableWorkflowsMissingFromRepoTestCase(unittest.TestCase):
-    """Unit tests for orphan workflow disable helper."""
+class OrphanCleanupTestCase(TestCase):
+    """Orphan cleanup only ever switches off Git-managed workflows (merged from develop 28d472a)."""
 
-    def test_disables_enabled_workflows_not_in_synced_keys(self):
-        orphan = SimpleNamespace(
-            pk="wf-1",
-            name="Orphan",
-            key="orphan",
+    def setUp(self):
+        self.repo = GitRepository.objects.create(
+            name="Live", remote_url="https://example.com/flows.git", provided_contents=[WORKFLOWS_CONTENT]
+        )
+        self.logs = []
+        self.job_result = SimpleNamespace(log=lambda *args, **kwargs: self.logs.append(kwargs.get("message", "")))
+
+    def _workflow(self, key, managed_by=MANAGED_BY_GIT, repo="live"):
+        return Workflow.objects.create(
+            key=key,
+            name=key,
             enabled=True,
-            source_repo_id="stale-repo",
-            actions=SimpleNamespace(count=MagicMock(return_value=1)),
-            inputs=SimpleNamespace(count=MagicMock(return_value=0)),
-            save=MagicMock(),
+            managed_by=managed_by,
+            source_repo=self.repo if repo == "live" else repo,
+            raw_definition={"key": key, "name": key},
         )
-        # strays query + orphan queryset both start from filter(enabled=True).exclude(...)
-        stray_qs = MagicMock()
-        stray_qs.exclude.return_value = MagicMock(only=MagicMock(return_value=[orphan]))
-        orphan_qs = MagicMock()
-        orphan_qs.exclude.return_value = [orphan]
 
-        def filter_side_effect(**kwargs):
-            self.assertEqual(kwargs, {"enabled": True})
-            # First call is strays diagnostic; second is orphan queryset
-            if filter_side_effect.calls == 0:
-                filter_side_effect.calls += 1
-                return stray_qs
-            return orphan_qs
+    def _sync(self, files):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow_dir = Path(tmp) / "workflows"
+            workflow_dir.mkdir()
+            for name, text in files.items():
+                (workflow_dir / name).write_text(text, encoding="utf-8")
+            with patch.object(GitRepository, "filesystem_path", property(lambda _self: tmp)):
+                datasources.sync_workflows_from_repo(self.repo, self.job_result, delete=False)
 
-        filter_side_effect.calls = 0
-        workflow_manager = SimpleNamespace(filter=MagicMock(side_effect=filter_side_effect))
-        job_result = SimpleNamespace(log=MagicMock())
-        repository_record = SimpleNamespace(id=1, pk=1, remote_url="https://example.com/workflows.git")
-        reconcile = MagicMock()
-        run_qs = SimpleNamespace(count=MagicMock(return_value=2))
+    def _enabled(self, workflow):
+        workflow.refresh_from_db()
+        return workflow.enabled
 
-        with patch.object(datasources, "Workflow", SimpleNamespace(objects=workflow_manager)), patch.object(
-            datasources, "WorkflowRun", SimpleNamespace(objects=SimpleNamespace(filter=MagicMock(return_value=run_qs)))
-        ), patch.object(datasources, "_other_workflow_repo_ids_to_protect", return_value=[]), patch.object(
-            datasources, "reconcile_approval_definition", reconcile
-        ):
-            disabled = datasources._disable_workflows_missing_from_repo(
-                repository_record, {"still-present"}, job_result
-            )
+    def test_removed_git_workflow_is_switched_off(self):
+        gone = self._workflow("gone")
+        self._sync({})
+        self.assertFalse(self._enabled(gone))
+        self.assertTrue(any("Disabling workflow 'gone'" in message for message in self.logs))
+        self.assertTrue(any("Checking for removed workflows: 1" in message for message in self.logs))
 
-        self.assertEqual(disabled, 1)
-        self.assertFalse(orphan.enabled)
-        orphan.save.assert_called_once_with(update_fields=["enabled"])
-        reconcile.assert_called_once_with(orphan, job_result=job_result)
-        stray_qs.exclude.assert_called_once_with(key__in={"still-present"})
-        orphan_qs.exclude.assert_called_once_with(key__in={"still-present"})
+    def test_ui_built_and_published_workflows_are_never_switched_off(self):
+        db_only = self._workflow("built-in-ui", MANAGED_BY_NAUTOBOT, repo=None)
+        published = self._workflow("published-from-ui", MANAGED_BY_NAUTOBOT)
+        self._sync({})
+        self.assertTrue(self._enabled(db_only))
+        self.assertTrue(self._enabled(published))
 
-    def test_orphan_queryset_disables_stale_source_repo_links(self):
-        """Workflows linked to a non-protected (stale/duplicate) repo are orphans."""
-        repository_record = SimpleNamespace(pk=42, remote_url="https://example.com/demo.git")
-        enabled_qs = MagicMock()
-        after_exclude_keys = MagicMock()
-        enabled_qs.exclude.return_value = after_exclude_keys
-        workflow_manager = SimpleNamespace(filter=MagicMock(return_value=enabled_qs))
-
-        with patch.object(datasources, "Workflow", SimpleNamespace(objects=workflow_manager)), patch.object(
-            datasources, "_other_workflow_repo_ids_to_protect", return_value=[]
-        ):
-            result = datasources._orphan_workflow_queryset(repository_record, {"echo-hostname"})
-
-        workflow_manager.filter.assert_called_once_with(enabled=True)
-        enabled_qs.exclude.assert_called_once_with(key__in={"echo-hostname"})
-        after_exclude_keys.exclude.assert_not_called()
-        self.assertIs(result, after_exclude_keys)
-
-    def test_orphan_queryset_protects_other_workflow_repos(self):
-        """Do not disable workflows owned by a different active workflow-providing repo."""
-        repository_record = SimpleNamespace(pk=42, remote_url="https://example.com/demo.git")
-        enabled_qs = MagicMock()
-        after_exclude_keys = MagicMock()
-        enabled_qs.exclude.return_value = after_exclude_keys
-        workflow_manager = SimpleNamespace(filter=MagicMock(return_value=enabled_qs))
-
-        with patch.object(datasources, "Workflow", SimpleNamespace(objects=workflow_manager)), patch.object(
-            datasources, "_other_workflow_repo_ids_to_protect", return_value=["other-repo-pk"]
-        ):
-            datasources._orphan_workflow_queryset(repository_record, {"echo-hostname"})
-
-        after_exclude_keys.exclude.assert_called_once_with(source_repo_id__in=["other-repo-pk"])
-
-    def test_same_remote_url_repo_is_not_protected(self):
-        current = SimpleNamespace(pk=1, remote_url="https://github.com/eric-fetty/Nautobot-Demo-Workflows.git")
-        duplicate = SimpleNamespace(
-            pk=2,
-            remote_url="https://github.com/eric-fetty/Nautobot-Demo-Workflows.git",
-            provided_contents=[datasources.WORKFLOW_CONTENT_IDENTIFIER],
+    def test_stale_links_are_cleaned_up(self):
+        duplicate = GitRepository.objects.create(
+            name="Live (old copy)", remote_url=self.repo.remote_url, provided_contents=[WORKFLOWS_CONTENT]
         )
-        other = SimpleNamespace(
-            pk=3,
-            remote_url="https://example.com/other.git",
-            provided_contents=[datasources.WORKFLOW_CONTENT_IDENTIFIER],
+        retired = GitRepository.objects.create(name="Retired", remote_url="https://example.com/old.git")
+        from_duplicate = self._workflow("from-duplicate", repo=duplicate)
+        from_retired = self._workflow("from-retired", repo=retired)
+        unlinked = self._workflow("unlinked", repo=None)
+        self._sync({})
+        self.assertFalse(self._enabled(from_duplicate))
+        self.assertFalse(self._enabled(from_retired))
+        self.assertFalse(self._enabled(unlinked))
+
+    def test_another_live_repository_keeps_its_workflows(self):
+        other = GitRepository.objects.create(
+            name="Other", remote_url="https://example.com/other.git", provided_contents=[WORKFLOWS_CONTENT]
         )
-        qs = MagicMock()
-        qs.exclude.return_value = qs
-        qs.only.return_value = [duplicate, other]
+        theirs = self._workflow("theirs", repo=other)
+        self._sync({})
+        self.assertTrue(self._enabled(theirs))
 
-        with patch.object(datasources, "GitRepository", SimpleNamespace(objects=qs)):
-            protected = datasources._other_workflow_repo_ids_to_protect(current)
-
-        self.assertEqual(protected, [3])
+    def test_a_broken_file_does_not_switch_its_workflow_off(self):
+        kept = self._workflow("kept")
+        self._sync({"kept.yaml": "key: kept\nname: Kept\ninputs: not-a-list\n"})
+        self.assertTrue(self._enabled(kept))
+        self.assertTrue(any("E-NWE-102" in message for message in self.logs))
 
 
 class SyncDisablesRemovedWorkflowsTestCase(unittest.TestCase):

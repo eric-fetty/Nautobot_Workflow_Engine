@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 @app.task
 def poll_awx_job(awx_run_pk: int):
     """Poll AWX job status until completion and update workflow run status."""
-    poll_seconds = int(get_setting("awx_poll_seconds", fallback=5))
+    poll_seconds = int(get_setting("awx_poll_seconds", 5) or 5)
     ar = AwxRun.objects.select_related("workflow_run").get(pk=awx_run_pk)
-    integ = ExternalIntegration.objects.get(name=get_setting("awx_external_integration_name", fallback="AWX"))
+    integ = ExternalIntegration.objects.get(name=get_setting("awx_external_integration_name", "AWX"))
     url = integ.remote_url.rstrip("/")
     verify = integ.verify_ssl
     username, password = parse_awx_auth(integ)

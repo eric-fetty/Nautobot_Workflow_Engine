@@ -1,0 +1,1 @@
+New scripts from the builder no longer carry an ENABLED switch. A new script is a starter that print()s each parameter's name and value, one line per parameter, into the run's log, under a "# Replace this with your logic." comment. Existing scripts run exactly as before.

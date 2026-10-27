@@ -1,4 +1,4 @@
-# Reporting Dashboard
+# Dashboard and time saved
 
 The reporting dashboard summarizes how your workflows are being used. It is
 permission-aware: every figure is computed only over the workflow runs the viewer
@@ -52,8 +52,14 @@ runs they can see. See [granting permissions](../admin/install.md#permissions).
 
 ## Time Savings
 
-Set `manual_duration_minutes` on a workflow as an **estimate** of how long the
-task takes to perform manually. It is not a measurement of actual execution time.
+Set **Manual effort per run (minutes)** on the workflow's **Details** step in the
+[builder](builder.md#details) (`manual_duration_minutes` in YAML) as an **estimate** of
+how long the task takes by hand. It is not a measurement of actual execution time. The
+builder shows a worked example under the field, and the launch page shows it under
+**About** as *By hand it takes*.
+
+The Workflows list shows time saved in the last 30 days in its summary cards, and the
+launch page's **What happens** ends with the effort the dashboard will record.
 
 - **Total time savings** is calculated over the selected window's **successful**
   runs only. For each successful run it adds the workflow's
@@ -64,7 +70,8 @@ task takes to perform manually. It is not a measurement of actual execution time
   12 months.
 
 Because only `success` runs count, a workflow with no successful runs in the window
-contributes nothing to the savings figures. Leave `manual_duration_minutes` unset
-for a workflow to exclude it from time-savings reporting.
+contributes nothing to the savings figures. Leave the field empty
+for a workflow to exclude it from time-savings reporting. When no workflow in the window
+has it set, the dashboard says so and points to the Details step.
 
 ![Time savings summary and monthly savings chart](../assets/images/reporting/03-dashboard-time-savings.png)

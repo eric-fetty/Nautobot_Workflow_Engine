@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if workflow %}Edit {{ workflow.name }}{% else %}New workflow{% endif %}{% endblock title %}
+{% block page_title %}{% endblock page_title %}
+{% block breadcrumbs_wrapper %}{% endblock breadcrumbs_wrapper %}
+
+{% block content %}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v33">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_builder.css' %}?v46">
+    <div id="builder-app" class="nwe-studio nwe-ui">
+        {% if errors %}
+            <div class="alert alert-danger" role="alert">
+                {% for error in errors %}
+                    <div>{{ error.message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <header id="studio-header" class="nwe-head"></header>
+        <div id="studio-banner"></div>
+        <div class="nwe-panes">
+            <nav id="studio-stepper" aria-label="Build your workflow"></nav>
+            <main id="studio-editor"></main>
+            <aside id="studio-preview"></aside>
+        </div>
+    </div>
+
+    <div class="modal fade" id="builder-confirm-dialog" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="builder-confirm-title">Confirm</h2>
+                </div>
+                <div class="modal-body" id="builder-confirm-body"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" id="builder-confirm-cancel">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="builder-confirm-ok">Discard draft</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="builder-versions-dialog" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5">Versions</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="builder-versions-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="offcanvas offcanvas-end nwe-ui nwe-preview-run" tabindex="-1" id="builder-test-run-panel" aria-labelledby="builder-test-run-title">
+        <div class="offcanvas-header">
+            <div>
+                <h2 class="offcanvas-title h5" id="builder-test-run-title">Preview run</h2>
+                <div class="nwe-muted small">Nothing is executed. No scripts or AWX jobs start and no run is recorded.</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div id="test-run-results" aria-live="polite"></div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed end-0 p-3 nwe-studio-toast">
+        <div class="toast" id="builder-toast" role="status" aria-live="polite">
+            <div class="toast-body" id="builder-toast-text"></div>
+        </div>
+    </div>
+    {{ builder_config|json_script:"workflow-builder-config" }}
+{% endblock content %}
+
+{% block javascript %}
+    {{ block.super }}
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/builder/studio.js' %}?v46"></script>
+{% endblock javascript %}

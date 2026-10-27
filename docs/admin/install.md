@@ -35,8 +35,10 @@ named `local_requirements.txt` (if not already existing) in the Nautobot root di
 echo nautobot-workflow-engine >> local_requirements.txt
 ```
 
-Once installed, enable the app in your Nautobot configuration. Add
-`nautobot_workflow_engine` to the existing `PLUGINS` list:
+Once installed, enable the app in your Nautobot configuration by adding
+`nautobot_workflow_engine` to the existing `PLUGINS` list. No `PLUGINS_CONFIG` entry is
+needed: every setting has a sensible default and can be changed later on the app's
+[Settings page](#settings-page).
 
 ```python
 PLUGINS = [
@@ -61,59 +63,99 @@ sudo systemctl restart nautobot nautobot-worker nautobot-scheduler
 Apply the same package and `PLUGINS` entry to the web application, workers, and
 scheduler before synchronizing workflows.
 
-## Configure the App
+## Settings Page
 
-Staff and superuser accounts can manage all app settings from the UI:
+Open **Apps → Installed Apps** and choose the gear icon next to **Workflow Engine**
+(or go to `/plugins/workflow-engine/settings/`). The page is for Nautobot
+administrators (superusers) and shows every setting, grouped as **Repository folders**,
+**Builder and run form**, **Publishing to Git** and **AWX**. Choose **Save settings**;
+changes take effect straight away on the web servers and workers, with no restart.
 
-1. Open **Apps → Installed Apps** (or **Extensibility → Installed Apps**, depending on
-   your Nautobot navigation).
-2. Find **Workflow Engine** and click the gear (**Configure**) icon.
-3. Update the settings and click **Update Configuration**.
+![The Workflow Engine settings page](../assets/images/admin/settings-page.png)
 
-Defaults apply until you change them. Credentials for AWX and ServiceNow remain on
-Nautobot External Integrations and Secrets Groups; they are not stored in app
-settings.
+Changing **Check repositories every (minutes)** also updates the
+*Workflow Engine Git sync* schedule.
 
-## Configuration Reference
-
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `workflow_dir` | `workflows` | Directory containing workflow YAML in the workflow source. |
-| `filters_dir` | `filters` | Directory containing repository-backed Jinja filters. |
-| `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
-| `awx_poll_seconds` | `5` | Polling interval in seconds for AWX job monitoring. |
-| `show_disabled` | `False` | Display disabled workflows in the workflow list. |
-| `show_add_new_item` | `[]` | Object types (`app_label.model`) that offer the create-new-item choice on object inputs. Select them in the configuration UI multi-select. |
-
-The create-new-item choice passes `__create__` to the workflow. Its action code must
-handle that value; choosing it does not create an object automatically.
-
-### Optional file overrides
-
-You may still set any of the keys above under `PLUGINS_CONFIG` in
-`nautobot_config.py`. A key present in the file **overrides** the UI value and locks
-that field on the configuration page until you remove it from the file:
+A setting can still be pinned in `nautobot_config.py` instead, for example to keep it
+the same across environments. A key set there wins, and the Settings page shows it
+greyed out with *Set in nautobot_config.py, so it can't be changed here.* Remove the key
+from the file to manage it on the page again.
 
 ```python
 PLUGINS_CONFIG = {
     "nautobot_workflow_engine": {
-        # Example: force a poll interval at deploy time
-        "awx_poll_seconds": 5,
+        "scripts_dir": "automation/scripts",  # locked on the Settings page
     },
 }
 ```
 
-Omit keys (or leave `PLUGINS_CONFIG["nautobot_workflow_engine"]` empty) to manage them
-from the Installed Apps configuration page.
+Upgrading from a version that used `PLUGINS_CONFIG` needs nothing: keys that are still in
+the file keep working and show as locked. To move one to the page, note its value,
+remove it from the file, restart, and enter it on the page.
+
+Credentials for AWX and ServiceNow stay on Nautobot External Integrations and Secrets
+Groups; they are not app settings.
+
+## Configuration Reference
+
+| Setting (on the page) | Key | Default | Purpose |
+| --- | --- | --- | --- |
+| Workflows folder | `workflow_dir` | `workflows` | Folder in each repository that holds the workflow files. |
+| Filters folder | `filters_dir` | `filters` | Folder in each repository that holds custom template filters. |
+| Scripts folder | `scripts_dir` | `scripts` | Folder that workflow steps may run scripts from. **New script…** in the builder writes new scripts here. |
+| Show switched-off workflows | `show_disabled` | Off | List switched-off workflows as well. |
+| Offer “Create new” for | `show_add_new_item` | Environment-derived | Object types whose pickers on the run form start with a “Create new” choice. Defaults to `SHOW_ADD_NEW_ITEM` until set. |
+| Object types the builder offers | `builder_model_allowlist` | `dcim.*`, `ipam.*`, `circuits.*`, `tenancy.*`, `virtualization.*`, `cloud.*`, `wireless.*`, `vpn.*`, `load_balancers.*`, and a few `extras` models | One per line, `app.model` or `app.*`. Empty means the default set. |
+| Committer name | `git_committer_name` | `Nautobot Workflow Engine` | Committer name on publish commits. The author is the person who published. |
+| Committer email | `git_committer_email` | `nautobot-workflow-engine@localhost` | Committer email on publish commits. |
+| Author email domain | `git_author_email_domain` | `users.noreply.nautobot.local` | Domain for the author email of a user who has no email address. |
+| Check repositories every (minutes) | `git_sync_interval_minutes` | `5` | How often **Workflow Git Maintenance** checks repositories and retries failed pushes. |
+| Give up reaching a repository after (seconds) | `git_remote_timeout_seconds` | `10` | Timeout for the Git check the builder does when it opens. |
+| Longest a publish may take (seconds) | `git_push_lock_timeout` | `300` | Seconds one publish may hold a repository before another can start. |
+| Retry a waiting publish after (minutes) | `git_push_retry_backoff_minutes` | `1, 5, 15, 60` | Wait before each automatic retry of a failed push. The last value repeats. |
+| AWX connection | `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
+| Check AWX jobs every (seconds) | `awx_poll_seconds` | `5` | Polling interval for AWX job monitoring. |
+
+The create-new-item choice passes `__create__` to the workflow. Its action code must
+handle that value; choosing it does not create an object automatically.
 
 ## Configure Workflow Content
 
 Configure a Nautobot Git Repository for a trusted workflow source and select its
 Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
-their declared paths, and reusable helpers conventionally under `scripts/lib/`.
+`scripts_dir`, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
 
-![Git Repository content types including Workflow Engine](../assets/images/admin/01-git-content-types.png)
+### Publishing from the builder to Git
+
+To let the builder publish workflows (and create new scripts) in a repository:
+
+1. Give the repository a **secrets group** with a secret of access type **HTTP(S)** and
+   secret type **Token**. A token on its own works. Add an **HTTP(S)** / **Username**
+   secret too if the Git server needs a username. These are the same credentials
+   Nautobot core and the Golden Config app use for repositories.
+2. Under **Provides**, tick **workflows**. Any repository that provides workflows and has
+   a token can be published to; there is no separate publishing option.
+3. Use an `https://` remote URL, and give the token's account push access to the
+   repository's branch. Check branch protection rules.
+4. Sync the repository.
+
+![Git Repository Provides with workflows ticked](../assets/images/publishing/03-git-repository-provides.png)
+
+If something is missing, the builder tells editors exactly what, and **Publish changes**
+stays off. Every publish error and its fix is listed in
+[When publishing fails](../user/publishing.md#when-publishing-fails). The full error, with
+the token removed, is written to the Nautobot server log and to the log of the
+**Publish Workflows to Git** job.
+
+### Scripts created in the builder
+
+People with the **Write scripts** permission can commit a new script from the builder
+(see [New scripts from the builder](../user/placeholder_scripts.md)). The builder only
+parses the code; it never imports or runs it. Each file is committed under
+`scripts_dir` as a starter that prints each value it receives. It needs no extra flag
+and runs like any other script once a workflow step uses it, so review it like any
+other code change.
 
 ### Optional: Nautobot approval for workflows (3.2+)
 
@@ -132,17 +174,20 @@ Use HTTPS and verified certificates for remote services.
 
 After you run `nautobot-server post_upgrade`, Nautobot creates Job records for
 this app. Nautobot starts most app jobs **disabled**. This app then turns on the
-two jobs it needs so scheduled and approval-gated runs work without extra clicks.
+jobs it needs so scheduled runs, approval-gated runs and Git publishing work without
+extra clicks.
 
 ### What the app enables for you
 
-These two jobs are **enabled automatically** on every `post_upgrade` (and whenever
+These jobs are **enabled automatically** on every `post_upgrade` (and whenever
 the database-ready signal runs for this app):
 
 | Job | Visible | Enabled by default? | Purpose |
 | --- | --- | --- | --- |
 | Execute Scheduled Workflow | Hidden | **Yes** (app turns it on) | Runs a pre-created workflow run at its scheduled time. Required for deferred, approval-gated, and ServiceNow-scheduled runs. |
 | Clean Orphaned Workflow Runs | Hidden | **Yes** (app turns it on) | Deletes workflow runs stuck in **Scheduled** or **Pending** with no matching scheduled job. |
+| Publish Workflows to Git | Hidden | **Yes** (app turns it on) | Pushes published workflows and builder-created scripts to their repository. Its log has the full error when a push fails. |
+| Workflow Git Maintenance | Hidden | **Yes** (app turns it on and schedules it every `git_sync_interval_minutes`) | Syncs repositories that changed in Git and retries failed pushes. |
 
 You do **not** need to find or enable these jobs in the UI for basic scheduling to
 work. They are hidden on purpose because the engine triggers them; you still do
@@ -198,16 +243,58 @@ scheduled job are left untouched.
 
 | Permission | Level | Purpose |
 | --- | --- | --- |
-| `nautobot_workflow_engine.view_workflow` | Object | Browse (and launch) specific workflows. |
-| `nautobot_workflow_engine.add_workflowrun` | Model | Grant the ability to launch runs at all. |
+| `nautobot_workflow_engine.view_workflow` | Object | See specific workflows and their launch page. |
+| `nautobot_workflow_engine.run_workflow` | Object | Start runs of specific workflows. Additional action `run`. |
+| `nautobot_workflow_engine.cancel_workflow` | Object | Cancel Scheduled or Pending Approval runs of specific workflows, whoever started them. Additional action `cancel`. |
 | `nautobot_workflow_engine.view_workflowrun` | Object | View specific run records and their reports. |
-| `nautobot_workflow_engine.change_workflowrun` | Object | Cancel a specific run while it is scheduled. |
+| `nautobot_workflow_engine.add_workflow` | Object | Create workflows in the builder. |
+| `nautobot_workflow_engine.change_workflow` | Object | Edit drafts (templates, conditions, script choices and the YAML view included) and use Preview run. |
+| `nautobot_workflow_engine.publish_workflow` | Object | Publish, switch Enabled, retry a push. Additional action `publish`. |
+| `nautobot_workflow_engine.write_script_workflow` | Object | Create scripts from the builder. Additional action `write_script`. |
 
-`view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
-permissions: use a Nautobot object permission with a constraint to scope them to a
-subset of objects. `add_workflowrun` is a **model-level** capability: a user who
-holds it for any workflow can launch runs, so pair it with a scoped
-`view_workflow` to control *which* workflows they may actually run.
+`run`, `cancel`, `publish` and `write_script` are custom actions on the
+**nautobot_workflow_engine | workflow** object type. Older permissions with
+`add_workflowrun` (plus `view_workflow`) still start runs, and `change_workflowrun`
+still cancels them. What each one allows in the builder is described in
+[Permissions](../user/permissions.md).
+
+### Ready-made permissions
+
+`nautobot-server post_upgrade` (or `migrate`) creates one object permission per role,
+named **Workflow Engine: Run workflows** (workflow: view, run, cancel), **View runs**
+(workflow run: view), **Build workflows** (workflow: view, add, change), **Publish
+workflows** (workflow: publish) and **Write scripts** (workflow: write_script), each with
+the right object type, actions and a description. They are assigned to nobody, so
+installing the app gives nobody new access. Open **Admin → Users → Permissions**, pick
+one, and add users or groups.
+
+A permission is only created when none with that name exists, so your edits, constraints
+and assignments survive every upgrade. Deleting one brings it back, unassigned, on the
+next upgrade; rename it to retire it.
+
+There is no approve permission. Approvers are the approver groups on the stages in
+**Approvals → Workflow Definitions**; the app never checks a permission for approving.
+
+Earlier builds also created **Workflow Engine: Author templates and scripts** (now part
+of **Build workflows**), **Workflow Engine: Approve runs**, **Workflow Engine: View
+workflows** and **Workflow Engine: Cancel runs** (both now part of **Run workflows**).
+The upgrade deletes each one only if it still has its original description, actions and
+object types, no constraints, and no users or groups. Otherwise it stays and the
+upgrade logs a warning naming it; delete it yourself when you're ready. A kept View
+workflows or Cancel runs entry keeps working.
+
+The upgrade also updates an unchanged **Run workflows** from the old shape (workflow
+run: add) to the new one (workflow: view, run, cancel), keeping its users and groups. It
+leaves it alone and logs a warning if an admin changed it, or if anyone on it also holds
+a constrained view of workflows, since the new entry would widen what they can see and
+run. Give those people a constrained copy of the new Run workflows instead.
+
+All of these are **object-level**: add a constraint to scope them to a subset of
+objects. Because **Run workflows** lists only the *Workflow* object type, one
+constraint scopes seeing, running and cancelling together. It can't also list
+*Workflow run*: Nautobot applies every action to every listed type, which would grant
+building workflows and every run's details. Cancelling happens on the run's page, so
+it also needs **View runs** for that run.
 
 ### Scoping by Name, Category, or Entirely
 
@@ -231,13 +318,10 @@ Grant the **Networking** team access to launch workflows in the
 `Networking` category and nothing else:
 
 1. Create a Nautobot group, e.g. `networking-operators`.
-2. Grant the group `add_workflowrun` (model permission, no constraint).
-3. Create an object permission for `view_workflow` with the constraint
-   `{"category": "Networking"}` and assign it to the group.
+2. Copy **Workflow Engine: Run workflows**, add the constraint
+   `{"category": "Networking"}`, and assign the copy to the group.
 
-Members of the group now see only `Networking` workflows and can launch only those.
-The model-level `add_workflowrun` gives them the ability to launch; the constrained
-`view_workflow` limits the scope to their category.
+Members of the group now see, launch and cancel only `Networking` workflows.
 
 ### Example: A Manager Who Reads Only Their Team's Reports
 
@@ -255,9 +339,8 @@ permission for, so a manager constrained to `workflow__category = Networking` se
 only that category's runs in run history, status summaries, success rates, and
 time-savings figures. Runs outside the constraint are excluded from every report.
 
-To also let the manager *run* the workflows (not just view reports), add
-`add_workflowrun` (model) and a constrained `view_workflow`
-(`{"category": "Networking"}`) as in the previous example.
+To also let the manager *run* the workflows (not just view reports), give them the
+constrained copy of **Run workflows** from the previous example.
 
 ### Verifying and Revising
 

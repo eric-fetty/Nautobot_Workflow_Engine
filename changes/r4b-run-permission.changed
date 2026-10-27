@@ -1,0 +1,1 @@
+Folded View workflows and Cancel runs into Run workflows (workflow: view, run, cancel). Upgrading updates an unchanged Run workflows in place and removes unchanged, unassigned View workflows and Cancel runs entries, with a warning for anything it leaves.

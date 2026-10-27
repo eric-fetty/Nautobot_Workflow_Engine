@@ -1,0 +1,1 @@
+Installing or upgrading the app now creates ready-made object permissions (Run workflows, View runs, Build workflows, Publish workflows, Write scripts). They are assigned to nobody; an admin only adds users or groups. Existing permissions with those names are never changed.

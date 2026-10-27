@@ -122,20 +122,26 @@ class ReconcileApprovalDefinitionTestCase(unittest.TestCase):
         self.assertIsNone(result)
         existing.delete.assert_called_once()
 
-    def test_reconcile_deletes_when_workflow_disabled(self):
-        workflow = SimpleNamespace(key="sample", approval_required=True, enabled=False)
+    def test_reconcile_keeps_definition_when_workflow_disabled(self):
+        workflow = SimpleNamespace(key="sample", approval_required=True, enabled=False, approval_stage_snapshot=None)
         existing = MagicMock()
         existing.delete = MagicMock()
+        existing.model_constraints = {}
+        existing.model_content_type_id = 7
 
         mock_awd = MagicMock()
         mock_awd.objects.filter.return_value.first.return_value = existing
 
         with patch.object(approvals, "nautobot_supports_approval_workflows", return_value=True), patch(
             "nautobot.extras.models.ApprovalWorkflowDefinition", mock_awd
+        ), patch("nautobot.extras.models.ScheduledJob", MagicMock()), patch(
+            "nautobot_workflow_engine.approvals.ContentType.objects.get_for_model",
+            return_value=SimpleNamespace(id=7),
         ):
-            approvals.reconcile_approval_definition(workflow)
+            result = approvals.reconcile_approval_definition(workflow)
 
-        existing.delete.assert_called_once()
+        existing.delete.assert_not_called()
+        self.assertIs(result, existing)
 
     def test_delete_logs_warning_when_blocked(self):
         workflow = SimpleNamespace(key="sample")
@@ -151,6 +157,84 @@ class ReconcileApprovalDefinitionTestCase(unittest.TestCase):
 
         self.assertFalse(deleted)
         self.assertIn("Unable to delete", job_result.log.call_args.kwargs["message"])
+
+    def test_turning_approval_off_snapshots_stages_and_blocks_pending_runs(self):
+        class ApprovalWorkflowDefinition:  # noqa: D106
+            def __init__(self):
+                self.deleted = False
+                self.approval_workflows = SimpleNamespace(filter=lambda **_kwargs: SimpleNamespace(count=lambda: 2))
+
+            def delete(self):
+                self.deleted = True
+
+        definition = ApprovalWorkflowDefinition()
+        workflow = SimpleNamespace(key="sample", approval_required=False, enabled=True, approval_stage_snapshot=None)
+
+        with patch.object(approvals, "nautobot_supports_approval_workflows", return_value=True), patch.object(
+            approvals, "_get_approval_definition", return_value=definition
+        ):
+            with self.assertRaises(approvals.ApprovalRemovalError) as raised:
+                approvals.reconcile_approval_definition(workflow)
+
+        self.assertIn("2 runs are waiting for approval", str(raised.exception))
+        self.assertFalse(definition.deleted)
+
+    def test_snapshot_and_restore_round_trip_without_approval_models(self):
+        class ApprovalWorkflowDefinition:  # noqa: D106
+            pass
+
+        stages = [
+            SimpleNamespace(
+                sequence=1,
+                name="Network leads",
+                min_approvers=1,
+                approver_group_id=4,
+                approver_group=SimpleNamespace(name="Network leads"),
+                denial_message="no",
+            ),
+            SimpleNamespace(
+                sequence=2,
+                name="Change board",
+                min_approvers=2,
+                approver_group_id=8,
+                approver_group=SimpleNamespace(name="Change board"),
+                denial_message="",
+            ),
+        ]
+
+        class Related:
+            def all(self):
+                return self
+
+            def order_by(self, *_args):
+                return stages
+
+        definition = ApprovalWorkflowDefinition()
+        definition.approval_workflow_stage_definitions = Related()
+        workflow = SimpleNamespace(key="sample", approval_stage_snapshot=None, save=MagicMock())
+        approvals._snapshot_stages(workflow, definition)
+        self.assertEqual(
+            [stage["name"] for stage in workflow.approval_stage_snapshot],
+            ["Network leads", "Change board"],
+        )
+
+        group = SimpleNamespace(pk=4, name="Network leads")
+        stage_model = MagicMock()
+
+        def group_filter(**kwargs):
+            found = group if kwargs.get("pk") == 4 or kwargs.get("name") == "Network leads" else None
+            return SimpleNamespace(first=lambda: found)
+
+        with patch("django.contrib.auth.models.Group") as group_model, patch(
+            "nautobot.extras.models.ApprovalWorkflowStageDefinition", stage_model, create=True
+        ):
+            group_model.objects.filter.side_effect = group_filter
+            approvals._restore_stages(workflow, definition)
+
+        self.assertIsNone(workflow.approval_stage_snapshot)
+        self.assertEqual(stage_model.objects.update_or_create.call_count, 1)
+        restored_name = stage_model.objects.update_or_create.call_args.kwargs["defaults"]["name"]
+        self.assertEqual(restored_name, "Network leads")
 
 
 class SyncApprovalRequiredTestCase(unittest.TestCase):

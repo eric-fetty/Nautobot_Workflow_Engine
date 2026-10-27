@@ -10,8 +10,9 @@ Runs in **Scheduled** or **Pending Approval** status can be canceled from the ru
 
 ## What permission is required to cancel?
 
-Users need **Workflow Run → Can Change** (`change_workflowrun`) to cancel scheduled or
-pending-approval runs.
+**Run workflows** for that workflow (its `cancel` action), plus **View runs** to open the
+run's page. It covers any Scheduled or Pending Approval run of the workflow, not only
+your own. An older `change_workflowrun` permission still works.
 
 ## Why is my approval-required workflow stuck in Pending Approval?
 

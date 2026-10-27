@@ -1,6 +1,6 @@
-# Workflow Authoring Reference
+# YAML reference
 
-This document describes common use-cases and scenarios for this App.
+This page describes the workflow YAML that the builder writes and Git sync reads. Every setting here can be made in the [builder](builder.md); the YAML view and files in Git use this format. The full field list is in the [schema reference](workflow_schema.md).
 
 ## General Usage
 
@@ -34,6 +34,10 @@ actions:
       param: "{{ inputs.field_key }}"
 ```
 
+## The builder writes the same YAML
+
+The builder pages describe each setting in the form editor: [inputs](inputs.md), [steps and parameters](steps.md), [conditions](conditions.md), [schedule and approval](schedule_approval.md), [Preview run](preview_run.md), and [publishing](publishing.md). The YAML view of the builder shows the draft in this format, and a published version is written to Git in it.
+
 ## Requiring Nautobot Approval (3.2+)
 
 On Nautobot 3.2 and later, set `approval_required: true` on a workflow to integrate with
@@ -57,8 +61,8 @@ stages, approval requests stay pending indefinitely.
 
 | Execution mode | With `approval_required: true` on Nautobot 3.2+ | Without approval (or older Nautobot) |
 | --- | --- | --- |
-| Execute Immediately | Creates a near-term one-off scheduled job so the run enters the approval pipeline. Status shows **Pending Approval** until approved. | Runs via the normal Celery immediate path. |
-| Schedule for Later / ServiceNow | Already creates a `ScheduledJob`; the scoped definition applies automatically. | Unchanged. |
+| Run now | Creates a near-term one-off scheduled job so the run enters the approval pipeline. Status shows **Pending Approval** until approved. | Runs via the normal Celery immediate path. |
+| Schedule for later / In the change window | Already creates a `ScheduledJob`; the scoped definition applies automatically. | Unchanged. |
 
 After approval, Nautobot enables the scheduled job and the hidden **Execute Scheduled Workflow**
 job runs the workflow. Approvers use **Approvals → Approval Dashboard**. Denying or canceling
@@ -187,7 +191,7 @@ A searchable dropdown bound to a Nautobot model. Returns the selected object's p
     query: {"location_id": "{{ inputs.location.id }}"}
 ```
 
-![Launch form with searchable object and multi-object fields](../assets/images/authoring/01-launch-form-object-fields.png)
+![Launch form with object fields that wait for the location](../assets/images/launch/01-launch-form.png)
 
 ### Multi-Object
 
@@ -220,7 +224,7 @@ A dynamic list of string values. Users can add and remove items.
 
 ### List of Dictionaries (listdict)
 
-A dynamic table where each row represents a dictionary with predefined columns. Users can add and remove rows, import rows from CSV, download a matching CSV template, and each cell is validated according to its column definition. This is ideal for collecting structured, tabular data such as endpoint lists, user rosters, or port mappings.
+A dynamic table where each row represents a dictionary with predefined columns. Users can add and remove rows, import rows from CSV or paste them from a spreadsheet, download a matching CSV template, and each cell is validated according to its column definition. This is ideal for collecting structured, tabular data such as endpoint lists, user rosters, or port mappings.
 
 ```yaml
 - key: endpoints
@@ -256,7 +260,7 @@ Each column in a `listdict` input supports the following properties:
 | ------------ | ------- | -------- | ------------------------------------------------------------ |
 | `key`        | string  | Yes      | Unique identifier for the column (used in script context).   |
 | `label`      | string  | No       | Display label shown in the table header. Defaults to `key`.  |
-| `type`       | string  | No       | Column data type: `string` (default), `integer`, `boolean`, or `choice`. |
+| `type`       | string  | No       | Column data type: `string` (default), `integer`, `number`, `boolean`, or `choice`. |
 | `required`   | boolean | No       | Whether the cell must have a value. Default `false`.         |
 | `unique`     | boolean | No       | Whether values in this column must be unique across all rows. Duplicates are highlighted visually. Default `false`. |
 | `choices`    | list    | No       | For `choice` columns only. List of `{value, label}` objects. |
@@ -265,7 +269,8 @@ Each column in a `listdict` input supports the following properties:
 #### Column Types
 
 - **`string`** — Renders a text input. Supports `validators` for regex validation.
-- **`integer`** — Renders a numeric input. Validates that the value is a number.
+- **`integer`** — Renders a numeric input. Rejects decimals.
+- **`number`** — Renders a numeric input. Keeps decimals.
 - **`boolean`** — Renders a checkbox. Any boolean value is accepted; `required` has no effect.
 - **`choice`** — Renders a dropdown. Requires a `choices` list with `{value, label}` items.
 
@@ -273,21 +278,19 @@ Each column in a `listdict` input supports the following properties:
 
 The `listdict` field renders as a table in the workflow form:
 
-![Empty listdict table with Add Row, Download Template, and Upload CSV](../assets/images/authoring/02-listdict-table-empty.png)
+![Table input with Add row, Download template and Import CSV](../assets/images/launch/03-table-input.png)
 
 - **Column headers** are derived from each column's `label` (or `key` if no label is specified).
-- **Add Row** appends a new empty row to the table.
-- **Download Template** generates a CSV file with headers matching the configured columns.
-- **Upload CSV** parses a CSV file into the table so the user can review and edit rows before submission.
+- **Add row** appends a new empty row to the table. The **×** at the end of a row removes it.
+- **Download template** generates a CSV file with headers matching the configured columns.
+- **Import CSV** reads a CSV file into the table so the user can review and edit rows before submission. When the table already has rows, it asks **Replace** or **Add**. Rows can also be pasted from a spreadsheet.
 
-    ![listdict table after uploading a CSV for review and edit](../assets/images/authoring/03-listdict-csv-uploaded.png)
+    ![Table after a CSV import, with the rows to fix marked](../assets/images/launch/04-csv-imported.png)
 
-- **Remove** deletes a specific row.
-- Cells with validation errors are highlighted in red with a tooltip describing the error.
-- Columns marked `unique: true` show a warning banner when duplicate values are detected.
-
-    ![listdict validation errors and unique-column warning](../assets/images/authoring/04-listdict-validation-errors.png)
-
+- Cells with problems are outlined in red, and the problem is written under the row.
+- Columns marked `unique: true` flag repeated values.
+- The file is read in the browser and is not uploaded or stored. Files over 2 MB are refused, and rows beyond `max_rows` are skipped.
+- Set `csv_import: false` to hide **Import CSV** and **Download template**.
 - CSV headers are matched against the column `key` first and then the column `label`.
 - Choice columns accept either the configured choice `value` or the human-readable choice `label` from the CSV.
 - Boolean columns accept `true/false`, `yes/no`, `on/off`, and `1/0` in CSV uploads.
@@ -332,8 +335,6 @@ Fields can be shown or hidden based on the value of another field using `show_if
 ```
 
 In this example, `device_name` is only shown when the user selects "New Installation".
-
-![Conditional field shown when its show_if controlling input is set](../assets/images/authoring/05-show-if-conditional.png)
 
 ## Cascading Dependencies
 
@@ -471,7 +472,8 @@ Avoid relying on plugin-internal modules for custom filters. Instead, place reus
   when it evaluates to true, for example only when a previous action succeeded.
 
 Give actions distinct names when later steps refer to their results. Result records
-include `status` and `return_value`; failed records may include `error`. `last` holds
+include `status` (`success`, `failed`, or `skipped`) and `return_value`; failed records
+may include `error`. A step whose `when` was false is recorded as `skipped`. `last` holds
 the previous action's result and name. Use a condition to guard access to a return
 value that may not exist after a failure or skipped action:
 
@@ -485,15 +487,27 @@ actions:
   - type: nautobot
     name: reuse_hostname
     script: scripts/echo_hostname.py
-    when: "{{ results.prepare_hostname.status == 'success' }}"
+    when: "{{ results.prepare_hostname is defined and results.prepare_hostname.status == 'success' }}"
     with:
       hostname: "{{ results.prepare_hostname.return_value.hostname }}"
 ```
 
+Conditions on earlier steps written by the builder guard with `is defined`, so a step
+that never ran counts as not matching. A condition can only refer to steps that run
+before it; one that refers to itself or a later step is rejected. See
+[Conditions](conditions.md).
+
 ## Script Contract
 
 Action scripts define `run(params)`, accepting the dictionary rendered from `with`.
-They may return data for subsequent actions. Use the
+They may return data for subsequent actions. A module-level `PARAMETERS` dict tells the
+builder what to ask for, for example
+`PARAMETERS = {"device": {"type": "object", "required": True, "model": "dcim.Device"}}`.
+The builder reads it without running the file.
+
+Scripts created in the builder are starters in this same format: `run(params)` prints each
+parameter and returns the names it received. `print()` output goes to the run's user log.
+See [New scripts from the builder](placeholder_scripts.md). Use the
 [first workflow](app_getting_started.md) as a complete non-destructive example.
 Helpers under `scripts/lib/` can be imported with absolute imports such as
 `from scripts.lib.text_helpers import normalize_hostname`.
@@ -518,11 +532,11 @@ other repo-backed Python modules; see [extending the app](../dev/extending.md).
 
 Operators can select one of three execution modes when launching a workflow:
 
-![Execution Timing options: Immediate, Schedule for Later, and ServiceNow Change Window](../assets/images/authoring/07-execution-modes.png)
+![When should it run? with Run now, Schedule for later and In the change window](../assets/images/launch/02-when-should-it-run.png)
 
-- **Immediate** — the run starts as soon as the form is submitted.
-- **Scheduled** — the run is created now and executes at a chosen future time.
-- **ServiceNow change window** — the run is scheduled from a validated ServiceNow
+- **Run now** — the run starts as soon as the form is submitted.
+- **Schedule for later** — the run is created now and executes at a chosen future time.
+- **In the change window** — the run is scheduled from a validated ServiceNow
   change ticket, and the [sync job](external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
   keeps it aligned with the ticket.
 
@@ -553,8 +567,8 @@ mark the end of the run.
 
 Set `enabled: false` to disable a workflow without discarding its run history.
 When source removal disables a workflow during synchronization, retain the stored
-history for auditing. The **Show disabled workflows** setting on the
-[Installed Apps configuration page](../admin/install.md#configure-the-app) controls
+history for auditing. The **Show switched-off workflows** setting on the
+[Settings page](../admin/install.md#settings-page) controls
 list visibility.
 Use categories for organization and `manual_duration_minutes` for estimated
 [time savings](app_reporting.md#time-savings), not as a measurement of actual
@@ -565,6 +579,6 @@ execution duration.
 The app exposes workflow definitions through a Nautobot REST API viewset, available
 under the app's API namespace. Use it to list and read workflow metadata
 programmatically, for example to seed an external automation tool. The REST API
-honors the same `view_workflow` object permissions as the UI, so a client only
+honors the same workflow view permission as the UI (part of **Run workflows** and **Build workflows**), so a client only
 sees the workflows its account can view. See
 [granting permissions](../admin/install.md#permissions).

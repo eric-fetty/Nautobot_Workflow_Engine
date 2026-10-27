@@ -1,0 +1,36 @@
+<div class="nwe-launch-preview" id="launch-preview-root">
+    <p class="text-muted small">This is the form someone sees when they launch the workflow. Options for Nautobot objects load at launch.</p>
+    {% for field in fields %}
+        <div class="mb-3" data-preview-key="{{ field.key }}">
+            <label class="form-label" for="preview-{{ field.key }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
+            {% if field.type == "boolean" %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="preview-{{ field.key }}" disabled>
+                    <label class="form-check-label" for="preview-{{ field.key }}">{{ field.label }}</label>
+                </div>
+            {% elif field.type == "choice" or field.type == "multichoice" %}
+                <select class="form-select" id="preview-{{ field.key }}" disabled {% if field.type == "multichoice" %}multiple{% endif %}>
+                    <option value="">Select…</option>
+                    {% for choice in field.choices %}
+                        <option value="{{ choice.value }}">{{ choice.label }}</option>
+                    {% endfor %}
+                </select>
+            {% elif field.type == "object" or field.type == "multiobject" %}
+                <select class="form-select" id="preview-{{ field.key }}" disabled>
+                    <option value="">Select {{ field.model|default:"an object" }}…</option>
+                </select>
+            {% elif field.type == "integer" %}
+                <input class="form-control" id="preview-{{ field.key }}" type="number" inputmode="numeric" disabled placeholder="{{ field.placeholder }}">
+            {% elif field.type == "list" or field.type == "listdict" %}
+                <textarea class="form-control" id="preview-{{ field.key }}" rows="2" disabled placeholder="Filled in at launch"></textarea>
+            {% else %}
+                <input class="form-control" id="preview-{{ field.key }}" type="text" disabled placeholder="{{ field.placeholder }}">
+            {% endif %}
+            {% if field.help %}
+                <div class="form-text">{{ field.help }}</div>
+            {% endif %}
+        </div>
+    {% empty %}
+        <p class="text-muted mb-0">Add an input to see it here.</p>
+    {% endfor %}
+</div>

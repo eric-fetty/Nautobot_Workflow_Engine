@@ -13,10 +13,11 @@ class WorkflowTable(BaseTable):
     name = tables.LinkColumn()
     category = tables.Column()
     description = tables.Column()
+    git_status = tables.Column(verbose_name="Git")
 
     class Meta(BaseTable.Meta):
         """Meta class for WorkflowTable."""
 
         model = Workflow
-        fields = ("pk", "name", "category", "description")
-        default_columns = ("name", "category", "description")
+        fields = ("pk", "name", "category", "description", "git_status")
+        default_columns = ("name", "category", "description", "git_status")

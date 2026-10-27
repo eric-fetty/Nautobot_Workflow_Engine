@@ -15,10 +15,9 @@ dependencies and retention requirements before any destructive database cleanup.
 
 ## Remove App configuration
 
-Remove the app entry from `PLUGINS` and any settings from `PLUGINS_CONFIG` in all web,
-worker, and scheduler environments. Runtime settings stored in Constance (via the
-Installed Apps configuration page) are removed when you reverse app migrations or
-clear Constance values for this app; they are not needed after the app is disabled.
+Remove the app entry from `PLUGINS` and any of its settings from `PLUGINS_CONFIG` in all web,
+worker, and scheduler environments. Values saved on the app's Settings page are stored in
+Nautobot's Constance configuration and are no longer used once the app is disabled.
 Remove workflow content-provider selections from configured sources as needed. Keep
 shared integrations and Secrets Groups unless no other application or workflow uses
 them.

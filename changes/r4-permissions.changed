@@ -1,0 +1,1 @@
+Merged the Author templates and scripts permission into Build workflows and removed Approve runs; approvers come from Nautobot's approval workflow definitions. Upgrading deletes the old entries only when they are unchanged and unassigned, and logs a warning otherwise.

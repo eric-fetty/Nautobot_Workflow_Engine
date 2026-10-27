@@ -114,6 +114,131 @@ def upsert_approval_definition(workflow, job_result=None):
     return definition
 
 
+class ApprovalRemovalError(ValueError):
+    """Raised when approval cannot be turned off because runs are still waiting."""
+
+    path = "approval_required"
+
+
+def _is_approval_definition(definition) -> bool:
+    """True for a real definition. MagicMock stand-ins used in unit tests are ignored."""
+    return definition is not None and type(definition).__name__ == "ApprovalWorkflowDefinition"
+
+
+def approval_stage_summary(workflow) -> list:
+    """Return the stages configured on this workflow's approval definition."""
+    if workflow is None or not nautobot_supports_approval_workflows():
+        return []
+    definition = _get_approval_definition(approval_definition_name(workflow))
+    if not _is_approval_definition(definition):
+        return []
+    stages = definition.approval_workflow_stage_definitions.all().order_by("sequence")
+    summary = []
+    for stage in stages:
+        group = getattr(stage, "approver_group", None)
+        summary.append(
+            {
+                "sequence": stage.sequence,
+                "name": stage.name,
+                "min_approvers": stage.min_approvers,
+                "approver_group_id": stage.approver_group_id,
+                "approver_group_name": getattr(group, "name", "") or "",
+                "denial_message": stage.denial_message or "",
+            }
+        )
+    return summary
+
+
+def pending_approval_count(workflow) -> int:
+    """Return how many approval workflows for this definition are still pending."""
+    if workflow is None or not nautobot_supports_approval_workflows():
+        return 0
+    definition = _get_approval_definition(approval_definition_name(workflow))
+    return _pending_count(definition)
+
+
+def _pending_count(definition) -> int:
+    """Count pending approval workflows attached to a definition."""
+    if not _is_approval_definition(definition):
+        return 0
+    try:
+        from nautobot.extras.choices import ApprovalWorkflowStateChoices
+
+        pending = ApprovalWorkflowStateChoices.PENDING
+    except ImportError:
+        pending = "pending"
+    related = getattr(definition, "approval_workflows", None)
+    if related is None:
+        return 0
+    try:
+        return related.filter(current_state=pending).count()
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _snapshot_stages(workflow, definition) -> None:
+    """Store the current stages on the workflow before the definition is removed."""
+    if not _is_approval_definition(definition):
+        return
+    related = getattr(definition, "approval_workflow_stage_definitions", None)
+    if related is None:
+        return
+    snapshot = []
+    for stage in related.all().order_by("sequence"):
+        group = getattr(stage, "approver_group", None)
+        snapshot.append(
+            {
+                "sequence": stage.sequence,
+                "name": stage.name,
+                "min_approvers": stage.min_approvers,
+                "approver_group_id": stage.approver_group_id,
+                "approver_group_name": getattr(group, "name", "") or "",
+                "denial_message": getattr(stage, "denial_message", "") or "",
+            }
+        )
+    workflow.approval_stage_snapshot = snapshot
+    workflow.save(update_fields=["approval_stage_snapshot"])
+
+
+def _restore_stages(workflow, definition, job_result=None) -> None:
+    """Recreate stages from the snapshot. Skip a stage whose group is gone."""
+    snapshot = workflow.approval_stage_snapshot or []
+    if not snapshot or not _is_approval_definition(definition):
+        return
+    from django.contrib.auth.models import Group
+    from nautobot.extras.models import ApprovalWorkflowStageDefinition
+
+    skipped = []
+    for stage in snapshot:
+        group = None
+        group_id = stage.get("approver_group_id")
+        if group_id:
+            group = Group.objects.filter(pk=group_id).first()
+        if group is None and stage.get("approver_group_name"):
+            group = Group.objects.filter(name=stage["approver_group_name"]).first()
+        if group is None:
+            skipped.append(stage.get("name") or "stage")
+            continue
+        ApprovalWorkflowStageDefinition.objects.update_or_create(
+            approval_workflow_definition=definition,
+            sequence=stage.get("sequence") or 1,
+            defaults={
+                "name": stage.get("name") or "Stage",
+                "min_approvers": stage.get("min_approvers") or 1,
+                "denial_message": stage.get("denial_message") or "",
+                "approver_group": group,
+            },
+        )
+    workflow.approval_stage_snapshot = None
+    workflow.save(update_fields=["approval_stage_snapshot"])
+    if skipped:
+        _log(
+            job_result,
+            f"Skipped approval stages whose groups no longer exist: {', '.join(skipped)}.",
+            level="warning",
+        )
+
+
 def delete_approval_definition(workflow, job_result=None) -> bool:
     """Delete the scoped ApprovalWorkflowDefinition when present.
 
@@ -152,9 +277,20 @@ def reconcile_approval_definition(workflow, job_result=None) -> Optional[object]
         )
         return None
 
-    should_exist = bool(workflow.approval_required and workflow.enabled)
+    # Disabling a workflow must not delete stages an admin already configured.
+    should_exist = bool(workflow.approval_required)
     if should_exist:
-        return upsert_approval_definition(workflow, job_result=job_result)
+        definition = upsert_approval_definition(workflow, job_result=job_result)
+        if definition is not None and getattr(workflow, "approval_stage_snapshot", None):
+            _restore_stages(workflow, definition, job_result=job_result)
+        return definition
 
+    name = approval_definition_name(workflow)
+    existing = _get_approval_definition(name)
+    pending = _pending_count(existing)
+    if pending:
+        raise ApprovalRemovalError(f"{pending} runs are waiting for approval. Resolve them first.")
+    if existing is not None:
+        _snapshot_stages(workflow, existing)
     delete_approval_definition(workflow, job_result=job_result)
     return None
