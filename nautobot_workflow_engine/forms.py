@@ -8,9 +8,67 @@ from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
+from nautobot.apps.forms import BootstrapMixin, StaticSelect2Multiple
+from nautobot.extras.models import ExternalIntegration
 
 from .models import Workflow, WorkflowInput
 from .servicenow import normalize_change_ticket
+from .settings_helpers import (
+    DEFAULTS,
+    FILE_OVERRIDE_HELP,
+    SETTING_GROUPS,
+    SETTING_KEYS,
+    SETTING_META,
+    get_setting,
+    is_file_locked,
+)
+
+
+def _depends_on_attr(value):
+    """Return a comma-separated dependency list for the launch form."""
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, list):
+        parts = [str(part) for part in value if part not in (None, "")]
+    elif value in (None, ""):
+        parts = []
+    else:
+        parts = [str(value)]
+    return ",".join(parts)
+
+
+def _plain_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return str(int(number))
+    return str(number)
+
+
+def _range_sentence(low, high):
+    if low is not None and high is not None:
+        return f"Between {_plain_number(low)} and {_plain_number(high)}"
+    if low is not None:
+        return f"At least {_plain_number(low)}"
+    if high is not None:
+        return f"At most {_plain_number(high)}"
+    return ""
+
+
+def _spreadsheet_formula(value, column_type):
+    """Return the leading formula character, or '' when the cell is safe to keep."""
+    if isinstance(value, bool) or value in (None, ""):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if str(column_type) in ("integer", "number") and re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+        return ""
+    if text[0] in "=+-@":
+        return text[0]
+    return ""
 
 
 class DependentChoiceField(forms.ChoiceField):
@@ -98,11 +156,16 @@ class DependentChoiceField(forms.ChoiceField):
 class DynamicWorkflowForm(forms.Form):
     """Server-side definition; fields are progressively revealed client-side."""
 
-    def __init__(self, workflow: Workflow, *args, **kwargs):
-        """Initialize dynamic form with fields based on workflow inputs."""
+    def __init__(self, workflow: Workflow, *args, inputs=None, **kwargs):
+        """Initialize dynamic form with fields based on workflow inputs.
+
+        ``inputs`` supplies unsaved rows for a preview run so nothing is written.
+        """
+        self._input_rows = inputs
         super().__init__(*args, **kwargs)
         self.workflow = workflow
-        for wi in workflow.inputs.all():
+        rows = self._input_rows if self._input_rows is not None else workflow.inputs.all()
+        for wi in rows:
             field = self._build_field(wi)
             if field:
                 # Apply any initial value provided to the form for this input key
@@ -146,8 +209,11 @@ class DynamicWorkflowForm(forms.Form):
                         logging.exception("Error while attempting to inject object initial for %s: %s", wi.key, exc)
 
                 field.widget.attrs["data-required"] = "true" if wi.required else "false"
+                self._present_input(field, wi)
                 field.required = False
-                if wi.visible_when:
+                if isinstance(wi.visible_when, str) and wi.visible_when.strip():
+                    field.widget.attrs["data-show-if-template"] = wi.visible_when
+                elif isinstance(wi.visible_when, dict) and wi.visible_when:
                     # Handle multiple show_if conditions
                     conditions = dict(wi.visible_when)
 
@@ -189,7 +255,7 @@ class DynamicWorkflowForm(forms.Form):
                 if wi.depends_on:
                     # Only set data-depends-on if not already set during field creation
                     if "data-depends-on" not in field.widget.attrs:
-                        field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                        field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 self.fields[wi.key] = field
 
         # Add scheduling fields to every workflow form
@@ -238,7 +304,20 @@ class DynamicWorkflowForm(forms.Form):
             for dep in wi.depends_on or []:
                 if not cleaned_data.get(dep):
                     return False
-            if wi.visible_when:
+            if isinstance(wi.visible_when, str) and wi.visible_when.strip():
+                from nautobot_workflow_engine.executors import SafeUser, _render
+
+                context = {"inputs": cleaned_data or {}}
+                request_user = getattr(getattr(self, "request", None), "user", None)
+                if request_user is not None and getattr(request_user, "is_authenticated", False):
+                    context["user"] = SafeUser.from_user(request_user)
+                try:
+                    rendered = _render(wi.visible_when, context, repo=getattr(self.workflow, "source_repo", None))
+                except Exception:
+                    return False
+                text = str(rendered or "").strip().lower()
+                return text not in ("", "false", "none", "0", "no")
+            if isinstance(wi.visible_when, dict) and wi.visible_when:
                 # Handle multiple show_if conditions - ALL must be satisfied
                 for ctrl_key, ctrl_val in wi.visible_when.items():
                     ctrl_vals = ctrl_val if isinstance(ctrl_val, list) else [ctrl_val]
@@ -279,6 +358,10 @@ class DynamicWorkflowForm(forms.Form):
                     parsed = self._parse_json_list(cleaned_data.get(wi.key, "[]"))
                     cleaned_data[wi.key] = parsed
                     self._validate_tabular_input(wi, parsed)
+                if wi.input_type == "integer" and cleaned_data.get(wi.key) not in (None, ""):
+                    self._check_number_range(wi, cleaned_data.get(wi.key))
+                if wi.input_type == "list" and isinstance(cleaned_data.get(wi.key), list):
+                    self._check_item_count(wi, cleaned_data.get(wi.key))
                 # Handle multichoice fields - convert JSON string back to list
                 if wi.input_type == "multichoice" and wi.key in cleaned_data:
                     multichoice_value = cleaned_data.get(wi.key, "[]")
@@ -295,8 +378,9 @@ class DynamicWorkflowForm(forms.Form):
                             cleaned_data[wi.key] = json.loads(multiobject_value)
                         except (json.JSONDecodeError, ValueError):
                             cleaned_data[wi.key] = []
-                # Client-side validation handles required fields - skip server-side validation
-                pass
+                value = cleaned_data.get(wi.key)
+                if isinstance(value, str):
+                    self._apply_pattern_validators(wi.key, value, wi.validators)
             else:
                 cleaned_data[wi.key] = None  # Hide field if not visible
 
@@ -396,6 +480,24 @@ class DynamicWorkflowForm(forms.Form):
                 return []
         return []
 
+    def _apply_pattern_validators(self, field_name, value, validators):
+        """Reject a value that misses an author-supplied pattern. Flags use Python names."""
+        if not isinstance(validators, list) or not value:
+            return
+        for validator in validators:
+            if not isinstance(validator, dict) or not validator.get("regex"):
+                continue
+            try:
+                regex = re.compile(validator["regex"], flags=self._resolve_regex_flags(validator.get("flags")))
+            except re.error:
+                self.add_error(field_name, "This field has an invalid pattern.")
+                continue
+            if regex.search(value) is None:
+                self.add_error(
+                    field_name,
+                    validator.get("message") or "This value does not match the required pattern.",
+                )
+
     def _resolve_regex_flags(self, flag_names):
         """Translate serialized regex flags into Python re flags."""
         flags = 0
@@ -423,13 +525,42 @@ class DynamicWorkflowForm(forms.Form):
                 return False, None
             return value, f"{column.get('label') or column.get('key') or 'Value'} must be true/false."
 
-        if column_type in ("integer", "number"):
+        label = column.get("label") or column.get("key") or "Value"
+        if column_type == "integer":
             if value in (None, ""):
                 return "", None
+            if isinstance(value, bool):
+                return value, f"{label} must be a whole number."
+            if isinstance(value, int):
+                return value, None
+            if isinstance(value, float):
+                if value.is_integer():
+                    return int(value), None
+                return value, f"{label} must be a whole number."
+            text = str(value).strip()
+            if text[:1] == "+":
+                text = text[1:]
+            if text.lstrip("-").isdigit():
+                return int(text), None
+            if "." in text:
+                try:
+                    float(text)
+                except ValueError:
+                    return value, f"{label} must be a number."
+                return value, f"{label} must be a whole number."
+            return value, f"{label} must be a number."
+
+        if column_type == "number":
+            if value in (None, ""):
+                return "", None
+            if isinstance(value, bool):
+                return value, f"{label} must be a number."
+            if isinstance(value, (int, float)):
+                return float(value), None
             try:
-                return int(value), None
+                return float(str(value).strip()), None
             except (TypeError, ValueError):
-                return value, f"{column.get('label') or column.get('key') or 'Value'} must be a number."
+                return value, f"{label} must be a number."
 
         if column_type == "choice":
             if value in (None, ""):
@@ -448,6 +579,26 @@ class DynamicWorkflowForm(forms.Form):
         if value is None:
             return "", None
         return str(value), None
+
+    def _check_number_range(self, wi, value):
+        low = getattr(wi, "min_value", None)
+        high = getattr(wi, "max_value", None)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return
+        if low is not None and number < float(low):
+            self.add_error(wi.key, _range_sentence(low, high))
+        elif high is not None and number > float(high):
+            self.add_error(wi.key, _range_sentence(low, high))
+
+    def _check_item_count(self, wi, values):
+        minimum = getattr(wi, "min_items", None)
+        maximum = getattr(wi, "max_items", None)
+        if minimum is not None and len(values) < int(minimum):
+            self.add_error(wi.key, f"Enter at least {int(minimum)} lines.")
+        if maximum is not None and len(values) > int(maximum):
+            self.add_error(wi.key, f"Enter at most {int(maximum)} lines.")
 
     def _validate_tabular_input(self, wi, rows):
         """Re-run listdict validation server-side for defense in depth."""
@@ -494,6 +645,37 @@ class DynamicWorkflowForm(forms.Form):
                     self.add_error(wi.key, f"Row {row_index}, {label}: {error}")
                     continue
 
+                formula = _spreadsheet_formula(value, column_type)
+                if formula:
+                    self.add_error(
+                        wi.key,
+                        f'Row {row_index}: {label} starts with "{formula}", which looks like a spreadsheet formula',
+                    )
+
+                low = column.get("min_value")
+                high = column.get("max_value")
+                bounded = low not in (None, "") or high not in (None, "")
+                if column_type in ("integer", "number") and value not in (None, "") and bounded:
+                    try:
+                        number = float(value)
+                    except (TypeError, ValueError):
+                        number = None
+                    too_low = low not in (None, "") and number is not None and number < float(low)
+                    too_high = high not in (None, "") and number is not None and number > float(high)
+                    if too_low or too_high:
+                        if low not in (None, "") and high not in (None, ""):
+                            message = (
+                                f"Row {row_index}: {label} must be between "
+                                f"{_plain_number(low)} and {_plain_number(high)}"
+                            )
+                        else:
+                            sentence = _range_sentence(
+                                None if low in (None, "") else low,
+                                None if high in (None, "") else high,
+                            ).lower()
+                            message = f"Row {row_index}: {label} {sentence}"
+                        self.add_error(wi.key, message)
+
                 if column_type == "choice" and value not in (None, ""):
                     allowed_values = [
                         str(choice.get("value")) for choice in column.get("choices") or [] if "value" in choice
@@ -536,6 +718,13 @@ class DynamicWorkflowForm(forms.Form):
                         else:
                             unique_values[column_key][normalized] = row_index
 
+        minimum = getattr(wi, "min_rows", None)
+        maximum = getattr(wi, "max_rows", None)
+        if minimum not in (None, "") and len(rows) < int(minimum):
+            self.add_error(wi.key, f"Add at least {int(minimum)} rows.")
+        if maximum not in (None, "") and len(rows) > int(maximum):
+            self.add_error(wi.key, f"Use at most {int(maximum)} rows.")
+
     def _has_jinja_choices(self, wi):
         """Check if workflow input choices contain Jinja template syntax."""
         if not wi.choices:
@@ -543,6 +732,19 @@ class DynamicWorkflowForm(forms.Form):
 
         choices_str = str(wi.choices)
         return "{{" in choices_str and "}}" in choices_str
+
+    def _present_input(self, field, wi):
+        """Copy help text and placeholder onto the launch-form widget."""
+        help_text = getattr(wi, "help_text", "") or ""
+        if help_text:
+            field.help_text = help_text
+        placeholder = getattr(wi, "placeholder", "") or ""
+        if placeholder:
+            field.widget.attrs["placeholder"] = placeholder
+        if getattr(wi, "input_type", "") == "integer":
+            sentence = _range_sentence(getattr(wi, "min_value", None), getattr(wi, "max_value", None))
+            if sentence:
+                field.help_text = f"{field.help_text} {sentence}".strip()
 
     def _build_field(self, wi: WorkflowInput):
         # Disable server-side required validation - handle in JavaScript
@@ -575,7 +777,12 @@ class DynamicWorkflowForm(forms.Form):
             # Add validators as data attribute for JavaScript
             if wi.validators:
                 field.widget.attrs["data-validators"] = json.dumps(wi.validators)
-
+            if getattr(wi, "min_value", None) is not None:
+                field.widget.attrs["min"] = wi.min_value
+                field.widget.attrs["data-min-value"] = wi.min_value
+            if getattr(wi, "max_value", None) is not None:
+                field.widget.attrs["max"] = wi.max_value
+                field.widget.attrs["data-max-value"] = wi.max_value
             return field
 
         if wi.input_type == "boolean":
@@ -605,13 +812,13 @@ class DynamicWorkflowForm(forms.Form):
                 if has_jinja:
                     field.widget.attrs["data-jinja-choices"] = "true"
                 if has_dependencies:
-                    field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                    field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 if wi.input_type == "multichoice":
                     field.widget.attrs["data-multichoice"] = "true"
                     # For static multichoice without dependencies, populate choices now
                     if not has_jinja and not has_dependencies and wi.choices:
                         choices = [(c["value"], c.get("label", c["value"])) for c in wi.choices]
-                        field.choices = [("", "— Select —")] + choices
+                        field.choices = [("", "Choose…")] + choices
                 return field
             else:
                 # Standard static choice field (single selection only)
@@ -640,7 +847,7 @@ class DynamicWorkflowForm(forms.Form):
                 }
             )
             if wi.depends_on:
-                field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 # Don't pre-load dependent fields - they'll be loaded when dependencies change
                 field.widget.attrs["data-preload"] = "false"
             return field
@@ -659,7 +866,7 @@ class DynamicWorkflowForm(forms.Form):
                 }
             )
             if wi.depends_on:
-                field.widget.attrs["data-depends-on"] = ",".join(wi.depends_on)
+                field.widget.attrs["data-depends-on"] = _depends_on_attr(wi.depends_on)
                 # Don't pre-load dependent fields - they'll be loaded when dependencies change
                 field.widget.attrs["data-preload"] = "false"
             return field
@@ -704,6 +911,9 @@ class DynamicWorkflowForm(forms.Form):
                     "data-enhance": "list-dict",
                     "data-label": wi.label,
                     "data-required": "true" if wi.required else "false",
+                    "data-csv-import": "false" if getattr(wi, "csv_import", True) is False else "true",
+                    "data-min-rows": "" if getattr(wi, "min_rows", None) is None else wi.min_rows,
+                    "data-max-rows": "" if getattr(wi, "max_rows", None) is None else wi.max_rows,
                     "style": "display: none;",
                 }
             )
@@ -726,3 +936,182 @@ class DynamicWorkflowForm(forms.Form):
 
             return field
         return None
+
+
+_MODEL_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*\.(\*|[a-z_][a-z0-9_]*)$")
+_EXCLUDED_CONTENT_TYPE_APPS = frozenset(
+    {
+        "admin",
+        "auth",
+        "contenttypes",
+        "django_celery_beat",
+        "django_celery_results",
+        "sessions",
+        "social_django",
+        "taggit",
+    }
+)
+
+
+def _object_type_choices(selected):
+    """``(app_label.model, label)`` pairs for object types, plus any stored value no longer found."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from .settings_helpers import content_type_setting_value
+
+    choices = []
+    for content_type in ContentType.objects.order_by("app_label", "model"):
+        if content_type.app_label in _EXCLUDED_CONTENT_TYPE_APPS or content_type.model_class() is None:
+            continue
+        label = getattr(content_type, "app_labeled_name", None) or f"{content_type.app_label} | {content_type.name}"
+        choices.append((content_type_setting_value(content_type), label))
+    known = {value for value, _label in choices}
+    for value in selected or []:
+        if value not in known:
+            choices.append((value, f"{value} (not found)"))
+            known.add(value)
+    return choices
+
+
+def _canonical_object_types(values):
+    """Stored object types as ``app_label.model``; older ``app_label.<Verbose name>`` values are mapped too."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from .settings_helpers import content_type_setting_value
+
+    lookup = {}
+    for content_type in ContentType.objects.all():
+        canonical = content_type_setting_value(content_type)
+        lookup.setdefault(canonical.lower(), canonical)
+        lookup.setdefault(f"{content_type.app_label}.{content_type.name}".lower(), canonical)
+    result = []
+    for raw in values or []:
+        value = str(raw).strip()
+        if value:
+            value = lookup.get(value.lower(), value)
+            if value not in result:
+                result.append(value)
+    return result
+
+
+class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
+    """The Settings page: every Workflow Engine setting, stored with Constance."""
+
+    workflow_dir = forms.CharField(max_length=255)
+    filters_dir = forms.CharField(max_length=255)
+    scripts_dir = forms.CharField(max_length=255)
+    show_disabled = forms.BooleanField(required=False)
+    show_add_new_item = forms.MultipleChoiceField(required=False, choices=[], widget=StaticSelect2Multiple())
+    builder_model_allowlist = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 6}))
+    git_committer_name = forms.CharField(max_length=255)
+    git_committer_email = forms.EmailField(max_length=255)
+    git_author_email_domain = forms.CharField(max_length=255)
+    git_sync_interval_minutes = forms.IntegerField(min_value=1, max_value=60)
+    git_remote_timeout_seconds = forms.IntegerField(min_value=1, max_value=300)
+    git_push_lock_timeout = forms.IntegerField(min_value=30, max_value=3600)
+    git_push_retry_backoff_minutes = forms.CharField(max_length=255)
+    awx_external_integration_name = forms.ChoiceField(choices=[])
+    awx_poll_seconds = forms.IntegerField(min_value=1, max_value=3600)
+
+    def __init__(self, *args, **kwargs):
+        """Fill labels and choices from the settings, and lock what nautobot_config.py sets."""
+        kwargs.setdefault("initial", self.initial_from_settings())
+        super().__init__(*args, **kwargs)
+        for key, field in self.fields.items():
+            label, help_text, _group = SETTING_META[key]
+            field.label = label
+            field.help_text = help_text
+
+        current = get_setting("awx_external_integration_name", "AWX") or "AWX"
+        choices = [(ei.name, ei.name) for ei in ExternalIntegration.objects.order_by("name")]
+        if current not in {name for name, _label in choices}:
+            choices.insert(0, (current, f"{current} (not found)"))
+        self.fields["awx_external_integration_name"].choices = choices
+        self.fields["show_add_new_item"].choices = _object_type_choices(self.initial.get("show_add_new_item"))
+
+        self.file_locked_keys = []
+        for key, field in self.fields.items():
+            if is_file_locked(key):
+                self.file_locked_keys.append(key)
+                field.disabled = True
+                field.help_text = f"{field.help_text} {FILE_OVERRIDE_HELP}"
+
+    @staticmethod
+    def initial_from_settings():
+        """Current values, in the shape the fields show them."""
+        values = {key: get_setting(key, DEFAULTS[key]) for key in SETTING_META}
+        values["show_disabled"] = bool(values["show_disabled"])
+        values["show_add_new_item"] = _canonical_object_types(values["show_add_new_item"])
+        values["builder_model_allowlist"] = "\n".join(str(item) for item in values["builder_model_allowlist"] or [])
+        values["git_push_retry_backoff_minutes"] = ", ".join(
+            str(item) for item in values["git_push_retry_backoff_minutes"] or []
+        )
+        return values
+
+    def grouped_fields(self):
+        """``[(title, [bound fields])]`` in page order."""
+        return [
+            (title, [self[key] for key in SETTING_KEYS if SETTING_META[key][2] == group])
+            for group, title in SETTING_GROUPS
+        ]
+
+    def clean_workflow_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("workflow_dir")
+
+    def clean_filters_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("filters_dir")
+
+    def clean_scripts_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("scripts_dir")
+
+    def _clean_folder(self, key):
+        value = str(self.cleaned_data.get(key) or "").strip().strip("/")
+        if not value or ".." in value.split("/") or "\\" in value:
+            raise forms.ValidationError("Enter a folder inside the repository, for example “workflows”.")
+        return value
+
+    def clean_builder_model_allowlist(self):
+        """One ``app.model`` or ``app.*`` per line, stored as a list."""
+        items = []
+        for raw in re.split(r"[\n,]", self.cleaned_data.get("builder_model_allowlist") or ""):
+            item = raw.strip().lower()
+            if not item:
+                continue
+            if not _MODEL_PATTERN.match(item):
+                raise forms.ValidationError(
+                    f"“{raw.strip()}” isn't an object type. Use app.model or app.*, for example dcim.*."
+                )
+            if item not in items:
+                items.append(item)
+        return items
+
+    def clean_git_push_retry_backoff_minutes(self):
+        """Comma-separated whole minutes, stored as a list."""
+        parts = [part.strip() for part in str(self.cleaned_data.get("git_push_retry_backoff_minutes") or "").split(",")]
+        parts = [part for part in parts if part]
+        if not parts or not all(part.isdigit() and 1 <= int(part) <= 1440 for part in parts):
+            raise forms.ValidationError(
+                "Enter whole minutes between 1 and 1440, separated by commas, for example 1, 5, 15, 60."
+            )
+        return [int(part) for part in parts]
+
+    def clean_show_add_new_item(self):
+        """Deduplicated ``app_label.model`` values."""
+        seen, values = set(), []
+        for value in self.cleaned_data.get("show_add_new_item") or []:
+            if value.lower() not in seen:
+                seen.add(value.lower())
+                values.append(value)
+        return values
+
+    def changed_settings(self):
+        """``{key: value}`` for unlocked settings that differ from what is stored now."""
+        current = {key: get_setting(key, DEFAULTS[key]) for key in SETTING_META}
+        return {
+            key: self.cleaned_data[key]
+            for key in SETTING_META
+            if key not in self.file_locked_keys and self.cleaned_data[key] != current[key]
+        }

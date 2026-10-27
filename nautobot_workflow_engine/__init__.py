@@ -1,12 +1,14 @@
 """App declaration for nautobot_workflow_engine."""
 
 # Metadata is inherited from Nautobot. If not including Nautobot in the environment, this should be added
-import os
 import re
 from importlib import metadata
 from pathlib import Path
 
-from nautobot.apps import NautobotAppConfig
+from nautobot.apps import ConstanceConfigItem, NautobotAppConfig
+
+from .settings_helpers import DEFAULTS as _SETTING_DEFAULTS
+from .settings_helpers import SETTING_META as _SETTING_META
 
 
 def _package_version():
@@ -30,6 +32,17 @@ def _package_version():
 
 __version__ = _package_version()
 
+_CONSTANCE_FIELD_TYPES = {
+    "show_disabled": bool,
+    "awx_poll_seconds": int,
+    "git_sync_interval_minutes": int,
+    "git_remote_timeout_seconds": int,
+    "git_push_lock_timeout": int,
+    "show_add_new_item": "optional_json_field",
+    "builder_model_allowlist": "optional_json_field",
+    "git_push_retry_backoff_minutes": "optional_json_field",
+}
+
 
 class WorkflowEngineConfig(NautobotAppConfig):
     """App configuration for the nautobot_workflow_engine app."""
@@ -41,26 +54,38 @@ class WorkflowEngineConfig(NautobotAppConfig):
     description = "General-purpose workflow engine for Nautobot"
     base_url = "workflow-engine"
     required_settings = []
-    default_settings = {
-        "awx_external_integration_name": "AWX",
-        "workflow_dir": "workflows",
-        "filters_dir": "filters",
-        "awx_poll_seconds": 5,
-        "show_disabled": False,
-        "show_add_new_item": os.getenv("SHOW_ADD_NEW_ITEM", "").split(","),
+    # Every runtime setting is on the Settings page (Constance). Keys listed in
+    # constance_config are not copied into PLUGINS_CONFIG, so setting one in
+    # nautobot_config.py is an explicit override that locks it on the page.
+    default_settings = {"allow_db_only_workflows": True}
+    constance_config = {
+        key: ConstanceConfigItem(
+            default=_SETTING_DEFAULTS[key],
+            help_text=_SETTING_META[key][1],
+            field_type=_CONSTANCE_FIELD_TYPES.get(key, str),
+        )
+        for key in _SETTING_META
     }
     caching_config = {}
+    config_view_name = "plugins:nautobot_workflow_engine:config"
     docs_view_name = "plugins:nautobot_workflow_engine:docs"
     searchable_models = ["workflow"]
 
     def ready(self):
         """Connect database-ready handlers after the app is fully loaded."""
         super().ready()
+        from django.db.models.signals import post_migrate
         from nautobot.apps import nautobot_database_ready
 
+        from .default_permissions import ensure_default_permissions
         from .signals import enable_required_jobs
 
         nautobot_database_ready.connect(enable_required_jobs, sender=self)
+        nautobot_database_ready.connect(ensure_default_permissions, sender=self)
+        # nautobot_database_ready fires from nautobot.core's post_migrate, before Django has
+        # created this app's content types on a fresh database, so the permissions would only
+        # appear on a second migrate. Run again once this app's own post_migrate has them.
+        post_migrate.connect(ensure_default_permissions, sender=self, dispatch_uid="nwe_default_permissions")
 
 
 config = WorkflowEngineConfig  # pylint:disable=invalid-name

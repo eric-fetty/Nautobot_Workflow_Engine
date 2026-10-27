@@ -59,9 +59,13 @@ firewall-model dependency. Additional installed apps can be enabled with the
 comma-separated `NAUTOBOT_EXTRA_PLUGINS` environment variable. Existing deployments
 that need BGP models, SSoT, or device lifecycle management must opt in explicitly.
 
-Configure additional app settings in a private development override. Enabling an app
-does not install it; its package and compatible dependencies must already be present
-in the development image. Dependency pruning is separate from enabling plugins.
+Configure additional apps in a private development override under `PLUGINS` /
+`PLUGINS_CONFIG` as needed. Workflow Engine settings are managed on its
+[Settings page](../admin/install.md#settings-page) (the gear under **Apps → Installed Apps**); leave
+`PLUGINS_CONFIG["nautobot_workflow_engine"]` empty unless you need a deploy-time
+file override. Enabling an app does not install it; its package and compatible
+dependencies must already be present in the development image. Dependency pruning
+is separate from enabling plugins.
 
 ### Updating the Documentation
 
@@ -445,6 +449,14 @@ To run an individual test, you can run any or all of the following:
 ➜ invoke unittest
 ➜ invoke ruff
 ➜ invoke pylint
+```
+
+`invoke unittest --keepdb` reuses the test database between runs. `invoke unittest`
+also builds the documentation with `mkdocs build --strict`, so a broken link or a page
+missing from the nav fails the run. The builder's JavaScript logic has its own tests:
+
+```bash
+➜ node --test ui-tests/
 ```
 
 ### App Configuration Schema

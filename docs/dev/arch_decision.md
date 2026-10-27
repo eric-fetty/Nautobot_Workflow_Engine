@@ -17,7 +17,34 @@
     the Celery immediate path so Nautobot's approval pipeline can apply. Non-approval
     workflows continue to use Celery immediate execution.
 
+## Builder and Git publishing
+
+- `views.py` serves the builder page and its config. The builder itself is the ES
+  module `static/.../js/builder/studio.js`, with logic shared with the launch page in
+  `js/shared/` (`conditions.js`, `issues.js`, `template.js`, `validate.js`, `csv.js`).
+  Pure logic in those modules is covered by `node --test ui-tests/`.
+- `api/views.py` holds the builder API: draft save and validate, Preview run, publish,
+  Git status and retry, and `builder/script-preview/` and `builder/scripts/` for new
+  scripts.
+- `services.py` owns the draft/published revision lifecycle and permission checks.
+  `schema/` holds the one JSON Schema, validation and policy (model allowlist,
+  `scripts_dir`, the code permission).
+- `utilities/git_publish.py` publishes: `publish_blocker()` says in plain words why a
+  repository can't take a publish, `readable_failure()` turns a Git error into one
+  sentence, and `log_full_error()` writes the sanitized full error to the server log
+  and the job log. `utilities/git.py` does the push with non-fast-forward retries and
+  token scrubbing; credentials come from core `get_repo_access_url()`.
+- `script_files.py` renders and checks builder-created scripts with `ast` only.
+  `utilities/script_commit.py` commits them with the same lock and credentials as
+  publish. The starter body prints each parameter; the runner already sends a
+  script's stdout to the run's user log.
+
 ## Boundaries to Preserve
+
+- The builder never executes anything: Preview run renders in the sandbox, script
+  parameters are read with `ast`, and builder-created scripts are parsed, never imported by the builder.
+- Messages shown to people are plain sentences. Keep raw Git output and codes in the
+  server and job logs, and never put a token in either.
 
 - Workflow source synchronization and execution are separate operations. A workflow
   definition must synchronize successfully before it can be launched.

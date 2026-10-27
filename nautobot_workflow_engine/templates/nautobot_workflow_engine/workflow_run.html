@@ -29,7 +29,7 @@
                 <i class="mdi mdi-repeat"></i> Run Again
             </a>
             {% if object.status == "scheduled" or object.status == "pending_approval" %}
-                {% if perms.nautobot_workflow_engine.change_workflowrun %}
+                {% if can_cancel_run %}
                 <form method="post" action="{% url 'plugins:nautobot_workflow_engine:workflow_run_cancel' pk=object.pk %}" style="display: inline;">
                     {% csrf_token %}
                     <button type="submit" class="btn btn-warning" onclick="return confirm('Cancel this workflow run?');">

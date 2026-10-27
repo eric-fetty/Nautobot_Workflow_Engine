@@ -14,9 +14,51 @@
             "type": "string",
             "default": "filters"
         },
+        "scripts_dir": {
+            "type": "string",
+            "default": "scripts"
+        },
+        "builder_model_allowlist": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": []
+        },
         "awx_poll_seconds": {
             "type": "integer",
             "default": 5
+        },
+        "git_committer_name": {
+            "type": "string",
+            "default": "Nautobot Workflow Engine"
+        },
+        "git_committer_email": {
+            "type": "string",
+            "default": "nautobot-workflow-engine@localhost"
+        },
+        "git_author_email_domain": {
+            "type": "string",
+            "default": "users.noreply.nautobot.local"
+        },
+        "git_push_lock_timeout": {
+            "type": "integer",
+            "default": 300
+        },
+        "git_remote_timeout_seconds": {
+            "type": "integer",
+            "default": 10
+        },
+        "git_sync_interval_minutes": {
+            "type": "integer",
+            "default": 5
+        },
+        "git_push_retry_backoff_minutes": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "default": [1, 5, 15, 60]
+        },
+        "allow_db_only_workflows": {
+            "type": "boolean",
+            "default": true
         },
         "show_disabled": {
             "type": "boolean",

@@ -85,11 +85,25 @@ nav:
   - Getting Started:
       - App Overview: "user/app_overview.md"
       - Getting Started: "user/app_getting_started.md"
-  - Workflow Authoring:
-      - Reference: "user/app_use_cases.md"
-      - Reporting Dashboard: "user/app_reporting.md"
-      - Custom Filters: "dev/extending.md"
+  - User Guide:
+      - The Workflow Builder: "user/builder.md"
+      - Inputs and CSV Import: "user/inputs.md"
+      - Steps, Parameters and Jinja: "user/steps.md"
+      - Conditions: "user/conditions.md"
+      - Schedule, Approval and ServiceNow: "user/schedule_approval.md"
+      - Preview Run: "user/preview_run.md"
+      - Publishing and Versions: "user/publishing.md"
+      - New Scripts from the Builder: "user/placeholder_scripts.md"
+      - Running a Workflow: "user/launch.md"
+      - Permissions: "user/permissions.md"
+      - Dashboard and Time Saved: "user/app_reporting.md"
       - Frequently Asked Questions: "user/faq.md"
+  - Reference:
+      - YAML Reference: "user/app_use_cases.md"
+      - Schema Reference: "user/workflow_schema.md"
+      - Two-way Git Sync: "user/git_sync.md"
+      - Git and the Builder: "user/gitops_migration.md"
+      - Custom Filters: "dev/extending.md"
   - Integrations: "user/external_interactions.md"
   - Administrator Guide:
       - Install and Configure: "admin/install.md"
@@ -99,6 +113,7 @@ nav:
       - Compatibility Matrix: "admin/compatibility_matrix.md"
       - Release Notes:
           - "admin/release_notes/index.md"
+          - v1.2: "admin/release_notes/version_1.2.md"
           - v1.1: "admin/release_notes/version_1.1.md"
           - v1.0: "admin/release_notes/version_1.0.md"
   - Developer Guide:

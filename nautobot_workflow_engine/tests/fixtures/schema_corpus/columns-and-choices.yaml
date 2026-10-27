@@ -1,0 +1,24 @@
+key: columns-flow
+name: Columns
+inputs:
+  - key: mode
+    type: choice
+    choices:
+      - access
+      - trunk
+    default: access
+  - key: rows
+    type: listdict
+    columns:
+      - key: vlan
+        type: number
+        required: true
+      - key: name
+        type: string
+actions:
+  - type: awx
+    name: run
+    template_id: 4
+    monitor: false
+manual_duration_minutes: 0
+approval_required: false

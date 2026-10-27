@@ -2,155 +2,199 @@
 {% load helpers %}
 {% load static %}
 
-{% block title %}Workflow Engine{% endblock title %}
+{% block title %}Workflows{% endblock title %}
 
 {% block extra_styles %}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
-    <style>
-        html body .badge.nwe-status-pending-approval {
-            --bs-badge-color: #ffffff;
-            background-color: #9a3412 !important;
-            color: #ffffff !important;
-            border: 0.0625rem solid #9a3412 !important;
-        }
-    </style>
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v33">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v34">
 {% endblock extra_styles %}
 
-{% block header %}
-    <div class="d-flex justify-content-between align-items-center ps-4">
-        <div class="btn-group btn-group-sm">
-            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_report' %}" class="btn btn-info">
-                <i class="mdi mdi-chart-line"></i> Dashboard
-            </a>
-            <a href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}" class="btn btn-info">
-                <i class="mdi mdi-history"></i> Run History
-            </a>
-        </div>
-        <hr>
-    </div>
-{% endblock header %}
+{% block header %}{% endblock header %}
 
 {% block content %}
-    <style>
-        /* Fix dropdown menus being clipped by card overflow */
-        .card {
-            overflow: visible;
-        }
-        .card-body {
-            overflow: visible;
-        }
-        /* Ensure dropdown menus appear above other content */
-        .btn-group .dropdown-menu {
-            z-index: 1050;
-        }
-
-        .workflow-group-toggle {
-            text-decoration: none;
-        }
-
-        .workflow-group-toggle:hover,
-        .workflow-group-toggle:focus {
-            text-decoration: none;
-        }
-    </style>
-
-    <!-- Category Filter -->
-    {% if categories %}
-        <div class="card" style="margin-bottom: 20px;">
-            <div class="card-header">
-                <h5 class="mb-0">Filter by Category</h5>
+<div class="nwe-catalog-page nwe-ui">
+    <div id="nwe-catalog-csrf" hidden>{% csrf_token %}</div>
+    {% if unsynced %}
+        <div class="alert alert-danger d-flex gap-3 align-items-start" role="status" id="nwe-unsynced-banner">
+            <div>
+                <div class="fw-semibold">Not synced: the latest published version couldn't be pushed to Git</div>
+                <div class="small">
+                    It's published in Nautobot and people are running it. Git is behind until a push works; it retries automatically.
+                    Drafts aren't affected, because they never go to Git.
+                    {% if unsynced.0.git_error %}<div class="mt-1">{{ unsynced.0.git_error }}</div>{% endif %}
+                </div>
             </div>
-            <div class="card-body">
-                <form method="get" class="row g-2">
-                    <div class="col-md-4">
-                        <div class="btn-group" style="width: 100%;">
-                            <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="width: 100%; text-align: left;">
-                                {% if selected_category %}{{ selected_category }}{% else %}All Categories{% endif %}
-                            </button>
-                            <ul class="dropdown-menu" style="width: 100%;">
-                                <li><a class="dropdown-item" href="{% if all_categories_query %}?{{ all_categories_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}">All Categories</a></li>
-                                {% for category_option in categories_with_query %}
-                                    <li><a class="dropdown-item" href="?{{ category_option.query }}">{{ category_option.name }}</a></li>
-                                {% endfor %}
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="col-md-8">
-                        <a href="{% if clear_filter_query %}?{{ clear_filter_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}" class="btn btn-secondary">
-                            <i class="mdi mdi-filter-off"></i> Clear Filter
-                        </a>
-                    </div>
-                </form>
-            </div>
+            {% if can_publish_workflows %}
+                <button type="button" class="btn btn-sm btn-danger ms-auto" data-nwe-retry="{% for item in unsynced %}{% url 'plugins-api:nautobot_workflow_engine-api:workflow-git-push' key=item.key %} {% endfor %}">Retry</button>
+            {% endif %}
         </div>
     {% endif %}
 
-    <!-- Workflows by Category -->
-    <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h5 class="mb-0">
-                Available Workflows
-                {% if selected_category %}
-                    <span class="badge bg-primary">{{ selected_category }}</span>
-                {% endif %}
-                <span class="badge bg-secondary">{{ object_list|length }}</span>
-            </h5>
-            <div class="d-flex align-items-center gap-2">
-                <div class="btn-group btn-group-sm" role="group" aria-label="Display mode">
-                    <a href="{% if list_display_query %}?{{ list_display_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}"
-                       class="btn btn-outline-secondary {% if not is_tiles_display %}active{% endif %}">
-                        <i class="mdi mdi-format-list-bulleted"></i> List
-                    </a>
-                    <a href="{% if tiles_display_query %}?{{ tiles_display_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}"
-                       class="btn btn-outline-secondary {% if is_tiles_display %}active{% endif %}">
-                        <i class="mdi mdi-view-grid"></i> Tiles
-                    </a>
-                </div>
-                {% if not is_tiles_display and object_list and workflow_group_count > 1 %}
-                    <button
-                        type="button"
-                        id="workflow-collapse-all"
-                        class="btn btn-sm btn-outline-secondary"
-                        aria-expanded="true"
-                        data-bs-target=".workflow-category-collapse"
-                    >
-                        <i class="mdi mdi-unfold-less-horizontal"></i> Collapse All Groups
-                    </button>
-                {% endif %}
-            </div>
+    <div class="d-flex align-items-end gap-3 mb-3 flex-wrap">
+        <div>
+            <h1>Workflows</h1>
+            <div class="nwe-muted">Self-service forms that run Nautobot scripts and AWX jobs.</div>
         </div>
-        <div class="card-body">
-            {% if object_list %}
-                {% if is_tiles_display %}
-                    {% include "nautobot_workflow_engine/partials/workflow_tiles.html" %}
-                {% else %}
-                    {% include "nautobot_workflow_engine/partials/workflow_list_grouped.html" %}
-                {% endif %}
-            {% else %}
-                <div class="text-center py-5">
-                    <i class="mdi mdi-workflow text-muted" style="font-size: 4rem;"></i>
-                    <h4 class="text-muted mt-3">No workflows available</h4>
-                    {% if selected_category %}
-                        <p class="text-muted">
-                            No workflows found in the "{{ selected_category }}" category.
-                            <br><a href="{% if all_categories_query %}?{{ all_categories_query }}{% else %}{% url 'plugins:nautobot_workflow_engine:workflows_list' %}{% endif %}">View all categories</a>
-                        </p>
-                    {% else %}
-                        <p class="text-muted">
-                            Workflows are loaded from Git repositories. 
-                            <br>Configure a Git repository containing workflow YAML files and sync it to get started.
-                        </p>
-                        <a href="{% url 'extras:gitrepository_list' %}" class="btn btn-primary">
-                            <i class="mdi mdi-git"></i> Configure Git Repository
-                        </a>
-                    {% endif %}
-                </div>
+        <div class="ms-auto d-flex align-items-center gap-2">
+            {% if git_indicator %}
+                <span class="nwe-muted small" id="nwe-git-indicator">{% if git_indicator == "Synced" %}<i class="mdi mdi-cloud-check-outline"></i> {% endif %}{{ git_indicator }}</span>
+            {% endif %}
+            {% if can_add_workflows %}
+                <a class="btn nwe-btn-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_create' %}">
+                    <i class="mdi mdi-plus"></i> New workflow
+                </a>
             {% endif %}
         </div>
     </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card nwe-stat h-100"><div class="card-body">
+                <div class="nwe-stat-label">Workflows</div>
+                <div class="nwe-stat-value">{{ status_counts.all }} <small>{{ status_counts.live }} published</small></div>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card nwe-stat h-100"><div class="card-body">
+                <div class="nwe-stat-label">Runs, last 30 days</div>
+                <div class="nwe-stat-value">{{ catalog_stats.runs_30d }}</div>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card nwe-stat h-100"><div class="card-body">
+                <div class="nwe-stat-label">Time saved, last 30 days</div>
+                <div class="nwe-stat-value">{{ catalog_stats.time_saved_hours }} h <small>from manual effort</small></div>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card nwe-stat h-100"><div class="card-body">
+                <div class="nwe-stat-label">Success rate</div>
+                <div class="nwe-stat-value">{% if catalog_stats.success_rate != None %}{{ catalog_stats.success_rate }}%{% else %}—{% endif %}</div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                <input id="nwe-catalog-search" class="form-control" style="max-width: 18rem" placeholder="Search workflows" type="search">
+                <div class="nwe-seg" role="group" aria-label="Status">
+                    <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
+                    <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
+                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
+                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
+                </div>
+                {% if categories %}
+                    <form method="get" class="ms-auto">
+                        {% if selected_status != "all" %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+                        <select class="form-select" name="category" aria-label="Category" onchange="this.form.submit()">
+                            <option value="">All categories</option>
+                            {% for category in categories %}
+                                <option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                {% endif %}
+            </div>
+
+            <div class="table-responsive">
+                <table class="table nwe-catalog-table mb-0" id="nwe-catalog-table">
+                    <thead>
+                        <tr>
+                            <th>Workflow</th>
+                            <th>Category</th>
+                            <th>Status</th>
+                            <th class="text-end">Runs (30d)</th>
+                            <th>Last run</th>
+                            <th>Enabled</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for wf in catalog %}
+                            <tr data-search="{{ wf.name }} {{ wf.description }} {{ wf.category }}">
+                                <td>
+                                    <div>
+                                        <a class="nwe-wf-name" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}">{{ wf.name }}</a>
+                                        {% if wf.needs_approval %}<i class="mdi mdi-account-check-outline nwe-wf-flag" title="Needs approval before it runs"></i>{% endif %}
+                                        {% if wf.uses_snow %}<i class="mdi mdi-calendar-clock nwe-wf-flag" title="Runs only in a ServiceNow change window"></i>{% endif %}
+                                        {% if wf.description %}<div class="nwe-wf-desc">{{ wf.description }}</div>{% endif %}
+                                    </div>
+                                </td>
+                                <td>{% if wf.category %}{{ wf.category }}{% else %}<span class="text-secondary">—</span>{% endif %}</td>
+                                <td>
+                                    <a class="nwe-pill {% if wf.status_kind == 'live' %}nwe-pill-ok{% elif wf.status_kind == 'draft' %}nwe-pill-draft{% else %}nwe-pill-new{% endif %}" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}{% if wf.status_kind == 'draft' %}?section=review{% endif %}" title="{{ wf.status_help }}">
+                                        <span class="dot"></span>{{ wf.status_label }}
+                                    </a>
+                                    {% if wf.status_kind == "new" %}
+                                        <div class="nwe-pill-sub">Only editors can see it</div>
+                                    {% elif wf.status_kind == "draft" %}
+                                        <div class="nwe-pill-sub">{{ wf.draft_editor }} · {{ wf.draft_when }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">{% if wf.runs_30d %}{{ wf.runs_30d }}{% else %}<span class="text-secondary">—</span>{% endif %}</td>
+                                <td class="small">
+                                    {% if wf.last_run_started %}
+                                        {{ wf.last_run_started|date:"M j, g:i A" }}
+                                        {% if wf.last_run_requested_by %}<div class="text-secondary">{{ wf.last_run_requested_by }}</div>{% endif %}
+                                    {% else %}
+                                        <span class="text-secondary">Never</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <label class="nwe-switch" title="{% if wf.published_revision_id %}{% if wf.enabled %}On. Applies immediately.{% else %}Off: nobody can start it. Applies immediately.{% endif %}{% else %}Publish it first{% endif %}">
+                                        <input type="checkbox" role="switch" aria-label="Enabled"
+                                            {% if wf.enabled %}checked{% endif %}
+                                            {% if not wf.published_revision_id or not wf.can_publish %}disabled{% endif %}
+                                            {% if wf.can_publish and wf.published_revision_id %}data-nwe-enable="1" data-enable="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-enable' key=wf.key %}" data-disable="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-disable' key=wf.key %}"{% endif %}>
+                                        <span class="nwe-switch-ui" aria-hidden="true"></span>
+                                    </label>
+                                </td>
+                                <td>
+                                    <div class="nwe-row-acts">
+                                        <span class="nwe-run-slot" data-nwe-run-slot data-published="{% if wf.published_revision_id %}1{% else %}0{% endif %}" data-launch="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}">{% if wf.published_revision_id and wf.enabled %}<a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>{% else %}<span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}"><button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button></span>{% endif %}</span>
+                                        {% if can_change_workflows %}
+                                            <a class="btn btn-sm nwe-btn" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}"><i class="mdi mdi-pencil-outline"></i> Edit</a>
+                                        {% endif %}
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm nwe-btn-ghost" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More" aria-label="More actions"><i class="mdi mdi-dots-horizontal"></i></button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                {% if wf.published_revision_id %}
+                                                    <li><a class="dropdown-item" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}?versions=1">Versions</a></li>
+                                                {% endif %}
+                                                {% if can_add_workflows %}
+                                                    <li><button type="button" class="dropdown-item" data-nwe-duplicate="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-duplicate' key=wf.key %}" data-edit-template="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key='__KEY__' %}">Duplicate</button></li>
+                                                {% endif %}
+                                                <li><a class="dropdown-item" href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}?workflow={{ wf.key|urlencode }}">Run history</a></li>
+                                                {% if wf.published_revision_id %}
+                                                    <li><button type="button" class="dropdown-item" data-nwe-yaml="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-revisions' key=wf.key %}" data-key="{{ wf.key }}">Download YAML</button></li>
+                                                {% endif %}
+                                                {% if wf.can_delete %}
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li><button type="button" class="dropdown-item text-danger" data-nwe-delete="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-archive' key=wf.key %}" data-key="{{ wf.key }}">Delete…</button></li>
+                                                {% endif %}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="7" class="text-secondary text-center py-4">No workflows match.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_change_workflows %}
+                <div class="small text-secondary mt-3">You see drafts because you can edit workflows. People who only run workflows see published ones, at their published version.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 {% endblock content %}
 
+{% block drawer %}{% endblock drawer %}
+
 {% block javascript %}
-    {{ block.super }}
-    <script src="{% static 'nautobot_workflow_engine/js/workflow_list.js' %}"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}?v4"></script>
 {% endblock javascript %}

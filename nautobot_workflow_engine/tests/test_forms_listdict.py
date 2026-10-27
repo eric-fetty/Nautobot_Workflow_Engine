@@ -110,3 +110,33 @@ class DynamicWorkflowFormListdictTestCase(unittest.TestCase):
 
         self.assertTrue(form.is_valid(), form.errors.as_text())
         self.assertEqual(form.cleaned_data["devices"][0]["role"], "leaf")
+
+    def test_number_column_keeps_decimals_and_integer_rejects_them(self):
+        integer_form = DynamicWorkflowForm(
+            _workflow(_workflow_input()),
+            data={
+                "devices": '[{"hostname": "leaf-01", "vlan": "1.5", "role": "leaf"}]',
+                "execution_type": "immediate",
+                "scheduled_datetime": "",
+            },
+        )
+        self.assertFalse(integer_form.is_valid())
+        self.assertIn("must be a whole number", integer_form.errors.as_text())
+        self.assertNotIn("1", integer_form.cleaned_data.get("devices") or [])
+
+        number_input = _workflow_input(
+            columns=[
+                {"key": "hostname", "label": "Hostname", "type": "string", "required": True},
+                {"key": "ratio", "label": "Ratio", "type": "number", "required": True},
+            ]
+        )
+        number_form = DynamicWorkflowForm(
+            _workflow(number_input),
+            data={
+                "devices": '[{"hostname": "leaf-01", "ratio": "1.5"}]',
+                "execution_type": "immediate",
+                "scheduled_datetime": "",
+            },
+        )
+        self.assertTrue(number_form.is_valid(), number_form.errors.as_text())
+        self.assertEqual(number_form.cleaned_data["devices"][0]["ratio"], 1.5)

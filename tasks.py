@@ -681,8 +681,18 @@ def docs(context):
 
 
 @task
+def generate_schema_docs(context, check=False):
+    """Write docs/user/workflow_schema.md from the workflow JSON Schema."""
+    command = "python -m nautobot_workflow_engine.schema.generate_docs"
+    if check:
+        command += " --check"
+    run_command(context, command)
+
+
+@task
 def build_and_check_docs(context):
     """Build documentation to be available within Nautobot."""
+    generate_schema_docs(context, check=True)
     command = "mkdocs build --no-directory-urls --strict"
     run_command(context, command)
 

@@ -7,7 +7,12 @@ from django.utils import timezone
 from nautobot.extras.choices import JobExecutionType
 from nautobot.extras.models import Job, ScheduledJob
 
-from .servicenow import VALIDATION_PHASE_SYNC, ServiceNowValidationError, get_change_window
+from .servicenow import (
+    VALIDATION_PHASE_SYNC,
+    ServiceNowValidationError,
+    get_change_window,
+    integration_name_for_workflow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +186,11 @@ def sync_servicenow_workflow_run(
     change_ticket = _change_ticket_for_run(workflow_run)
 
     try:
+        integration_name = integration_name_for_workflow(workflow_run.workflow)
         change_window = get_change_window(
             change_ticket=change_ticket,
             workflow=workflow_run.workflow,
+            integration_name=integration_name,
             require_future_window=require_future_window,
             validation_phase=validation_phase,
         )
@@ -209,7 +216,7 @@ def sync_servicenow_workflow_run(
     workflow_run.schedule_sync_error = ""
 
     field_updates = {
-        "schedule_external_system": "ServiceNow",
+        "schedule_external_system": integration_name,
         "schedule_change_ticket": change_window.change_number,
         "schedule_external_record_id": change_window.sys_id,
         "schedule_window_start": change_window.window_start,
