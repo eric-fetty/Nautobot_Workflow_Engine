@@ -579,6 +579,6 @@ execution duration.
 The app exposes workflow definitions through a Nautobot REST API viewset, available
 under the app's API namespace. Use it to list and read workflow metadata
 programmatically, for example to seed an external automation tool. The REST API
-honors the same `view_workflow` object permissions as the UI, so a client only
+honors the same workflow view permission as the UI (part of **Run workflows** and **Build workflows**), so a client only
 sees the workflows its account can view. See
 [granting permissions](../admin/install.md#permissions).

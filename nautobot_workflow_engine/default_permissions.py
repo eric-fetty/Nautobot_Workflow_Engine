@@ -12,32 +12,23 @@ logger = logging.getLogger(__name__)
 
 APP = "nautobot_workflow_engine"
 
+RUN_WORKFLOWS = "Workflow Engine: Run workflows"
+
 # (name, description, [(app_label, model)], [actions])
 DEFAULT_PERMISSIONS = (
     (
-        "Workflow Engine: View workflows",
-        "See published workflows on the Workflows list and open their launch page. Add a constraint, "
-        'for example {"category": "Networking"}, to limit which workflows.',
+        RUN_WORKFLOWS,
+        "See workflows on the Workflows list, open their launch page, start runs, and cancel a run that is "
+        'still Scheduled or Pending Approval. Add a constraint, for example {"category": "Networking"}, '
+        "to limit which workflows.",
         [(APP, "workflow")],
-        ["view"],
-    ),
-    (
-        "Workflow Engine: Run workflows",
-        "Start runs. Pair it with “View workflows” to control which workflows a person can run.",
-        [(APP, "workflowrun")],
-        ["add"],
+        ["view", "run", "cancel"],
     ),
     (
         "Workflow Engine: View runs",
         "See runs in Run History, their details, and the dashboard figures built from them.",
         [(APP, "workflowrun")],
         ["view"],
-    ),
-    (
-        "Workflow Engine: Cancel runs",
-        "Cancel a run that is still Scheduled or Pending Approval.",
-        [(APP, "workflowrun")],
-        ["change"],
     ),
     (
         "Workflow Engine: Build workflows",
@@ -63,7 +54,7 @@ DEFAULT_PERMISSIONS = (
 
 # Entries earlier builds created and this one no longer does, exactly as they were created.
 # "Author templates and scripts" is now part of "Build workflows". "Approve runs" is gone:
-# approvers come from Nautobot's own approval workflow definitions.
+# approvers come from Nautobot's own approval workflow definitions. Migration 0013.
 RETIRED_PERMISSIONS = (
     (
         "Workflow Engine: Author templates and scripts",
@@ -79,6 +70,39 @@ RETIRED_PERMISSIONS = (
         ["view", "change"],
     ),
 )
+
+
+# Migration 0014: "View workflows" and "Cancel runs" are part of "Run workflows" now.
+RETIRED_WITH_RUN_WORKFLOWS = (
+    (
+        "Workflow Engine: View workflows",
+        "See published workflows on the Workflows list and open their launch page. Add a constraint, "
+        'for example {"category": "Networking"}, to limit which workflows.',
+        [(APP, "workflow")],
+        ["view"],
+    ),
+    (
+        "Workflow Engine: Cancel runs",
+        "Cancel a run that is still Scheduled or Pending Approval.",
+        [(APP, "workflowrun")],
+        ["change"],
+    ),
+)
+
+# "Run workflows" exactly as earlier builds created it.
+OLD_RUN_WORKFLOWS = (
+    RUN_WORKFLOWS,
+    "Start runs. Pair it with “View workflows” to control which workflows a person can run.",
+    [(APP, "workflowrun")],
+    ["add"],
+)
+
+_WHY_RETIRED = {
+    "Workflow Engine: Author templates and scripts": "templates and scripts are part of Build workflows now.",
+    "Workflow Engine: Approve runs": "approvers come from Nautobot's approval workflow definitions.",
+    "Workflow Engine: View workflows": "Run workflows and Build workflows include seeing workflows now.",
+    "Workflow Engine: Cancel runs": "Run workflows includes cancelling runs now.",
+}
 
 
 def ensure_default_permissions(sender=None, *, apps, **kwargs):  # pylint: disable=unused-argument
@@ -110,7 +134,20 @@ def ensure_default_permissions(sender=None, *, apps, **kwargs):  # pylint: disab
     return created
 
 
-def retire_old_permissions(apps, schema_editor=None):  # pylint: disable=unused-argument
+def _untouched(permission, definition):
+    """True when ``permission`` still matches how the app created it."""
+    _name, description, object_types, actions = definition
+    types = sorted((ct.app_label, ct.model) for ct in permission.object_types.all())
+    return (
+        permission.description == description
+        and sorted(permission.actions or []) == sorted(actions)
+        and types == sorted(object_types)
+        and not permission.constraints
+        and permission.enabled
+    )
+
+
+def retire_old_permissions(apps, schema_editor=None, retired=RETIRED_PERMISSIONS):  # pylint: disable=unused-argument
     """Delete retired auto-created permissions that nobody changed or assigned.
 
     A retired permission is deleted only when it still has its original description,
@@ -120,18 +157,12 @@ def retire_old_permissions(apps, schema_editor=None):  # pylint: disable=unused-
     """
     object_permission = apps.get_model("users", "ObjectPermission")
     deleted, kept = [], []
-    for name, description, object_types, actions in RETIRED_PERMISSIONS:
+    for definition in retired:
+        name = definition[0]
         permission = object_permission.objects.filter(name=name).first()
         if permission is None:
             continue
-        types = sorted((ct.app_label, ct.model) for ct in permission.object_types.all())
-        untouched = (
-            permission.description == description
-            and sorted(permission.actions or []) == sorted(actions)
-            and types == sorted(object_types)
-            and not permission.constraints
-            and permission.enabled
-        )
+        untouched = _untouched(permission, definition)
         assigned = permission.users.exists() or permission.groups.exists()
         if untouched and not assigned:
             permission.delete()
@@ -142,8 +173,73 @@ def retire_old_permissions(apps, schema_editor=None):  # pylint: disable=unused-
             "Left the permission %r in place because it was %s. It is no longer created or needed: %s",
             name,
             "assigned to users or groups" if assigned else "changed by an admin",
-            "templates and scripts are part of Build workflows now."
-            if "Author" in name
-            else "approvers come from Nautobot's approval workflow definitions.",
+            _WHY_RETIRED.get(name, ""),
         )
     return deleted, kept
+
+
+def _relies_on_a_scoped_view(object_permission, permission):
+    """True when someone on ``permission`` also has a constrained view of workflows.
+
+    They were limited to some workflows by that constraint. Giving the unconstrained
+    Run workflows entry ``view`` would let them see and run every workflow.
+    """
+    users = list(permission.users.all())
+    groups = list(permission.groups.all())
+    if not users and not groups:
+        return False
+    user_ids = [user.pk for user in users]
+    group_ids = [group.pk for group in groups]
+    candidates = object_permission.objects.filter(object_types__app_label=APP, object_types__model="workflow")
+    for other in candidates.exclude(pk=permission.pk).distinct():
+        if not other.constraints or "view" not in (other.actions or []):
+            continue
+        if other.users.filter(pk__in=user_ids).exists() or other.groups.filter(pk__in=group_ids).exists():
+            return True
+    return False
+
+
+def upgrade_run_workflows(apps, schema_editor=None):  # pylint: disable=unused-argument
+    """Give the auto-created Run workflows entry its new object type and actions.
+
+    Only an entry that still matches how earlier builds created it is changed, and only
+    when nobody on it depends on a constrained view of workflows. Its users and groups
+    stay. Anything else is left alone with a warning. Returns True when it was changed.
+    """
+    object_permission = apps.get_model("users", "ObjectPermission")
+    content_type = apps.get_model("contenttypes", "ContentType")
+    permission = object_permission.objects.filter(name=RUN_WORKFLOWS).first()
+    if permission is None:
+        return False
+    new = next(row for row in DEFAULT_PERMISSIONS if row[0] == RUN_WORKFLOWS)
+    if _untouched(permission, new):
+        return False
+    reason = None
+    if not _untouched(permission, OLD_RUN_WORKFLOWS):
+        reason = "it was changed by an admin"
+    elif _relies_on_a_scoped_view(object_permission, permission):
+        reason = "someone on it has a constrained view of workflows, and the new entry would widen that"
+    if reason is not None:
+        logger.warning(
+            "Left the permission %r as it is because %s. Give the people on it the actions "
+            "view, run and cancel on workflow yourself.",
+            RUN_WORKFLOWS,
+            reason,
+        )
+        return False
+    workflow_type = content_type.objects.filter(app_label=APP, model="workflow").first()
+    if workflow_type is None:
+        return False
+    _name, description, _types, actions = new
+    permission.description = description
+    permission.actions = list(actions)
+    permission.save()
+    permission.object_types.set([workflow_type])
+    logger.info("Updated %r: it now covers seeing, running and cancelling workflows.", RUN_WORKFLOWS)
+    return True
+
+
+def fold_view_and_cancel_into_run(apps, schema_editor=None):
+    """Migration 0014: update Run workflows, then retire View workflows and Cancel runs."""
+    upgrade_run_workflows(apps, schema_editor)
+    return retire_old_permissions(apps, schema_editor, retired=RETIRED_WITH_RUN_WORKFLOWS)

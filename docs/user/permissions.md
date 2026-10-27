@@ -8,10 +8,8 @@ The app creates these permissions when it is installed or upgraded, under **Admi
 
 | Permission | Object type | Actions |
 | --- | --- | --- |
-| Workflow Engine: View workflows | workflow | view |
-| Workflow Engine: Run workflows | workflow run | add |
+| Workflow Engine: Run workflows | workflow | view, run, cancel |
 | Workflow Engine: View runs | workflow run | view |
-| Workflow Engine: Cancel runs | workflow run | change |
 | Workflow Engine: Build workflows | workflow | view, add, change |
 | Workflow Engine: Publish workflows | workflow | publish |
 | Workflow Engine: Write scripts | workflow | write_script |
@@ -22,16 +20,24 @@ Edit them freely: an upgrade never changes or reassigns a permission that alread
 
 Approving runs is not a Workflow Engine permission. Who approves a run is set in Nautobot's own approval workflow definitions (**Approvals → Workflow Definitions**): the approver group on each stage. See [Schedule and approval](schedule_approval.md).
 
-Earlier builds also created **Workflow Engine: Author templates and scripts** and **Workflow Engine: Approve runs**. Upgrading deletes them if nobody changed or assigned them. If one was assigned to someone or edited, it stays where it is, does nothing, and the upgrade logs a warning; delete it when you're ready.
+Earlier builds also created **Workflow Engine: Author templates and scripts**, **Workflow Engine: Approve runs**, **Workflow Engine: View workflows** and **Workflow Engine: Cancel runs**. Upgrading deletes each one if nobody changed or assigned it. If one was assigned to someone or edited, it stays where it is and the upgrade logs a warning; delete it when you're ready. A kept **View workflows** or **Cancel runs** still works as before.
+
+Upgrading also brings an unchanged **Run workflows** up to date: it moves to *Workflow* with view, run and cancel, and keeps its users and groups. It is left alone, with a warning, if an admin changed it or if someone on it also has a constrained view of workflows, because the new entry would let them see and run every workflow. Give those people a constrained copy of the new **Run workflows** instead.
 
 ## Running workflows
 
 | Permission | What it allows |
 | --- | --- |
-| `nautobot_workflow_engine.view_workflow` | See published workflows on the Workflows list and open their launch page. |
-| `nautobot_workflow_engine.add_workflowrun` | Start runs. Pair it with a constrained `view_workflow` to control which workflows. |
-| `nautobot_workflow_engine.view_workflowrun` | See runs in Run History, their details, and the dashboard figures built from them. |
-| `nautobot_workflow_engine.change_workflowrun` | Cancel a run that is still Scheduled or Pending Approval. |
+| `nautobot_workflow_engine.view_workflow` | See published workflows on the Workflows list and open their launch page. Part of **Run workflows** and **Build workflows**. |
+| `nautobot_workflow_engine.run_workflow` | Start a run of this workflow. Additional action `run`, part of **Run workflows**. |
+| `nautobot_workflow_engine.cancel_workflow` | Cancel a run of this workflow that is still Scheduled or Pending Approval, whoever started it. Additional action `cancel`, part of **Run workflows**. |
+| `nautobot_workflow_engine.view_workflowrun` | See runs in Run History, their details, and the dashboard figures built from them. This is **View runs**. |
+
+**Run workflows** is one permission on *Workflow*, so a single constraint such as `{"category": "Networking"}` decides which workflows a person sees, runs and cancels. It can't also cover *Workflow run*: Nautobot gives every action of a permission to every object type it lists, so that would also hand out building and every run's details.
+
+The Cancel button is on the run's page, so cancelling also needs **View runs** for that run.
+
+Permissions you made yourself with the older actions keep working: `add_workflowrun` together with `view_workflow` starts runs, and `change_workflowrun` cancels them.
 
 ## Building workflows
 
@@ -66,8 +72,8 @@ Publishing to Git also needs a repository that is set up for it: **workflows** t
 
 | Person | Grant |
 | --- | --- |
-| Operator who runs any workflow | **View workflows**, **Run workflows** and **View runs**. |
-| Operator who runs Networking workflows | **Run workflows**; a copy of **View workflows** constrained to `{"category": "Networking"}`; a copy of **View runs** constrained to `{"workflow__category": "Networking"}`. |
+| Operator who runs any workflow | **Run workflows** and **View runs**. |
+| Operator who runs Networking workflows | A copy of **Run workflows** constrained to `{"category": "Networking"}`, and a copy of **View runs** constrained to `{"workflow__category": "Networking"}`. |
 | Engineer who builds workflows | The operator set, plus **Build workflows** and **Publish workflows**. |
 | Automation engineer | The engineer set, plus **Write scripts**. |
 | Approver | No Workflow Engine permission. Add them to the approver group on the workflow's stage in **Approvals → Workflow Definitions**. |

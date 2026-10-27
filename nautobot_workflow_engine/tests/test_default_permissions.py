@@ -8,9 +8,14 @@ from nautobot.users.models import ObjectPermission
 
 from nautobot_workflow_engine.default_permissions import (
     DEFAULT_PERMISSIONS,
+    OLD_RUN_WORKFLOWS,
     RETIRED_PERMISSIONS,
+    RETIRED_WITH_RUN_WORKFLOWS,
+    RUN_WORKFLOWS,
     ensure_default_permissions,
+    fold_view_and_cancel_into_run,
     retire_old_permissions,
+    upgrade_run_workflows,
 )
 
 NAMES = [row[0] for row in DEFAULT_PERMISSIONS]
@@ -21,10 +26,8 @@ class DefaultPermissionsTestCase(TestCase):
 
     def test_every_documented_permission_is_created(self):
         expected = {
-            "Workflow Engine: View workflows": ("workflow", ["view"]),
-            "Workflow Engine: Run workflows": ("workflowrun", ["add"]),
+            "Workflow Engine: Run workflows": ("workflow", ["view", "run", "cancel"]),
             "Workflow Engine: View runs": ("workflowrun", ["view"]),
-            "Workflow Engine: Cancel runs": ("workflowrun", ["change"]),
             "Workflow Engine: Build workflows": ("workflow", ["view", "add", "change"]),
             "Workflow Engine: Publish workflows": ("workflow", ["publish"]),
             "Workflow Engine: Write scripts": ("workflow", ["write_script"]),
@@ -72,7 +75,7 @@ class DefaultPermissionsTestCase(TestCase):
         self.assertFalse(permission.users.exists())
 
 
-RETIRED = {row[0]: row for row in RETIRED_PERMISSIONS}
+RETIRED = {row[0]: row for row in RETIRED_PERMISSIONS + RETIRED_WITH_RUN_WORKFLOWS + (OLD_RUN_WORKFLOWS,)}
 AUTHOR = "Workflow Engine: Author templates and scripts"
 APPROVE = "Workflow Engine: Approve runs"
 
@@ -130,3 +133,66 @@ class RetiredPermissionsTestCase(TestCase):
 
     def test_the_migration_step_runs_cleanly_when_there_is_nothing_to_do(self):
         self.assertEqual(retire_old_permissions(django_apps), ([], []))
+
+
+VIEW_WORKFLOWS = "Workflow Engine: View workflows"
+CANCEL_RUNS = "Workflow Engine: Cancel runs"
+
+
+class FoldIntoRunWorkflowsTestCase(TestCase):
+    """Migration 0014: View workflows and Cancel runs become part of Run workflows."""
+
+    _recreate = RetiredPermissionsTestCase._recreate
+
+    def setUp(self):
+        ObjectPermission.objects.filter(name=RUN_WORKFLOWS).delete()
+
+    def test_untouched_entries_are_folded(self):
+        user = get_user_model().objects.create(username="operator")
+        self._recreate(RUN_WORKFLOWS).users.add(user)
+        self._recreate(VIEW_WORKFLOWS)
+        self._recreate(CANCEL_RUNS)
+        deleted, kept = fold_view_and_cancel_into_run(django_apps)
+        self.assertEqual(sorted(deleted), sorted([VIEW_WORKFLOWS, CANCEL_RUNS]))
+        self.assertEqual(kept, [])
+        run = ObjectPermission.objects.get(name=RUN_WORKFLOWS)
+        self.assertEqual(sorted(run.actions), ["cancel", "run", "view"])
+        self.assertEqual([ct.model for ct in run.object_types.all()], ["workflow"])
+        self.assertTrue(run.users.filter(pk=user.pk).exists(), "assignments are kept")
+        self.assertFalse(upgrade_run_workflows(django_apps), "running it again changes nothing")
+
+    def test_they_are_not_created_again(self):
+        ensure_default_permissions(apps=django_apps)
+        self.assertFalse(ObjectPermission.objects.filter(name__in=[VIEW_WORKFLOWS, CANCEL_RUNS]).exists())
+
+    def test_an_edited_run_workflows_is_left_with_a_warning(self):
+        run = self._recreate(RUN_WORKFLOWS)
+        run.constraints = {"requested_by": "x"}
+        run.save()
+        with self.assertLogs("nautobot_workflow_engine.default_permissions", level="WARNING") as logs:
+            self.assertFalse(upgrade_run_workflows(django_apps))
+        run.refresh_from_db()
+        self.assertEqual(run.actions, ["add"])
+        self.assertTrue(any("changed by an admin" in line for line in logs.output))
+
+    def test_a_scoped_view_is_not_widened(self):
+        user = get_user_model().objects.create(username="net-operator")
+        self._recreate(RUN_WORKFLOWS).users.add(user)
+        scoped = self._recreate(VIEW_WORKFLOWS)
+        scoped.name = "Networking view"
+        scoped.constraints = {"category": "Networking"}
+        scoped.save()
+        scoped.users.add(user)
+        with self.assertLogs("nautobot_workflow_engine.default_permissions", level="WARNING") as logs:
+            self.assertFalse(upgrade_run_workflows(django_apps))
+        self.assertEqual(ObjectPermission.objects.get(name=RUN_WORKFLOWS).actions, ["add"])
+        self.assertTrue(any("constrained view" in line for line in logs.output))
+
+    def test_assigned_view_and_cancel_entries_stay_with_a_warning(self):
+        user = get_user_model().objects.create(username="kept")
+        self._recreate(VIEW_WORKFLOWS).users.add(user)
+        self._recreate(CANCEL_RUNS).users.add(user)
+        with self.assertLogs("nautobot_workflow_engine.default_permissions", level="WARNING"):
+            deleted, kept = retire_old_permissions(django_apps, retired=RETIRED_WITH_RUN_WORKFLOWS)
+        self.assertEqual(deleted, [])
+        self.assertEqual(sorted(kept), sorted([VIEW_WORKFLOWS, CANCEL_RUNS]))

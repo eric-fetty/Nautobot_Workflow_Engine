@@ -44,6 +44,7 @@ from .filters import WorkflowFilterSet
 from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
+from .run_permissions import can_cancel, can_run
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
     actions_require_repository,
@@ -355,7 +356,7 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
             display = "list"
 
         # Check if user can execute workflows
-        can_execute = self.request.user.has_perm("nautobot_workflow_engine.add_workflowrun")
+        can_execute = can_run(self.request.user)
         context["can_execute_workflows"] = can_execute
         can_change_workflows = self.request.user.has_perm("nautobot_workflow_engine.change_workflow")
         context["can_change_workflows"] = can_change_workflows
@@ -507,6 +508,10 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
         """Return the permission required to launch a workflow."""
         return self.permission_required
 
+    def has_permission(self):
+        """Run workflows (``run`` on a workflow) or the older ``add_workflowrun``."""
+        return can_run(self.request.user)
+
     def get_context_data(self, **kwargs):
         """Add workflow and form to context.
 
@@ -518,6 +523,8 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         qs = _get_workflow_queryset()
         wf = get_object_or_404(qs, key=kwargs["key"])
+        if not can_run(self.request.user, wf):
+            raise Http404
 
         initial = {}
         from_run = self.request.GET.get("from_run")
@@ -1044,6 +1051,7 @@ class WorkflowRunDetailView(ObjectView):
         context = super().get_extra_context(request, instance)
         # Show workflow info in run view even if workflow is now disabled
         context["workflow_available"] = instance.workflow.enabled if instance.workflow else False
+        context["can_cancel_run"] = can_cancel(request.user, instance)
         return context
 
 
@@ -1058,7 +1066,7 @@ class WorkflowRunCancelView(View):
         if not request.user.has_perm("nautobot_workflow_engine.view_workflowrun", workflow_run):
             raise Http404
 
-        if not request.user.has_perm("nautobot_workflow_engine.change_workflowrun", workflow_run):
+        if not can_cancel(request.user, workflow_run):
             messages.error(request, "You do not have permission to cancel this workflow run.")
             return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=workflow_run.pk)
 

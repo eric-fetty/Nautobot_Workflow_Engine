@@ -243,24 +243,27 @@ scheduled job are left untouched.
 
 | Permission | Level | Purpose |
 | --- | --- | --- |
-| `nautobot_workflow_engine.view_workflow` | Object | Browse (and launch) specific workflows. |
-| `nautobot_workflow_engine.add_workflowrun` | Model | Grant the ability to launch runs at all. |
+| `nautobot_workflow_engine.view_workflow` | Object | See specific workflows and their launch page. |
+| `nautobot_workflow_engine.run_workflow` | Object | Start runs of specific workflows. Additional action `run`. |
+| `nautobot_workflow_engine.cancel_workflow` | Object | Cancel Scheduled or Pending Approval runs of specific workflows, whoever started them. Additional action `cancel`. |
 | `nautobot_workflow_engine.view_workflowrun` | Object | View specific run records and their reports. |
-| `nautobot_workflow_engine.change_workflowrun` | Object | Cancel a specific run while it is scheduled. |
 | `nautobot_workflow_engine.add_workflow` | Object | Create workflows in the builder. |
 | `nautobot_workflow_engine.change_workflow` | Object | Edit drafts (templates, conditions, script choices and the YAML view included) and use Preview run. |
 | `nautobot_workflow_engine.publish_workflow` | Object | Publish, switch Enabled, retry a push. Additional action `publish`. |
 | `nautobot_workflow_engine.write_script_workflow` | Object | Create scripts from the builder. Additional action `write_script`. |
 
-The last two are custom actions on the **nautobot_workflow_engine | workflow** object
-type. What each one allows in the builder is described in
+`run`, `cancel`, `publish` and `write_script` are custom actions on the
+**nautobot_workflow_engine | workflow** object type. Older permissions with
+`add_workflowrun` (plus `view_workflow`) still start runs, and `change_workflowrun`
+still cancels them. What each one allows in the builder is described in
 [Permissions](../user/permissions.md).
 
 ### Ready-made permissions
 
 `nautobot-server post_upgrade` (or `migrate`) creates one object permission per role,
-named **Workflow Engine: View workflows**, **Run workflows**, **View runs**,
-**Cancel runs**, **Build workflows**, **Publish workflows** and **Write scripts**, each with
+named **Workflow Engine: Run workflows** (workflow: view, run, cancel), **View runs**
+(workflow run: view), **Build workflows** (workflow: view, add, change), **Publish
+workflows** (workflow: publish) and **Write scripts** (workflow: write_script), each with
 the right object type, actions and a description. They are assigned to nobody, so
 installing the app gives nobody new access. Open **Admin → Users → Permissions**, pick
 one, and add users or groups.
@@ -273,16 +276,25 @@ There is no approve permission. Approvers are the approver groups on the stages 
 **Approvals → Workflow Definitions**; the app never checks a permission for approving.
 
 Earlier builds also created **Workflow Engine: Author templates and scripts** (now part
-of **Build workflows**) and **Workflow Engine: Approve runs**. The upgrade deletes each
-one only if it still has its original description, actions and object types, no
-constraints, and no users or groups. Otherwise it stays, grants nothing the app checks,
-and the upgrade logs a warning naming it; delete it yourself when you're ready.
+of **Build workflows**), **Workflow Engine: Approve runs**, **Workflow Engine: View
+workflows** and **Workflow Engine: Cancel runs** (both now part of **Run workflows**).
+The upgrade deletes each one only if it still has its original description, actions and
+object types, no constraints, and no users or groups. Otherwise it stays and the
+upgrade logs a warning naming it; delete it yourself when you're ready. A kept View
+workflows or Cancel runs entry keeps working.
 
-`view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
-permissions: use a Nautobot object permission with a constraint to scope them to a
-subset of objects. `add_workflowrun` is a **model-level** capability: a user who
-holds it for any workflow can launch runs, so pair it with a scoped
-`view_workflow` to control *which* workflows they may actually run.
+The upgrade also updates an unchanged **Run workflows** from the old shape (workflow
+run: add) to the new one (workflow: view, run, cancel), keeping its users and groups. It
+leaves it alone and logs a warning if an admin changed it, or if anyone on it also holds
+a constrained view of workflows, since the new entry would widen what they can see and
+run. Give those people a constrained copy of the new Run workflows instead.
+
+All of these are **object-level**: add a constraint to scope them to a subset of
+objects. Because **Run workflows** lists only the *Workflow* object type, one
+constraint scopes seeing, running and cancelling together. It can't also list
+*Workflow run*: Nautobot applies every action to every listed type, which would grant
+building workflows and every run's details. Cancelling happens on the run's page, so
+it also needs **View runs** for that run.
 
 ### Scoping by Name, Category, or Entirely
 
@@ -306,13 +318,10 @@ Grant the **Networking** team access to launch workflows in the
 `Networking` category and nothing else:
 
 1. Create a Nautobot group, e.g. `networking-operators`.
-2. Grant the group `add_workflowrun` (model permission, no constraint).
-3. Create an object permission for `view_workflow` with the constraint
-   `{"category": "Networking"}` and assign it to the group.
+2. Copy **Workflow Engine: Run workflows**, add the constraint
+   `{"category": "Networking"}`, and assign the copy to the group.
 
-Members of the group now see only `Networking` workflows and can launch only those.
-The model-level `add_workflowrun` gives them the ability to launch; the constrained
-`view_workflow` limits the scope to their category.
+Members of the group now see, launch and cancel only `Networking` workflows.
 
 ### Example: A Manager Who Reads Only Their Team's Reports
 
@@ -330,9 +339,8 @@ permission for, so a manager constrained to `workflow__category = Networking` se
 only that category's runs in run history, status summaries, success rates, and
 time-savings figures. Runs outside the constraint are excluded from every report.
 
-To also let the manager *run* the workflows (not just view reports), add
-`add_workflowrun` (model) and a constrained `view_workflow`
-(`{"category": "Networking"}`) as in the previous example.
+To also let the manager *run* the workflows (not just view reports), give them the
+constrained copy of **Run workflows** from the previous example.
 
 ### Verifying and Revising
 

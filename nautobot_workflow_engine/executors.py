@@ -854,10 +854,12 @@ def run_workflow(workflow, user, inputs: dict, workflow_run=None) -> WorkflowRun
     if not _should_show_workflow(workflow):
         raise ValueError(f"Cannot execute disabled workflow '{workflow.name}' (key: {workflow.key})")
 
-    if not user.has_perm("nautobot_workflow_engine.add_workflowrun"):
+    from .run_permissions import can_run
+
+    if not can_run(user):
         raise ValueError(f"User '{user}' does not have permission to execute workflows")
 
-    if not user.has_perm("nautobot_workflow_engine.view_workflow", workflow):
+    if not can_run(user, workflow):
         raise ValueError(f"User '{user}' does not have permission to this workflow.")
 
     # Use provided workflow_run or create a new one
