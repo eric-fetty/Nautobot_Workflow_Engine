@@ -76,9 +76,11 @@ class WorkflowEngineConfig(NautobotAppConfig):
         super().ready()
         from nautobot.apps import nautobot_database_ready
 
+        from .default_permissions import ensure_default_permissions
         from .signals import enable_required_jobs
 
         nautobot_database_ready.connect(enable_required_jobs, sender=self)
+        nautobot_database_ready.connect(ensure_default_permissions, sender=self)
 
 
 config = WorkflowEngineConfig  # pylint:disable=invalid-name

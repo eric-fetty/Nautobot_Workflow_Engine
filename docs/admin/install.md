@@ -250,10 +250,24 @@ scheduled job are left untouched.
 | `nautobot_workflow_engine.author_code_workflow` | Object | Jinja beyond simple references, script paths, the YAML view. Additional action `author_code`. |
 | `nautobot_workflow_engine.write_script_workflow` | Object | Create scripts from the builder. Additional action `write_script`. |
 
-The last three are custom actions. In the object permission form, choose the
-**nautobot_workflow_engine | workflow** object type and type the action name under
-**Additional actions**. No migration or extra setup is needed. What each one allows in
-the builder is described in [Permissions](../user/permissions.md).
+The last three are custom actions on the **nautobot_workflow_engine | workflow** object
+type. What each one allows in the builder is described in
+[Permissions](../user/permissions.md).
+
+### Ready-made permissions
+
+`nautobot-server post_upgrade` (or `migrate`) creates one object permission per role,
+named **Workflow Engine: View workflows**, **Run workflows**, **View runs**,
+**Cancel runs**, **Build workflows**, **Publish workflows**,
+**Author templates and scripts**, **Write scripts** and **Approve runs**, each with
+the right object type, actions and a description. They are assigned to nobody, so
+installing the app gives nobody new access. Open **Admin → Users → Permissions**, pick
+one, and add users or groups.
+
+A permission is only created when none with that name exists, so your edits, constraints
+and assignments survive every upgrade. Deleting one brings it back, unassigned, on the
+next upgrade; rename it to retire it. **Approve runs** is only created on Nautobot
+versions that have approval workflows.
 
 `view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
 permissions: use a Nautobot object permission with a constraint to scope them to a

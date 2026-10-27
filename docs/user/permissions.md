@@ -2,6 +2,28 @@
 
 Workflow Engine uses Nautobot's object permissions. A constraint, for example on category, limits which workflows or runs a person gets the permission for.
 
+## Ready-made permissions
+
+The app creates these permissions when it is installed or upgraded, under **Admin → Users → Permissions** (`/admin/users/objectpermission/`). They are not given to anyone. An admin only has to open one, add users or groups, and optionally add a constraint.
+
+| Permission | Object type | Actions |
+| --- | --- | --- |
+| Workflow Engine: View workflows | workflow | view |
+| Workflow Engine: Run workflows | workflow run | add |
+| Workflow Engine: View runs | workflow run | view |
+| Workflow Engine: Cancel runs | workflow run | change |
+| Workflow Engine: Build workflows | workflow | view, add, change |
+| Workflow Engine: Publish workflows | workflow | publish |
+| Workflow Engine: Author templates and scripts | workflow | author_code |
+| Workflow Engine: Write scripts | workflow | write_script |
+| Workflow Engine: Approve runs | approval workflow stage | view, change |
+
+![The ready-made Workflow Engine permissions](../assets/images/admin/04-default-permissions.png)
+
+Edit them freely: an upgrade never changes or reassigns a permission that already exists with that name. If you delete one, the next upgrade creates it again, unassigned; rename it instead if you want it gone for good. To scope access, for example one team per category, copy a permission and add a constraint to the copy.
+
+**Approve runs** also needs the person to be in the approver group of the run's approval stage.
+
 ## Running workflows
 
 | Permission | What it allows |
@@ -21,7 +43,7 @@ Workflow Engine uses Nautobot's object permissions. A constraint, for example on
 | `nautobot_workflow_engine.author_code_workflow` | Author templates and scripts | Write Jinja beyond a single `{{ inputs… }}` or `{{ results… }}` reference, change a script path, and edit the YAML view. |
 | `nautobot_workflow_engine.write_script_workflow` | Write scripts | Use **Create script** in [New script…](placeholder_scripts.md) and type the script's code. |
 
-The last three are extra actions on the *Workflow* object type. To grant one, create an object permission for **nautobot_workflow_engine | workflow**, and type the action name in **Additional actions**: `publish`, `author_code` or `write_script`. Nothing else needs to be installed.
+The last three are extra actions on the *Workflow* object type. The ready-made permissions above already carry them. To make your own, create an object permission for **nautobot_workflow_engine | workflow**, and type the action name in **Additional actions**: `publish`, `author_code` or `write_script`.
 
 ### Author templates and scripts
 
@@ -45,9 +67,11 @@ Publishing to Git also needs a repository that is set up for it: **workflows** t
 
 | Person | Grant |
 | --- | --- |
-| Operator who runs Networking workflows | `add_workflowrun`; `view_workflow` constrained to `{"category": "Networking"}`; `view_workflowrun` constrained to `{"workflow__category": "Networking"}`. |
-| Engineer who builds workflows without code | The operator set, plus `add_workflow`, `change_workflow` and `publish`. |
-| Automation engineer | The engineer set, plus `author_code` and `write_script`. |
-| Manager who reads reports | `view_workflowrun` constrained to their team's category. |
+| Operator who runs any workflow | **View workflows**, **Run workflows** and **View runs**. |
+| Operator who runs Networking workflows | **Run workflows**; a copy of **View workflows** constrained to `{"category": "Networking"}`; a copy of **View runs** constrained to `{"workflow__category": "Networking"}`. |
+| Engineer who builds workflows without code | The operator set, plus **Build workflows** and **Publish workflows**. |
+| Automation engineer | The engineer set, plus **Author templates and scripts** and **Write scripts**. |
+| Approver | **Approve runs**, and membership of the approval stage's approver group. |
+| Manager who reads reports | A copy of **View runs** constrained to their team's category. |
 
 More examples with constraints are in [Install and configure](../admin/install.md#permissions).
