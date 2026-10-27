@@ -105,8 +105,13 @@ _WHY_RETIRED = {
 }
 
 
-def ensure_default_permissions(sender=None, *, apps, **kwargs):  # pylint: disable=unused-argument
+def ensure_default_permissions(sender=None, *, apps=None, **kwargs):  # pylint: disable=unused-argument
     """Create each default permission that is missing, matched by name. Returns the names created."""
+    if apps is None:
+        # Some post_migrate senders (for example a test flush) don't pass the migration state.
+        from django.apps import apps as global_apps
+
+        apps = global_apps
     try:
         object_permission = apps.get_model("users", "ObjectPermission")
         content_type = apps.get_model("contenttypes", "ContentType")

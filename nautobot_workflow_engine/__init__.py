@@ -74,6 +74,7 @@ class WorkflowEngineConfig(NautobotAppConfig):
     def ready(self):
         """Connect database-ready handlers after the app is fully loaded."""
         super().ready()
+        from django.db.models.signals import post_migrate
         from nautobot.apps import nautobot_database_ready
 
         from .default_permissions import ensure_default_permissions
@@ -81,6 +82,10 @@ class WorkflowEngineConfig(NautobotAppConfig):
 
         nautobot_database_ready.connect(enable_required_jobs, sender=self)
         nautobot_database_ready.connect(ensure_default_permissions, sender=self)
+        # nautobot_database_ready fires from nautobot.core's post_migrate, before Django has
+        # created this app's content types on a fresh database, so the permissions would only
+        # appear on a second migrate. Run again once this app's own post_migrate has them.
+        post_migrate.connect(ensure_default_permissions, sender=self, dispatch_uid="nwe_default_permissions")
 
 
 config = WorkflowEngineConfig  # pylint:disable=invalid-name

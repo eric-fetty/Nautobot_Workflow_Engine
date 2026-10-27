@@ -196,3 +196,19 @@ class FoldIntoRunWorkflowsTestCase(TestCase):
             deleted, kept = retire_old_permissions(django_apps, retired=RETIRED_WITH_RUN_WORKFLOWS)
         self.assertEqual(deleted, [])
         self.assertEqual(sorted(kept), sorted([VIEW_WORKFLOWS, CANCEL_RUNS]))
+
+
+class FreshDatabaseTestCase(TestCase):
+    """On a fresh database the permissions come from this app's own post_migrate."""
+
+    def test_this_apps_post_migrate_creates_them(self):
+        from django.db.models.signals import post_migrate
+
+        config = django_apps.get_app_config("nautobot_workflow_engine")
+        ObjectPermission.objects.filter(name__in=NAMES).delete()
+        post_migrate.send(
+            sender=config, app_config=config, verbosity=0, interactive=False, using="default", apps=django_apps, plan=[]
+        )
+        self.assertEqual(
+            set(ObjectPermission.objects.filter(name__in=NAMES).values_list("name", flat=True)), set(NAMES)
+        )
