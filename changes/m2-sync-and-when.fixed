@@ -1,1 +1,0 @@
-Fixed Git sync so one invalid workflow file does not abort the rest of the sync, and stored action conditions in a text column so the 10 kB template cap is the only limit.

@@ -1,1 +1,0 @@
-Git sync now also switches off removed Git-managed workflows whose repository link is stale (a deleted, duplicate or retired repository), switches them off before importing, keeps a workflow whose file is present but fails to import, and logs what it checked. Workflows built or published in Nautobot are never switched off by this cleanup.

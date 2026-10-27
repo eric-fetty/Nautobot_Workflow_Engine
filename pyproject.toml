@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nautobot-workflow-engine"
-version = "1.1.3a0"
+version = "1.2.1a0"
 description = "Workflow Engine"
 authors = ["Eric Fetty"]
 license = "Apache-2.0"
@@ -211,7 +211,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.towncrier]
 package = "nautobot_workflow_engine"
 directory = "changes"
-filename = "docs/admin/release_notes/version_1.1.md"
+filename = "docs/admin/release_notes/version_1.2.md"
 template = "development/towncrier_template.j2"
 start_string = "<!-- towncrier release notes start -->"
 issue_format = "#{issue}"
