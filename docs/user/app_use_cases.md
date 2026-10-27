@@ -505,10 +505,9 @@ builder what to ask for, for example
 `PARAMETERS = {"device": {"type": "object", "required": True, "model": "dcim.Device"}}`.
 The builder reads it without running the file.
 
-A script may set `ENABLED = False` at module level. The runner reads that line without
-importing the file and stops the step with a plain message until an admin sets
-`ENABLED = True`. Scripts created in the builder start switched off; scripts without the
-line run as before. See [New scripts from the builder](placeholder_scripts.md). Use the
+Scripts created in the builder are starters in this same format: `run(params)` prints each
+parameter and returns the names it received. `print()` output goes to the run's user log.
+See [New scripts from the builder](placeholder_scripts.md). Use the
 [first workflow](app_getting_started.md) as a complete non-destructive example.
 Helpers under `scripts/lib/` can be imported with absolute imports such as
 `from scripts.lib.text_helpers import normalize_hostname`.

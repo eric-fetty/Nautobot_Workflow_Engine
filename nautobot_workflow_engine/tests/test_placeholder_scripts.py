@@ -1,7 +1,9 @@
-"""Placeholder scripts: generated from the step, parsed to check, committed switched off, never run here."""
+"""Placeholder scripts: generated from the step, parsed to check, committed as starters, never run here."""
 
+import ast
 import json
 import tempfile
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,11 +16,9 @@ from rest_framework.test import APIClient
 from nautobot_workflow_engine import executors
 from nautobot_workflow_engine.models import Workflow, WorkflowHelper
 from nautobot_workflow_engine.script_files import (
-    SWITCHED_OFF_MESSAGE,
     check_script,
     parameters_spec,
     render_script,
-    script_enabled,
     script_path,
     script_slug,
 )
@@ -46,7 +46,7 @@ class ScriptFileTestCase(SimpleTestCase):
     def test_placeholder_matches_the_scripts_format(self):
         text = placeholder()
         self.assertEqual(check_script(text), [])
-        self.assertIn("ENABLED = False", text)
+        self.assertNotIn("ENABLED", text)
         self.assertIn('"device": {"type": "object", "required": True, "model": "dcim.Device", "help": "Device"}', text)
         self.assertIn("def run(params):", text)
         meta = script_parameters(text)
@@ -54,7 +54,19 @@ class ScriptFileTestCase(SimpleTestCase):
         self.assertEqual([row["name"] for row in meta["params"]], ["device", "attempts"])
         self.assertEqual(meta["params"][0]["model"], "dcim.Device")
         self.assertFalse(meta["params"][1]["required"])
-        self.assertFalse(script_enabled(text))
+
+    def test_starter_prints_each_parameter_with_print(self):
+        text = placeholder()
+        self.assertIn("# Replace this with your logic.", text)
+        self.assertIn("""    print(f"device: {params.get('device')!r}")""", text)
+        self.assertIn("""    print(f"attempts: {params.get('attempts')!r}")""", text)
+        self.assertNotIn("NotImplementedError", text)
+        ast.parse(text, feature_version=(3, 10))
+
+    def test_starter_without_parameters_prints_whatever_it_gets(self):
+        text = render_script(path="scripts/empty.py", title="Empty", spec={})
+        self.assertEqual(check_script(text), [])
+        self.assertIn("for name, value in params.items():", text)
 
     def test_body_is_placed_inside_run(self):
         text = placeholder('from nautobot.dcim.models import Device\nreturn {"n": Device.objects.count()}')
@@ -67,8 +79,8 @@ class ScriptFileTestCase(SimpleTestCase):
         self.assertTrue(broken[0]["message"].startswith(f"Line {broken[0]['line']}:"), broken)
         top_import = check_script("import os\n\ndef run(params):\n    return {}\n")
         self.assertIn("Put imports and other code inside run()", top_import[0]["message"])
-        switched_on = check_script("ENABLED = True\n\ndef run(params):\n    return {}\n")
-        self.assertIn("start switched off", switched_on[0]["message"])
+        flag = check_script("ENABLED = True\n\ndef run(params):\n    return {}\n")
+        self.assertIn("only the parameters and run(params) belong at the top", flag[0]["message"])
         decorated = check_script("@staticmethod\ndef run(params):\n    return {}\n")
         self.assertIn("def run(params):", decorated[0]["message"])
         self.assertIn("needs a run(params)", check_script('"""Only a docstring."""\n')[0]["message"])
@@ -80,7 +92,6 @@ class ScriptFileTestCase(SimpleTestCase):
             problems = check_script(text)
             self.assertTrue(problems)
             self.assertFalse(marker.exists())
-            self.assertTrue(script_enabled(text))
 
     def test_names_and_parameters_are_sanitized(self):
         self.assertEqual(script_slug("Check reachability!"), "check_reachability")
@@ -100,35 +111,41 @@ class ScriptFileTestCase(SimpleTestCase):
         self.assertEqual(spec["ok_name"]["type"], "string")
         self.assertNotIn("model", spec["x"])
 
-    def test_older_scripts_without_the_flag_stay_enabled(self):
-        self.assertTrue(script_enabled("def run(params):\n    return {}\n"))
 
+class RunnerTestCase(SimpleTestCase):
+    """The runner treats every script the same way it does on main."""
 
-class SwitchedOffScriptTestCase(SimpleTestCase):
-    """The runner refuses a switched-off script before importing it."""
-
-    def test_switched_off_script_is_not_imported(self):
+    def run_file(self, name, text, params):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "scripts").mkdir()
-            marker = root / "imported"
-            (root / "scripts" / "off.py").write_text(
-                f"ENABLED = False\nopen({str(marker)!r}, 'w').write('x')\n\ndef run(params):\n    return {{}}\n"
-            )
-            row = SimpleNamespace(content=(root / "scripts" / "off.py").read_text())
+            (root / "scripts" / f"{name}.py").write_text(text)
+            row = SimpleNamespace(content=text)
             run = SimpleNamespace(log="", user_log="", save=lambda **kwargs: None)
             with (
                 patch.object(executors, "_materialize_repo_package", return_value=str(root)),
                 patch.object(executors, "_get_internal_manager") as manager,
             ):
                 manager.return_value.get.return_value = row
-                with self.assertRaises(RuntimeError) as caught:
-                    executors._run_nautobot_script(
-                        SimpleNamespace(script_path="scripts/off.py"), {}, run, SimpleNamespace(id=1)
-                    )
-            self.assertEqual(str(caught.exception), SWITCHED_OFF_MESSAGE.format(path="scripts/off.py"))
-            self.assertIn("an admin needs to review", str(caught.exception).lower())
-            self.assertFalse(marker.exists())
+                result = executors._run_nautobot_script(
+                    SimpleNamespace(script_path=f"scripts/{name}.py"), params, run, SimpleNamespace(id=1)
+                )
+        return result, run
+
+    def test_a_script_with_an_enabled_line_still_runs(self):
+        result, _run = self.run_file(
+            f"legacy_{uuid.uuid4().hex[:8]}", "ENABLED = False\n\ndef run(params):\n    return {'ran': True}\n", {}
+        )
+        self.assertEqual(result, {"ran": True})
+
+    def test_starter_lines_reach_the_run_log(self):
+        text = placeholder()
+        result, run = self.run_file(
+            f"starter_{uuid.uuid4().hex[:8]}", text, {"device": "ams01-acc-sw01", "attempts": 3}
+        )
+        self.assertIn("device: 'ams01-acc-sw01'\n", run.user_log)
+        self.assertIn("attempts: 3\n", run.user_log)
+        self.assertEqual(result, {"received": ["attempts", "device"]})
 
 
 @override_settings(PLUGINS_CONFIG=PLUGINS)
@@ -166,8 +183,8 @@ class ScriptApiTestCase(BareRepoMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["can_write"])
         self.assertNotIn('return {"ok": True}', response.data["content"])
-        self.assertIn("Placeholder", response.data["content"])
-        self.assertIn("admin needs to review", response.data["note"])
+        self.assertIn("# Replace this with your logic.", response.data["content"])
+        self.assertIn("prints each value it gets", response.data["note"])
         created = self.reader.post(self.url("builder-script-create"), data=self.body(), content_type="application/json")
         self.assertEqual(created.status_code, 403)
         self.assertIn("Write scripts", created.data["detail"])
@@ -182,17 +199,17 @@ class ScriptApiTestCase(BareRepoMixin, TestCase):
         self.assertEqual(response.data["path"], "scripts/check_it.py")
         self.assertEqual(response.data["problems"], [])
 
-    def test_create_commits_a_switched_off_script(self):
+    def test_create_commits_a_starter_script(self):
         response = self.writer.post(
             self.url("builder-script-create"), data=self.body(), content_type="application/json"
         )
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["script"]["path"], "scripts/check_it.py")
-        self.assertFalse(response.data["script"]["enabled"])
-        self.assertIn("an admin needs to review it", response.data["detail"])
+        self.assertNotIn("enabled", response.data["script"])
+        self.assertIn("prints each value it gets", response.data["detail"])
         committed = self.show_file("scripts/check_it.py")
-        self.assertIn("ENABLED = False", committed)
-        self.assertIn("(switched off)", self.tip_fields()["subject"])
+        self.assertNotIn("ENABLED", committed)
+        self.assertIn("(starter)", self.tip_fields()["subject"])
         self.assertTrue(WorkflowHelper.objects.filter(source_repo=self.repo, file_path="scripts/check_it.py").exists())
         preview = self.writer.post(
             self.url("builder-script-preview"), data=self.body(), content_type="application/json"

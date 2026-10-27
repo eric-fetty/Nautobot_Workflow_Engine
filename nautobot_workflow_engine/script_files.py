@@ -1,9 +1,10 @@
 """Placeholder scripts written from the builder.
 
 The builder never runs, imports, or evaluates this code. It is only parsed with
-:func:`ast.parse` to check it. A script made here is committed with
-``ENABLED = False``; a workflow step that uses it stops with a plain message until
-an admin reviews the file in the repository and sets ``ENABLED = True``.
+:func:`ast.parse` to check it. A new script is a starter: unless the person writes
+their own body, ``run()`` prints each parameter it gets, one line per parameter, and
+returns the names it received. Printed lines appear in the run's log, because the runner sends a
+script's stdout there.
 """
 
 import ast
@@ -17,15 +18,12 @@ SCRIPT_PERMISSION = "nautobot_workflow_engine.write_script_workflow"
 NO_PERMISSION_MESSAGE = (
     "You need the “Write scripts” permission to create scripts. Copy the code and send it to an admin instead."
 )
-SWITCHED_OFF_MESSAGE = (
-    "This script is switched off. An admin needs to review {path} and set ENABLED = True before this step can run."
-)
-ADMIN_ENABLES_NOTE = (
-    "Nothing runs in the builder. The script is saved to the repository switched off, and an admin needs to "
-    "review it and switch it on before this step can run."
+STARTER_NOTE = (
+    "Nothing runs in the builder. The script is saved to the repository as a starter: it prints each value it "
+    "gets to the run's log. Replace that with the real work in the repository."
 )
 MAX_BODY_CHARS = 20000
-_ALLOWED_TOP = ("ENABLED", "PARAMETERS")
+_ALLOWED_TOP = ("PARAMETERS",)
 
 
 def scripts_dir():
@@ -77,18 +75,22 @@ def parameters_spec(rows):
 
 
 def default_body(spec):
-    """A body that does nothing real yet and says so."""
-    names = ", ".join(spec) or "nothing yet"
-    return (
-        "# Placeholder: replace this with the real work.\n"
-        f"# params holds: {names}\n"
-        'print(f"Placeholder script ran with {sorted(params)}")\n'
-        'return {"placeholder": True}\n'
-    )
+    """A starter body: print every value the step passes, one line per parameter.
+
+    ``print()`` output goes to the run's log, so a new user sees exactly what arrived.
+    """
+    lines = ["# Replace this with your logic."]
+    for name in spec:
+        lines.append(f"print(f\"{name}: {{params.get('{name}')!r}}\")")
+    if not spec:
+        lines.append("for name, value in params.items():")
+        lines.append('    print(f"{name}: {value!r}")')
+    lines.append('return {"received": sorted(params)}')
+    return "\n".join(lines) + "\n"
 
 
 def render_script(*, path, title, spec, body=None):
-    """The whole file. ``ENABLED`` is always written as False here."""
+    """The whole file: a docstring, ``PARAMETERS`` and ``run(params)``."""
     title = re.sub(r"\s+", " ", str(title or "").strip()) or path
     title = title.replace('"""', "'''")[:120]
     text = (body if body is not None and str(body).strip() else default_body(spec)).replace("\t", "    ")
@@ -97,8 +99,6 @@ def render_script(*, path, title, spec, body=None):
     params = _literal(spec)
     return (
         f'"""{title}\n\nCreated in the workflow builder. Edit it in the repository.\n"""\n\n'
-        "# An admin reviews this file and sets ENABLED = True before a workflow step can run it.\n"
-        "ENABLED = False\n\n"
         f"PARAMETERS = {params}\n\n\n"
         "def run(params):\n"
         '    """Do the work for the workflow step. Return a dict for later steps to read."""\n'
@@ -127,8 +127,8 @@ def _literal(spec):
 def check_script(text):
     """Parse ``text`` (never run it) and return plain problems, each ``{"line", "message"}``.
 
-    Only a docstring, ``ENABLED``, ``PARAMETERS`` and ``def run(params)`` may sit at the
-    top level, so nothing in the file can execute before an admin switches it on.
+    Only a docstring, ``PARAMETERS`` and ``def run(params)`` may sit at the top level,
+    so nothing in the file runs on import: code only runs when a workflow step calls run().
     """
     if len(text or "") > MAX_BODY_CHARS + 4000:
         return [{"line": 0, "message": f"The script is too long. Keep it under {MAX_BODY_CHARS} characters."}]
@@ -150,10 +150,6 @@ def check_script(text):
                 except (ValueError, SyntaxError, TypeError):
                     problems.append({"line": line, "message": f"Line {line}: {name} must be a plain value."})
                     continue
-                if name == "ENABLED" and value is not False:
-                    problems.append(
-                        {"line": line, "message": "Scripts made here start switched off (ENABLED = False)."}
-                    )
                 if name == "PARAMETERS" and not isinstance(value, dict):
                     problems.append({"line": line, "message": f"Line {line}: PARAMETERS must be a mapping."})
                 continue
@@ -175,20 +171,3 @@ def check_script(text):
     if not seen_run:
         problems.append({"line": 0, "message": "The script needs a run(params) function."})
     return problems
-
-
-def script_enabled(content):
-    """False only when the file says ``ENABLED = False`` at the top level. Older scripts stay as they were."""
-    try:
-        tree = ast.parse(content or "")
-    except SyntaxError:
-        return True
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "ENABLED" for target in node.targets
-        ):
-            try:
-                return bool(ast.literal_eval(node.value))
-            except (ValueError, SyntaxError, TypeError):
-                return True
-    return True

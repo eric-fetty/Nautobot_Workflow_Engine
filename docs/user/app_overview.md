@@ -8,7 +8,7 @@ without touching code, and every run is recorded.
 
 - Build workflows in a [visual builder](builder.md): inputs, steps, conditions, schedule and approval, with a live launch form preview, [Preview run](preview_run.md), drafts, versions and one-click publish.
 - Publish to Git and import changes from Git, with failures explained in plain words. See [Publishing and versions](publishing.md).
-- Write the first version of a new script from the builder, switched off until an admin reviews it. See [New scripts from the builder](placeholder_scripts.md).
+- Write a starter script from the builder that prints every value it receives. See [New scripts from the builder](placeholder_scripts.md).
 - Synchronize workflow definitions, Python scripts, helpers, and filters from repositories.
 - Collect typed inputs, including Nautobot objects, dependent choices, and tabular data.
 - Run ordered pre-actions, main actions, and post-actions with reusable results.

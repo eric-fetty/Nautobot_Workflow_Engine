@@ -1641,8 +1641,7 @@ body.nwe-studio-body #header > .container-fluid {
     white-space: pre;
 }
 
-.nwe-ns-note,
-.nwe-script-off {
+.nwe-ns-note {
     display: flex;
     align-items: flex-start;
     gap: 0.45rem;
@@ -1651,11 +1650,6 @@ body.nwe-studio-body #header > .container-fluid {
     background: var(--bs-info-bg-subtle);
     color: var(--bs-info-text-emphasis);
     font-size: 0.83rem;
-}
-
-.nwe-script-off {
-    background: var(--bs-warning-bg-subtle);
-    color: var(--bs-warning-text-emphasis);
 }
 
 .nwe-ns-problems:empty {

@@ -22,7 +22,7 @@ For each phase and step, Preview run:
 2. shows the parameters the step would get, rendered with your values;
 3. shows a rendering error on the step it belongs to.
 
-A count at the top sums it up, for example *4 would run*. A step that uses a script an admin hasn't switched on yet is marked, because it would stop in a real run. See [New scripts from the builder](placeholder_scripts.md#switched-off-until-an-admin-enables-it).
+A count at the top sums it up, for example *4 would run*.
 
 When a condition depends on an earlier step's output, Preview run says so. The output only exists in a real run.
 

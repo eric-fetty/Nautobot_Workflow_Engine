@@ -1539,7 +1539,7 @@ function newScriptPanel(phase, action, index) {
             h("button", { type: "button", class: "nwe-link", "data-action": "ns-copy" }, [icon("content-copy"), "Copy code"]),
         ]),
         h("pre", { class: "nwe-ns-code", id: "nwe-ns-code", tabindex: "0", "aria-label": "Script code, read-only" }),
-        h("div", { class: "nwe-ns-note" }, [icon("shield-lock-outline"), h("span", { text: "Nothing runs in the builder. The script is saved to the repository switched off. An admin needs to review it and enable it before this step can run." })]),
+        h("div", { class: "nwe-ns-note" }, [icon("shield-lock-outline"), h("span", { text: "Nothing runs in the builder. The script is saved to the repository as a starter that prints each value it gets to the run’s log. Replace that with your logic in the repository." })]),
         repoMissing ? h("div", { class: "nwe-ns-problem" }, [icon("alert-circle-outline"), "Choose the repository on Details first."]) : null,
         h("div", { class: "d-flex gap-2 mt-2" }, [
             canWrite ? h("button", { type: "button", class: "btn btn-sm nwe-btn-accent", id: "nwe-ns-create", "data-action": "ns-create", "data-phase": phase, "data-index": String(index) }, [icon("plus"), draft.busy ? "Creating…" : "Create script"]) : null,
@@ -1600,12 +1600,9 @@ function stepEditor(phase, action, index) {
                 ]), "Its ID in AWX, and the name people know it by (shown on this card).")
                 : gridField("Script", h("select", { class: `form-select ${scriptName(action.script) || drafting ? "" : "is-invalid"}`, "data-script-pick": `${phase}:${index}`, "aria-label": "Script" }, [
                     h("option", { value: "", text: choices.length ? "Choose a script…" : "No scripts in this repository yet", selected: !action.script && !drafting }),
-                    ...choices.map((item) => h("option", { value: item.path, text: item.enabled === false ? `${item.name} (switched off)` : item.name, selected: action.script === item.path && !drafting })),
+                    ...choices.map((item) => h("option", { value: item.path, text: item.name, selected: action.script === item.path && !drafting })),
                     h("option", { value: NEW_SCRIPT, text: "New script…", selected: drafting }),
                 ]), drafting ? "Describe it below. It’s saved to the repository when you create it." : meta ? (meta.params.length ? `${action.script} · asks for ${meta.params.length} parameter${meta.params.length === 1 ? "" : "s"}` : action.script) : "Choose which script to run, or make a new one."),
-            meta && meta.enabled === false && !drafting
-                ? h("div", { class: "nwe-span nwe-script-off", role: "status" }, [icon("power-plug-off-outline"), h("span", { text: "Switched off: an admin needs to review this script and enable it before this step can run. You can still build and publish the workflow." })])
-                : null,
             drafting ? h("div", { class: "nwe-span" }, [newScriptPanel(phase, action, index)]) : null,
             h("div", { class: "nwe-span" }, [paramsEditor(phase, action, index)]),
             action.type === "awx" ? h("div", { class: "nwe-span" }, [
@@ -3317,7 +3314,6 @@ async function runTest() {
                 sub = h("div", {}, [
                     step.assumption ? h("small", { class: "nwe-run-assume" }, [icon("help-circle-outline"), step.assumption]) : null,
                     h("small", { text: `Would run ${action.type === "awx" ? `AWX template ${action.template_name || `#${action.template_id || "?"}`}` : scriptName(action.script) || "the script"}${step.when_rendered ? " · condition is true" : ""}` }),
-                    scriptMeta(action)?.enabled === false ? h("small", { class: "nwe-run-assume" }, [icon("power-plug-off-outline"), "This script is switched off until an admin enables it, so a real run would stop here."]) : null,
                     params.length ? h("div", { class: "nwe-run-params" }, params.map(([key, value]) => paramLine(key, value))) : null,
                 ]);
             }

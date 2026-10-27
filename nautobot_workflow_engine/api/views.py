@@ -652,15 +652,15 @@ class BuilderScriptPreviewView(APIView):
         if failure is not None:
             return failure
         path, content, problems, can_write = _script_request(user, data if isinstance(data, dict) else {})
-        from nautobot_workflow_engine.script_files import ADMIN_ENABLES_NOTE
+        from nautobot_workflow_engine.script_files import STARTER_NOTE
 
         return Response(
-            {"path": path, "content": content, "problems": problems, "can_write": can_write, "note": ADMIN_ENABLES_NOTE}
+            {"path": path, "content": content, "problems": problems, "can_write": can_write, "note": STARTER_NOTE}
         )
 
 
 class BuilderScriptCreateView(APIView):
-    """Commit a new, switched-off script to the workflow repository. Needs the Write scripts permission."""
+    """Commit a new starter script to the workflow repository. Needs the Write scripts permission."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [BodyParser]
@@ -668,7 +668,7 @@ class BuilderScriptCreateView(APIView):
     @extend_schema(request=None, responses={201: OpenApiResponse(description="Script created")})
     def post(self, request):
         """Write, commit and push the file, then return it the way the script picker lists scripts."""
-        from nautobot_workflow_engine.script_files import ADMIN_ENABLES_NOTE, NO_PERMISSION_MESSAGE, SCRIPT_PERMISSION
+        from nautobot_workflow_engine.script_files import NO_PERMISSION_MESSAGE, SCRIPT_PERMISSION, STARTER_NOTE
         from nautobot_workflow_engine.script_params import script_parameters
         from nautobot_workflow_engine.utilities.script_commit import ScriptCommitError, commit_script
 
@@ -701,9 +701,8 @@ class BuilderScriptCreateView(APIView):
                     "name": path.rsplit("/", 1)[-1][:-3].replace("_", " ").capitalize(),
                     "params": meta["params"],
                     "declared": meta["declared"],
-                    "enabled": False,
                 },
-                "detail": f"Created {path} in {repository.name}. {ADMIN_ENABLES_NOTE}",
+                "detail": f"Created {path} in {repository.name}. {STARTER_NOTE}",
             },
             status=201,
         )

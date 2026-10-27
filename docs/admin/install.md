@@ -130,9 +130,9 @@ the token removed, is written to the Nautobot server log and to the log of the
 People with the **Write scripts** permission can commit a new script from the builder
 (see [New scripts from the builder](../user/placeholder_scripts.md)). The builder only
 parses the code; it never imports or runs it. Each file is committed under
-`scripts_dir` with `ENABLED = False`, and a workflow step that uses it stops with a plain
-message until an admin reviews the file in Git, sets `ENABLED = True`, and syncs. Treat
-that change like any other code review.
+`scripts_dir` as a starter that prints each value it receives. It needs no extra flag
+and runs like any other script once a workflow step uses it, so review it like any
+other code change.
 
 ### Optional: Nautobot approval for workflows (3.2+)
 

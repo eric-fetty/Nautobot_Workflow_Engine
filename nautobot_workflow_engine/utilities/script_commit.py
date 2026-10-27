@@ -55,7 +55,9 @@ def commit_script(*, user, repository, path, content):
         target = root / path
         if target.exists():
             raise ScriptCommitError(409, f"{path} already exists. Pick another name, or choose it in the list.")
-        message = f"scripts: add {path} (switched off)\n\nCreated in the workflow builder by {getattr(user, 'username', '')}.\n"
+        message = (
+            f"scripts: add {path} (starter)\n\nCreated in the workflow builder by {getattr(user, 'username', '')}.\n"
+        )
 
         def write_and_commit():
             from git import Repo

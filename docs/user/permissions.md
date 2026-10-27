@@ -29,7 +29,7 @@ A label, a required flag, or help text doesn't need it. A template that is only 
 
 ### Write scripts
 
-Without **Write scripts**, the **New script…** panel shows the generated file read-only with **Copy code**, so the person can hand it to an admin. With it, the person can type the script's code and commit it to the repository with **Create script**. Either way the builder never runs the code, and the new file is switched off (`ENABLED = False`) until an admin reviews it and switches it on. Grant it only to people whose code you are happy to review.
+Without **Write scripts**, the **New script…** panel shows the generated file read-only with **Copy code**, so the person can hand it to an admin. With it, the person can type the script's code and commit it to the repository with **Create script**. Either way the builder never runs the code. The new file is a starter that prints the values it gets; it runs like any other script once a workflow step uses it, so grant this permission only to people whose code you are happy to have in the repository.
 
 ### Preview run
 

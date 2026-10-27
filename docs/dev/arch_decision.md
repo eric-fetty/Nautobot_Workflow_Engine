@@ -36,13 +36,13 @@
   token scrubbing; credentials come from core `get_repo_access_url()`.
 - `script_files.py` renders and checks builder-created scripts with `ast` only.
   `utilities/script_commit.py` commits them with the same lock and credentials as
-  publish. `executors.py` refuses a script whose `ENABLED` is `False`, checked by
-  parsing before import.
+  publish. The starter body prints each parameter; the runner already sends a
+  script's stdout to the run's user log.
 
 ## Boundaries to Preserve
 
 - The builder never executes anything: Preview run renders in the sandbox, script
-  parameters are read with `ast`, and builder-created scripts are parsed, never imported.
+  parameters are read with `ast`, and builder-created scripts are parsed, never imported by the builder.
 - Messages shown to people are plain sentences. Keep raw Git output and codes in the
   server and job logs, and never put a token in either.
 
