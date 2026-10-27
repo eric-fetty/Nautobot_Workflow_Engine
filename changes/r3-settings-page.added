@@ -1,1 +1,0 @@
-Added the Settings page back: the gear icon next to Workflow Engine under Installed Apps opens a page where admins change every app setting, including the scripts folder and the Git publishing settings. Settings pinned in nautobot_config.py still win and show as locked.

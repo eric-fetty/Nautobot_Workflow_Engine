@@ -1,1 +1,0 @@
-Sandboxed workflow Jinja in conditions, parameters, choices, and filter queries. The sandbox rejects private-attribute escapes such as cycler.__init__.__globals__, lipsum.__globals__, joiner.__init__.__globals__, and namespace.__init__.__globals__, and it blocks methods that change data. user.password is no longer available to a template.

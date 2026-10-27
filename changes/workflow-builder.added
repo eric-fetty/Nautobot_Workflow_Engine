@@ -1,1 +1,0 @@
-Added a workflow builder for metadata, inputs, actions, and ServiceNow schedule settings. Saving writes the raw definition and the input and action rows, and the page can export the same YAML git sync already accepts.

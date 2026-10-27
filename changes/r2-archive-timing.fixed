@@ -1,1 +1,0 @@
-Archiving a workflow no longer mistakes its own push for a newer Git change when the push lands in the next second.
