@@ -1,3 +1,5 @@
+import { onEnableChange } from "./shared/run_control.js";
+
 (function () {
     function csrf() {
         var input = document.querySelector("#nwe-catalog-csrf input[name=csrfmiddlewaretoken]");
@@ -30,15 +32,9 @@
 
     document.querySelectorAll("[data-nwe-enable]").forEach(function (input) {
         input.addEventListener("change", function () {
-            var url = input.checked ? input.getAttribute("data-enable") : input.getAttribute("data-disable");
-            input.disabled = true;
-            post(url, {}).then(function (response) {
-                input.disabled = false;
-                if (!response.ok) input.checked = !input.checked;
-            }).catch(function () {
-                input.disabled = false;
-                input.checked = !input.checked;
-            });
+            var row = input.closest("tr");
+            var slot = row ? row.querySelector("[data-nwe-run-slot]") : null;
+            onEnableChange(input, slot, function (url) { return post(url, {}); });
         });
     });
 

@@ -6,8 +6,8 @@
 
 {% block extra_styles %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v31">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v32">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v32">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v33">
 {% endblock extra_styles %}
 
 {% block header %}{% endblock header %}
@@ -153,13 +153,7 @@
                                 </td>
                                 <td>
                                     <div class="nwe-row-acts">
-                                        {% if wf.published_revision_id and wf.enabled %}
-                                            <a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>
-                                        {% else %}
-                                            <span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}">
-                                                <button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button>
-                                            </span>
-                                        {% endif %}
+                                        <span class="nwe-run-slot" data-nwe-run-slot data-published="{% if wf.published_revision_id %}1{% else %}0{% endif %}" data-launch="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}">{% if wf.published_revision_id and wf.enabled %}<a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>{% else %}<span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}"><button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button></span>{% endif %}</span>
                                         {% if can_change_workflows %}
                                             <a class="btn btn-sm nwe-btn" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}"><i class="mdi mdi-pencil-outline"></i> Edit</a>
                                         {% endif %}
@@ -202,5 +196,5 @@
 {% block drawer %}{% endblock drawer %}
 
 {% block javascript %}
-    <script src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}?v3"></script>
 {% endblock javascript %}

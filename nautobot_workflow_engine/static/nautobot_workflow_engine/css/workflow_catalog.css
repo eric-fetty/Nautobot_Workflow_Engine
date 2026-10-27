@@ -91,3 +91,6 @@
     color: var(--nwe-muted);
     font-size: 0.76rem;
 }
+
+/* The Run slot is only a hook for the Enabled switch; it must not change the row layout. */
+.nwe-run-slot { display: contents; }
