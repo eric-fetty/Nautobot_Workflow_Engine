@@ -136,8 +136,8 @@ class BuilderApiTestCase(TestCase):
         self.assertEqual(target["depends_on"], ["location"])
 
     def test_draft_does_not_change_runtime_and_stale_edit_names_the_editor(self):
-        grant(self.user, ["view", "add", "change", "author_code"])
-        grant(self.other, ["view", "change", "author_code"])
+        grant(self.user, ["view", "add", "change"])
+        grant(self.other, ["view", "change"])
         created = self._send("post", "workflow-list", {"definition": _definition()})
         self.assertEqual(created.status_code, 201)
         workflow = Workflow.objects.get(key="lab-flow")
@@ -226,7 +226,7 @@ class BuilderApiTestCase(TestCase):
         self.assertEqual(Workflow.objects.get(key="git-flow").draft_revision.state, "draft")
 
     def test_revisions_diff_restore_duplicate_and_enable(self):
-        grant(self.user, ["view", "add", "change", "publish", "author_code"])
+        grant(self.user, ["view", "add", "change", "publish"])
         created = self._send("post", "workflow-list", {"definition": _definition("copy-source")})
         self.assertEqual(created.status_code, 201)
         published = self._send(

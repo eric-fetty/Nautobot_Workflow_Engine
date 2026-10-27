@@ -46,7 +46,7 @@ class StudioLifecycleTestCase(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(username="studio-editor")
-        grant(self.user, ["view", "add", "change", "publish", "author_code"], Workflow)
+        grant(self.user, ["view", "add", "change", "publish"], Workflow)
         self.workflow = Workflow.objects.create(
             key="reboot",
             name="Reboot a device",

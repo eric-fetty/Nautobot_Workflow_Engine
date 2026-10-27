@@ -15,7 +15,23 @@ _REF = rf"(?:{_INPUT_REF}|{_RESULT_REF})"
 _COND_ATOM = rf"(?:not\s+)?{_REF}(?:\s+(?:==|!=)\s+'(?:[^'\\]|\\.)*'|\s+in\s+\[[^\]]*\]|\s+is\s+none)?"
 _SINGLE_REF_RE = re.compile(rf"^{{\{{\s*{_REF}\s*\}}}}$")
 _CONDITION_RE = re.compile(rf"^{{\{{\s*{_COND_ATOM}(?:\s+(?:and|or)\s+{_COND_ATOM})*\s*\}}}}$")
-AUTHOR_CODE_MESSAGE = "You need the *Author templates and scripts* permission to change this field."
+AUTHOR_CODE_MESSAGE = "You need the *Build workflows* permission to change this field."
+
+
+def can_build(user, workflow=None):
+    """True when ``user`` may edit this workflow's draft, code fields and YAML included.
+
+    Templates, conditions, script paths and the YAML view used to need a separate
+    "author_code" action. They are now part of building: ``change`` on the workflow,
+    or ``add`` for a workflow that doesn't exist yet.
+    """
+    if workflow is None or getattr(workflow, "pk", None) is None:
+        return user.has_perm("nautobot_workflow_engine.add_workflow") or user.has_perm(
+            "nautobot_workflow_engine.change_workflow"
+        )
+    return user.has_perm("nautobot_workflow_engine.change_workflow", workflow)
+
+
 LOOKUP_TRANSFORMS = frozenset(
     {
         "exact",

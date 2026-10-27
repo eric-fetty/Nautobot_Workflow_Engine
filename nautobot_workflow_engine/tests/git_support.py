@@ -77,7 +77,7 @@ class BareRepoMixin:
             first_name="Ada",
             last_name="Lovelace",
         )
-        grant(self.user, ["view", "add", "change", "delete", "publish", "author_code"], Workflow)
+        grant(self.user, ["view", "add", "change", "delete", "publish"], Workflow)
         self.repo = self.make_repository()
         grant(self.user, ["view"], GitRepository)
         self.url_patch = patch(

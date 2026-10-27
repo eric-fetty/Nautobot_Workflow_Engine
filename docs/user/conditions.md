@@ -35,7 +35,7 @@ If the earlier step never ran, for example because its own condition was false, 
 {{ results.check_reachable is defined and results.check_reachable.return_value is mapping and results.check_reachable.return_value.reachable == true }}
 ```
 
-Editing an advanced condition needs the *Author templates and scripts* permission unless it is a single reference.
+Anyone with *Build workflows* can edit an advanced condition.
 
 ## Checking conditions
 

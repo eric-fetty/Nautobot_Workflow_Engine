@@ -41,8 +41,8 @@ DEFAULT_PERMISSIONS = (
     ),
     (
         "Workflow Engine: Build workflows",
-        "Create workflows and edit the shared draft in the builder, including Preview run. "
-        "Publishing needs “Publish workflows” as well.",
+        "Create workflows and edit the shared draft in the builder: inputs, steps, templates, conditions, "
+        "script choices, the YAML view and Preview run. Publishing needs “Publish workflows” as well.",
         [(APP, "workflow")],
         ["view", "add", "change"],
     ),
@@ -53,16 +53,23 @@ DEFAULT_PERMISSIONS = (
         ["publish"],
     ),
     (
-        "Workflow Engine: Author templates and scripts",
-        "Write templates beyond a single inputs or results reference, change a step's script, and use the YAML view.",
-        [(APP, "workflow")],
-        ["author_code"],
-    ),
-    (
         "Workflow Engine: Write scripts",
         "Create a new script from the builder and commit it to the repository. The builder never runs it.",
         [(APP, "workflow")],
         ["write_script"],
+    ),
+)
+
+
+# Entries earlier builds created and this one no longer does, exactly as they were created.
+# "Author templates and scripts" is now part of "Build workflows". "Approve runs" is gone:
+# approvers come from Nautobot's own approval workflow definitions.
+RETIRED_PERMISSIONS = (
+    (
+        "Workflow Engine: Author templates and scripts",
+        "Write templates beyond a single inputs or results reference, change a step's script, and use the YAML view.",
+        [(APP, "workflow")],
+        ["author_code"],
     ),
     (
         "Workflow Engine: Approve runs",
@@ -101,3 +108,42 @@ def ensure_default_permissions(sender=None, *, apps, **kwargs):  # pylint: disab
     if created:
         logger.info("Created %s Workflow Engine permission(s) for admins to assign.", len(created))
     return created
+
+
+def retire_old_permissions(apps, schema_editor=None):  # pylint: disable=unused-argument
+    """Delete retired auto-created permissions that nobody changed or assigned.
+
+    A retired permission is deleted only when it still has its original description,
+    actions, object types, no constraints, is enabled, and has no users or groups.
+    Anything else was touched by an admin, so it stays and a warning is logged.
+    Returns ``(deleted, kept)`` lists of names.
+    """
+    object_permission = apps.get_model("users", "ObjectPermission")
+    deleted, kept = [], []
+    for name, description, object_types, actions in RETIRED_PERMISSIONS:
+        permission = object_permission.objects.filter(name=name).first()
+        if permission is None:
+            continue
+        types = sorted((ct.app_label, ct.model) for ct in permission.object_types.all())
+        untouched = (
+            permission.description == description
+            and sorted(permission.actions or []) == sorted(actions)
+            and types == sorted(object_types)
+            and not permission.constraints
+            and permission.enabled
+        )
+        assigned = permission.users.exists() or permission.groups.exists()
+        if untouched and not assigned:
+            permission.delete()
+            deleted.append(name)
+            continue
+        kept.append(name)
+        logger.warning(
+            "Left the permission %r in place because it was %s. It is no longer created or needed: %s",
+            name,
+            "assigned to users or groups" if assigned else "changed by an admin",
+            "templates and scripts are part of Build workflows now."
+            if "Author" in name
+            else "approvers come from Nautobot's approval workflow definitions.",
+        )
+    return deleted, kept

@@ -25,7 +25,7 @@ from nautobot_workflow_engine.schema.builder_payload import (
 )
 from nautobot_workflow_engine.schema.errors import BuilderValidationError, FieldError
 from nautobot_workflow_engine.schema.normalize import normalize
-from nautobot_workflow_engine.schema.policy import content_type_allowed, script_path_allowed
+from nautobot_workflow_engine.schema.policy import can_build, content_type_allowed, script_path_allowed
 from nautobot_workflow_engine.schema.references import find_references, rename_reference
 from nautobot_workflow_engine.schema.validate import validate
 from nautobot_workflow_engine.schema.yaml_io import from_yaml, pointer_lines, to_yaml
@@ -382,7 +382,7 @@ class BuilderContextView(APIView):
                 "filters": filters,
                 "capabilities": {
                     "can_add": user.has_perm("nautobot_workflow_engine.add_workflow"),
-                    "can_author_code": user.has_perm("nautobot_workflow_engine.author_code_workflow"),
+                    "can_author_code": can_build(user),
                     "can_publish": user.has_perm("nautobot_workflow_engine.publish_workflow"),
                 },
             }
@@ -739,8 +739,8 @@ class BuilderYamlApplyView(APIView):
     def post(self, request):
         """Apply YAML to the form. A parse error leaves the payload empty."""
         user = request.user
-        if not user.has_perm("nautobot_workflow_engine.author_code_workflow"):
-            raise PermissionDenied(detail="You need the Author templates and scripts permission to edit YAML.")
+        if not can_build(user):
+            raise PermissionDenied(detail="You need the Build workflows permission to edit YAML.")
         data, failure = _load_body(request)
         if failure is not None:
             return failure

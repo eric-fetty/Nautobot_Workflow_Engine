@@ -41,7 +41,7 @@ class DryRunTestCase(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(username="dry-runner")
-        grant(self.user, ["view", "add", "change", "author_code"], Workflow)
+        grant(self.user, ["view", "add", "change"], Workflow)
 
     def test_false_condition_skips_and_true_renders_parameters(self):
         skipped = dry_run(DEFINITION, {"confirm": False, "device": "edge-01"}, {}, self.user)

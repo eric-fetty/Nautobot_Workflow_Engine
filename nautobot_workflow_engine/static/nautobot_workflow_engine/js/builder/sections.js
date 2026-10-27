@@ -898,7 +898,7 @@ function renderReview({ payload, config, errorFor, readOnly }) {
             h(
                 "div",
                 { class: "card-body" },
-                h("p", { class: "form-text", text: config.can_author_code ? "Apply replaces the form with this YAML. Invalid YAML leaves the form unchanged." : "Editing YAML needs the Author templates and scripts permission." }),
+                h("p", { class: "form-text", text: config.can_author_code ? "Apply replaces the form with this YAML. Invalid YAML leaves the form unchanged." : "Editing YAML needs the Build workflows permission." }),
                 h("textarea", {
                     class: "form-control nwe-yaml-editor",
                     id: "yaml-editor",

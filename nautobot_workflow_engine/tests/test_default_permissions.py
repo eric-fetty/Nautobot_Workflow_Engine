@@ -1,11 +1,17 @@
 """Permissions the app creates on install: present, correct, idempotent, and never assigned."""
 
 from django.apps import apps as django_apps
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from nautobot.users.models import ObjectPermission
 
-from nautobot_workflow_engine.default_permissions import DEFAULT_PERMISSIONS, ensure_default_permissions
+from nautobot_workflow_engine.default_permissions import (
+    DEFAULT_PERMISSIONS,
+    RETIRED_PERMISSIONS,
+    ensure_default_permissions,
+    retire_old_permissions,
+)
 
 NAMES = [row[0] for row in DEFAULT_PERMISSIONS]
 
@@ -21,9 +27,7 @@ class DefaultPermissionsTestCase(TestCase):
             "Workflow Engine: Cancel runs": ("workflowrun", ["change"]),
             "Workflow Engine: Build workflows": ("workflow", ["view", "add", "change"]),
             "Workflow Engine: Publish workflows": ("workflow", ["publish"]),
-            "Workflow Engine: Author templates and scripts": ("workflow", ["author_code"]),
             "Workflow Engine: Write scripts": ("workflow", ["write_script"]),
-            "Workflow Engine: Approve runs": ("approvalworkflowstage", ["view", "change"]),
         }
         self.assertEqual(set(NAMES), set(expected))
         for name, (model, actions) in expected.items():
@@ -66,3 +70,63 @@ class DefaultPermissionsTestCase(TestCase):
             [ContentType.objects.get(app_label="nautobot_workflow_engine", model="workflow")],
         )
         self.assertFalse(permission.users.exists())
+
+
+RETIRED = {row[0]: row for row in RETIRED_PERMISSIONS}
+AUTHOR = "Workflow Engine: Author templates and scripts"
+APPROVE = "Workflow Engine: Approve runs"
+
+
+class RetiredPermissionsTestCase(TestCase):
+    """The two entries earlier builds created are removed only when nobody touched them."""
+
+    def _recreate(self, name):
+        _name, description, object_types, actions = RETIRED[name]
+        permission = ObjectPermission.objects.create(name=name, description=description, actions=list(actions))
+        permission.object_types.set(
+            [ContentType.objects.get(app_label=app_label, model=model) for app_label, model in object_types]
+        )
+        return permission
+
+    def test_they_are_not_created_any_more(self):
+        self.assertNotIn(AUTHOR, NAMES)
+        self.assertNotIn(APPROVE, NAMES)
+        ensure_default_permissions(apps=django_apps)
+        self.assertFalse(ObjectPermission.objects.filter(name__in=[AUTHOR, APPROVE]).exists())
+
+    def test_untouched_unassigned_copies_are_deleted(self):
+        self._recreate(AUTHOR)
+        self._recreate(APPROVE)
+        deleted, kept = retire_old_permissions(django_apps)
+        self.assertEqual(sorted(deleted), sorted([AUTHOR, APPROVE]))
+        self.assertEqual(kept, [])
+        self.assertFalse(ObjectPermission.objects.filter(name__in=[AUTHOR, APPROVE]).exists())
+
+    def test_assigned_or_edited_copies_stay_with_a_warning(self):
+        user = get_user_model().objects.create(username="still-uses-it")
+        self._recreate(AUTHOR).users.add(user)
+        edited = self._recreate(APPROVE)
+        edited.constraints = {"name": "x"}
+        edited.save()
+        with self.assertLogs("nautobot_workflow_engine.default_permissions", level="WARNING") as logs:
+            deleted, kept = retire_old_permissions(django_apps)
+        self.assertEqual(deleted, [])
+        self.assertEqual(sorted(kept), sorted([AUTHOR, APPROVE]))
+        self.assertTrue(ObjectPermission.objects.filter(name=AUTHOR, users=user).exists())
+        self.assertTrue(ObjectPermission.objects.filter(name=APPROVE).exists())
+        self.assertTrue(any("assigned to users or groups" in line for line in logs.output))
+        self.assertTrue(any("changed by an admin" in line for line in logs.output))
+
+    def test_a_changed_description_or_group_also_keeps_it(self):
+        from django.contrib.auth.models import Group
+
+        renamed = self._recreate(AUTHOR)
+        renamed.description = "Ours"
+        renamed.save()
+        self._recreate(APPROVE).groups.add(Group.objects.create(name="approvers"))
+        with self.assertLogs("nautobot_workflow_engine.default_permissions", level="WARNING"):
+            deleted, _kept = retire_old_permissions(django_apps)
+        self.assertEqual(deleted, [])
+
+    def test_the_migration_step_runs_cleanly_when_there_is_nothing_to_do(self):
+        self.assertEqual(retire_old_permissions(django_apps), ([], []))

@@ -2306,7 +2306,7 @@ function yamlView() {
     return h("div", { class: "nwe-section" }, [
         h("div", { class: "nwe-kicker", text: "Edit as YAML" }),
         h("h2", { text: `${payload.key || "workflow"}.yaml` }),
-        h("p", { class: "nwe-sub", text: locked ? "You need the Author templates and scripts permission to edit YAML." : "The draft, as YAML. Edits apply to the draft. Git gets this file when you publish." }),
+        h("p", { class: "nwe-sub", text: locked ? "You need the Build workflows permission to edit YAML." : "The draft, as YAML. Edits apply to the draft. Git gets this file when you publish." }),
         h("div", { class: "nwe-code-editor" }, [
             h("div", { class: "nwe-gutter", id: "nwe-gutter" }, lines.map((line, index) => h("div", { class: bad.has(index + 1) ? "bad" : "", text: String(index + 1) }))),
             h("textarea", { class: "nwe-yaml", id: "nwe-yaml", "data-yaml": "1", disabled: locked, text: state.yamlText || "" }),

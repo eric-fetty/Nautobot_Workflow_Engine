@@ -114,7 +114,8 @@ class BuilderPermissionTestCase(TestCase):
         workflow.refresh_from_db()
         self.assertEqual(workflow.raw_definition["inputs"][0]["label"], "Device name")
 
-    def test_unsafe_template_requires_author_code(self):
+    def test_templates_need_only_build_workflows(self):
+        # "Author templates and scripts" was merged into "Build workflows" (change).
         workflow = self._store()
         grant(self.user, ["view", "change"], Workflow, constraints={"category": "lab"})
         self._login()
@@ -122,20 +123,13 @@ class BuilderPermissionTestCase(TestCase):
         payload["actions"]["main"][0]["when"] = "{{ inputs.hostname | upper }}"
         url = reverse("plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": workflow.key})
         response = self._post(url, payload)
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("Author templates and scripts", response.content.decode())
-        workflow.refresh_from_db()
-        self.assertNotIn("when", workflow.raw_definition["actions"][0])
-
-        grant(self.user, ["author_code"], Workflow, constraints={"category": "lab"})
-        response = self._post(url, payload)
         self.assertEqual(response.status_code, 302)
         workflow.refresh_from_db()
         self.assertEqual(workflow.raw_definition["actions"][0]["when"], "{{ inputs.hostname | upper }}")
 
     def test_category_outside_scope_rolls_back(self):
         workflow = self._store()
-        grant(self.user, ["view", "change", "author_code", "publish"], Workflow, constraints={"category": "lab"})
+        grant(self.user, ["view", "change", "publish"], Workflow, constraints={"category": "lab"})
         self._login()
         payload = builder_from_definition(workflow.raw_definition)
         payload["category"] = "prod"

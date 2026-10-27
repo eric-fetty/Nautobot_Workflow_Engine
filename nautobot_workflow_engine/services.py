@@ -14,7 +14,7 @@ from .approvals import ApprovalRemovalError, reconcile_approval_definition
 from .datasources import apply_definition
 from .models import MANAGED_BY_NAUTOBOT, Workflow, WorkflowRevision
 from .schema.builder_payload import actions_require_repository
-from .schema.policy import AUTHOR_CODE_MESSAGE, code_changes
+from .schema.policy import AUTHOR_CODE_MESSAGE, can_build, code_changes
 from .schema.validate import validate
 from .schema.yaml_io import content_hash, to_yaml
 
@@ -425,8 +425,6 @@ def publish(
         _assert_scope(user, saved, "add" if created else "change")
         if _publish_scope_needed(created, prior_enabled, prior_approval, saved, enable):
             _assert_scope(user, saved, "publish")
-        if code_changes(author_base, definition):
-            _assert_scope(user, saved, "author_code")
         saved_id = saved.pk
         user_id = getattr(user, "pk", None)
 
@@ -638,11 +636,7 @@ def _require_author(user, workflow, previous, definition):
     changes = code_changes(previous, definition)
     if not changes:
         return
-    if workflow is None:
-        allowed = user.has_perm("nautobot_workflow_engine.author_code_workflow")
-    else:
-        allowed = user.has_perm("nautobot_workflow_engine.author_code_workflow", workflow)
-    if not allowed:
+    if not can_build(user, workflow):
         raise ServiceError(
             403,
             errors=[

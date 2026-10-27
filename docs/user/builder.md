@@ -61,7 +61,7 @@ The builder checks the draft after every change: typing, picking from a list, to
 
 ## Visual and YAML
 
-**Visual** is the form editor described in these pages. **YAML** shows the same draft as a YAML document. Editing YAML needs the *Author templates and scripts* permission. A YAML edit is checked as you type and errors are shown on their line. Both views always show the same draft. The format is described in the [YAML reference](app_use_cases.md) and the [schema reference](workflow_schema.md).
+**Visual** is the form editor described in these pages. **YAML** shows the same draft as a YAML document. Editing YAML needs the *Build workflows* permission, like the rest of the draft. A YAML edit is checked as you type and errors are shown on their line. Both views always show the same draft. The format is described in the [YAML reference](app_use_cases.md) and the [schema reference](workflow_schema.md).
 
 ## Enabled
 

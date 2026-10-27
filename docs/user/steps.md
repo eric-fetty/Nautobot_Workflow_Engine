@@ -52,7 +52,7 @@ The common forms are:
 | An earlier step's output | `{{ results.check_reachable.return_value.reachable }}` |
 | Text with values in it | `Rebooted {{ inputs.device.name }} under {{ inputs.change_ticket }}` |
 
-A single reference such as `{{ inputs.device.id }}` is something anyone with edit rights can set. Anything more, such as filters or calculations, needs the *Author templates and scripts* permission. Templates run in a sandbox: they can read values but can't reach private attributes or change data.
+Anyone with *Build workflows* can write a template, from a single reference such as `{{ inputs.device.id }}` to filters and calculations. Templates run in a sandbox: they can read values but can't reach private attributes or change data.
 
 ## Results
 

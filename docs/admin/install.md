@@ -248,12 +248,11 @@ scheduled job are left untouched.
 | `nautobot_workflow_engine.view_workflowrun` | Object | View specific run records and their reports. |
 | `nautobot_workflow_engine.change_workflowrun` | Object | Cancel a specific run while it is scheduled. |
 | `nautobot_workflow_engine.add_workflow` | Object | Create workflows in the builder. |
-| `nautobot_workflow_engine.change_workflow` | Object | Edit drafts and use Preview run. |
+| `nautobot_workflow_engine.change_workflow` | Object | Edit drafts (templates, conditions, script choices and the YAML view included) and use Preview run. |
 | `nautobot_workflow_engine.publish_workflow` | Object | Publish, switch Enabled, retry a push. Additional action `publish`. |
-| `nautobot_workflow_engine.author_code_workflow` | Object | Jinja beyond simple references, script paths, the YAML view. Additional action `author_code`. |
 | `nautobot_workflow_engine.write_script_workflow` | Object | Create scripts from the builder. Additional action `write_script`. |
 
-The last three are custom actions on the **nautobot_workflow_engine | workflow** object
+The last two are custom actions on the **nautobot_workflow_engine | workflow** object
 type. What each one allows in the builder is described in
 [Permissions](../user/permissions.md).
 
@@ -261,16 +260,23 @@ type. What each one allows in the builder is described in
 
 `nautobot-server post_upgrade` (or `migrate`) creates one object permission per role,
 named **Workflow Engine: View workflows**, **Run workflows**, **View runs**,
-**Cancel runs**, **Build workflows**, **Publish workflows**,
-**Author templates and scripts**, **Write scripts** and **Approve runs**, each with
+**Cancel runs**, **Build workflows**, **Publish workflows** and **Write scripts**, each with
 the right object type, actions and a description. They are assigned to nobody, so
 installing the app gives nobody new access. Open **Admin → Users → Permissions**, pick
 one, and add users or groups.
 
 A permission is only created when none with that name exists, so your edits, constraints
 and assignments survive every upgrade. Deleting one brings it back, unassigned, on the
-next upgrade; rename it to retire it. **Approve runs** is only created on Nautobot
-versions that have approval workflows.
+next upgrade; rename it to retire it.
+
+There is no approve permission. Approvers are the approver groups on the stages in
+**Approvals → Workflow Definitions**; the app never checks a permission for approving.
+
+Earlier builds also created **Workflow Engine: Author templates and scripts** (now part
+of **Build workflows**) and **Workflow Engine: Approve runs**. The upgrade deletes each
+one only if it still has its original description, actions and object types, no
+constraints, and no users or groups. Otherwise it stays, grants nothing the app checks,
+and the upgrade logs a warning naming it; delete it yourself when you're ready.
 
 `view_workflow`, `view_workflowrun`, and `change_workflowrun` are **object-level**
 permissions: use a Nautobot object permission with a constraint to scope them to a

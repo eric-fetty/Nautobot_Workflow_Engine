@@ -57,6 +57,7 @@ from .schema.filters import expanded_lookups, split_filter
 from .schema.policy import (
     AUTHOR_CODE_MESSAGE,
     builder_policy_errors,
+    can_build,
     code_changes,
     content_type_allowed,
     lookup_allowed,
@@ -1797,10 +1798,10 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         )
     target = workflow
     if target is None:
-        can_author_code = user.has_perm("nautobot_workflow_engine.author_code_workflow")
+        can_author_code = can_build(user)
         can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow")
     else:
-        can_author_code = user.has_perm("nautobot_workflow_engine.author_code_workflow", target)
+        can_author_code = can_build(user, target)
         can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow", target)
     if isinstance(payload, dict):
         if workflow is not None and not payload.get("tags"):
@@ -2158,11 +2159,7 @@ class WorkflowBuilderView(ObjectPermissionRequiredMixin, TemplateView):
                     }
                 )
         for pointer in code_changes(prior_definition, definition):
-            if workflow is None:
-                allowed = user.has_perm("nautobot_workflow_engine.author_code_workflow")
-            else:
-                allowed = user.has_perm("nautobot_workflow_engine.author_code_workflow", workflow)
-            if not allowed:
+            if not can_build(user, workflow):
                 errors.append({"path": pointer, "message": AUTHOR_CODE_MESSAGE})
         return errors
 

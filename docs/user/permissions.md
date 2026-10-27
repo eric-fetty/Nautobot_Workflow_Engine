@@ -14,15 +14,15 @@ The app creates these permissions when it is installed or upgraded, under **Admi
 | Workflow Engine: Cancel runs | workflow run | change |
 | Workflow Engine: Build workflows | workflow | view, add, change |
 | Workflow Engine: Publish workflows | workflow | publish |
-| Workflow Engine: Author templates and scripts | workflow | author_code |
 | Workflow Engine: Write scripts | workflow | write_script |
-| Workflow Engine: Approve runs | approval workflow stage | view, change |
 
 ![The ready-made Workflow Engine permissions](../assets/images/admin/04-default-permissions.png)
 
 Edit them freely: an upgrade never changes or reassigns a permission that already exists with that name. If you delete one, the next upgrade creates it again, unassigned; rename it instead if you want it gone for good. To scope access, for example one team per category, copy a permission and add a constraint to the copy.
 
-**Approve runs** also needs the person to be in the approver group of the run's approval stage.
+Approving runs is not a Workflow Engine permission. Who approves a run is set in Nautobot's own approval workflow definitions (**Approvals → Workflow Definitions**): the approver group on each stage. See [Schedule and approval](schedule_approval.md).
+
+Earlier builds also created **Workflow Engine: Author templates and scripts** and **Workflow Engine: Approve runs**. Upgrading deletes them if nobody changed or assigned them. If one was assigned to someone or edited, it stays where it is, does nothing, and the upgrade logs a warning; delete it when you're ready.
 
 ## Running workflows
 
@@ -38,16 +38,15 @@ Edit them freely: an upgrade never changes or reassigns a permission that alread
 | Permission | Shown as | What it allows |
 | --- | --- | --- |
 | `nautobot_workflow_engine.add_workflow` | Can add | Create a workflow. Its first edits are a shared draft. |
-| `nautobot_workflow_engine.change_workflow` | Can change | Edit the shared draft, discard it, restore a version into the draft, and use **Preview run**. Shows **Edit** on the launch page. |
+| `nautobot_workflow_engine.change_workflow` | Can change | Edit the shared draft, including templates, conditions, a step's script and the YAML view. Discard the draft, restore a version into it, and use **Preview run**. Shows **Edit** on the launch page. |
 | `nautobot_workflow_engine.publish_workflow` | Publish workflows | **Publish changes**, turn **Enabled** on or off, and **Retry** a Git push. Without it the button is **Request publish**. |
-| `nautobot_workflow_engine.author_code_workflow` | Author templates and scripts | Write Jinja beyond a single `{{ inputs… }}` or `{{ results… }}` reference, change a script path, and edit the YAML view. |
 | `nautobot_workflow_engine.write_script_workflow` | Write scripts | Use **Create script** in [New script…](placeholder_scripts.md) and type the script's code. |
 
-The last three are extra actions on the *Workflow* object type. The ready-made permissions above already carry them. To make your own, create an object permission for **nautobot_workflow_engine | workflow**, and type the action name in **Additional actions**: `publish`, `author_code` or `write_script`.
+The last two are extra actions on the *Workflow* object type. The ready-made permissions above already carry them. To make your own, create an object permission for **nautobot_workflow_engine | workflow**, and type the action name in **Additional actions**: `publish` or `write_script`.
 
-### Author templates and scripts
+### Build workflows covers templates and the YAML view
 
-A label, a required flag, or help text doesn't need it. A template that is only a reference, such as `{{ inputs.device.id }}`, doesn't either. Anything beyond that, including filters and calculations, asks for the permission when it is saved. The YAML view always needs it, because a YAML document can change any code field. Someone without it uses the visual editor.
+Everything in the builder's draft is part of **Build workflows**: labels and help text, templates and filters, conditions, which script a step uses, and the YAML view. Templates always render in a sandbox, and nothing goes live until someone with **Publish workflows** publishes it. Writing the code of a new script is separate: that is **Write scripts**.
 
 ### Write scripts
 
@@ -69,9 +68,9 @@ Publishing to Git also needs a repository that is set up for it: **workflows** t
 | --- | --- |
 | Operator who runs any workflow | **View workflows**, **Run workflows** and **View runs**. |
 | Operator who runs Networking workflows | **Run workflows**; a copy of **View workflows** constrained to `{"category": "Networking"}`; a copy of **View runs** constrained to `{"workflow__category": "Networking"}`. |
-| Engineer who builds workflows without code | The operator set, plus **Build workflows** and **Publish workflows**. |
-| Automation engineer | The engineer set, plus **Author templates and scripts** and **Write scripts**. |
-| Approver | **Approve runs**, and membership of the approval stage's approver group. |
+| Engineer who builds workflows | The operator set, plus **Build workflows** and **Publish workflows**. |
+| Automation engineer | The engineer set, plus **Write scripts**. |
+| Approver | No Workflow Engine permission. Add them to the approver group on the workflow's stage in **Approvals → Workflow Definitions**. |
 | Manager who reads reports | A copy of **View runs** constrained to their team's category. |
 
 More examples with constraints are in [Install and configure](../admin/install.md#permissions).

@@ -24,7 +24,7 @@ inputs:
 
 
 class YamlModeTestCase(TestCase):
-    """Pointer lines and the author_code gate."""
+    """Pointer lines and the Build workflows gate on the YAML view."""
 
     def setUp(self):
         self.user = User.objects.create(username="yaml-author")
@@ -38,7 +38,7 @@ class YamlModeTestCase(TestCase):
         self.assertEqual(lines["/inputs/0/type"], 6)
 
     def test_apply_returns_the_line_and_keeps_a_parsed_form(self):
-        grant(self.user, ["author_code"], Workflow)
+        grant(self.user, ["change"], Workflow)
         response = self.client.post(
             self.url,
             data=json.dumps({"yaml": BROKEN_TYPE}),
@@ -51,7 +51,7 @@ class YamlModeTestCase(TestCase):
         self.assertEqual(matched[0]["line"], 6)
 
     def test_invalid_yaml_does_not_return_a_payload(self):
-        grant(self.user, ["author_code"], Workflow)
+        grant(self.user, ["change"], Workflow)
         response = self.client.post(
             self.url,
             data=json.dumps({"yaml": "key: [\n"}),
@@ -62,11 +62,13 @@ class YamlModeTestCase(TestCase):
         self.assertGreaterEqual(response.data["errors"][0]["line"], 1)
         self.assertEqual(response.data["errors"][0]["code"], "yaml")
 
-    def test_author_code_is_required(self):
-        grant(self.user, ["change"], Workflow)
-        response = self.client.post(
-            self.url,
-            data=json.dumps({"yaml": "key: reboot\nname: Reboot\n"}),
-            content_type="application/json",
-        )
+    def test_yaml_needs_build_workflows(self):
+        grant(self.user, ["view"], Workflow)
+        body = json.dumps({"yaml": "key: reboot\nname: Reboot\n"})
+        response = self.client.post(self.url, data=body, content_type="application/json")
         self.assertEqual(response.status_code, 403)
+        self.assertIn("Build workflows", str(response.data))
+        grant(self.user, ["change"], Workflow)
+        self.client.force_authenticate(User.objects.get(pk=self.user.pk))  # drop the cached permissions
+        response = self.client.post(self.url, data=body, content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
