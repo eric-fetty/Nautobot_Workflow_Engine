@@ -23,6 +23,7 @@ class ApprovalGatedLaunchTestCase(unittest.TestCase):
             is_superuser=True,
             pk=1,
             has_perms=lambda _perms: True,
+            has_perm=lambda _perm, _obj=None: True,
         )
 
     def _request(self, data):
