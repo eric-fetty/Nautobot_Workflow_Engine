@@ -15,12 +15,14 @@ from .executors import clear_repo_script_cache, validate_repo_filter_modules
 from .models import (
     MANAGED_BY_GIT,
     MANAGED_BY_NAUTOBOT,
+    WORKFLOWS_CONTENT,
     Workflow,
     WorkflowAction,
     WorkflowFilterModule,
     WorkflowHelper,
     WorkflowInput,
     WorkflowRevision,
+    WorkflowRun,
 )
 from .schema import PHASE_YAML_KEYS
 from .schema.normalize import normalize
@@ -81,33 +83,90 @@ def _sync_repo_python_modules(repository_record, repo_path, job_result):
             job_result.log(message=f"Stored Python file: {relative_path}")
 
 
-def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result):
-    """Disable enabled workflows from this repo that were not present in the current sync.
+def _other_workflow_repo_ids_to_protect(repository_record):
+    """PKs of *other* repositories whose workflows this sync must leave alone.
 
-    Workflows are disabled rather than deleted so run history is preserved. Disabled
-    workflows are hidden from the launch page unless ``show_disabled`` is enabled.
+    A repository is protected when it still provides workflows and has a different
+    remote URL. A same-URL duplicate (a GitRepository that was deleted and added again)
+    is not protected, so its removed workflows are cleaned up when the live copy syncs.
     """
-    workflows_to_disable = Workflow.objects.filter(
-        source_repo=repository_record,
-        managed_by=MANAGED_BY_GIT,
-        enabled=True,
-    ).exclude(key__in=synced_workflow_keys)
+    remote_url = getattr(repository_record, "remote_url", None) or ""
+    protected = []
+    for repo in GitRepository.objects.exclude(pk=repository_record.pk).only("pk", "provided_contents", "remote_url"):
+        if WORKFLOWS_CONTENT not in (repo.provided_contents or []):
+            continue
+        other_url = getattr(repo, "remote_url", None) or ""
+        if remote_url and other_url and other_url == remote_url:
+            continue
+        protected.append(repo.pk)
+    return protected
+
+
+def _orphan_workflow_queryset(repository_record, present_keys):
+    """Enabled Git-managed workflows that should leave the Workflows list after this sync.
+
+    Only workflows that Git owns (``managed_by="git"``) are ever candidates. Workflows
+    built or published in Nautobot (``managed_by="nautobot"``) are never disabled here,
+    whatever their repository; a deleted file of theirs is handled by the
+    newest-change-wins rules in ``sync_rules.archive_if_deleted``.
+
+    Among Git-managed workflows whose key is not on disk in this sync, it catches this
+    repository's own, ones whose repository link was cleared (the repository was
+    deleted), and ones linked to a same-URL duplicate or to a repository that no longer
+    provides workflows. Workflows owned by another live workflows repository are kept.
+    """
+    qs = Workflow.objects.filter(enabled=True, managed_by=MANAGED_BY_GIT).exclude(key__in=present_keys)
+    protected_ids = _other_workflow_repo_ids_to_protect(repository_record)
+    if protected_ids:
+        qs = qs.exclude(source_repo_id__in=protected_ids)
+    return qs
+
+
+def _disable_workflows_missing_from_repo(repository_record, present_keys, job_result):
+    """Disable Git-managed workflows whose file is gone. Run history is kept.
+
+    Disabled workflows are hidden from the Workflows list unless ``show_disabled`` is on.
+    The switch is saved before the optional detail logging, so a logging problem can't
+    leave an orphan enabled.
+    """
+    strays = list(
+        Workflow.objects.filter(enabled=True, managed_by=MANAGED_BY_GIT)
+        .exclude(key__in=present_keys)
+        .only("pk", "key", "name", "source_repo_id")
+    )
+    if strays:
+        detail = ", ".join(f"{w.key}(source_repo={w.source_repo_id or 'none'})" for w in strays)
+        job_result.log(message=f"Enabled Git-managed workflows not in this repository: {detail}")
+
+    workflows_to_disable = list(_orphan_workflow_queryset(repository_record, present_keys))
+    job_result.log(
+        message=(
+            f"Checking for removed workflows: {len(workflows_to_disable)} to switch off; "
+            f"{len(present_keys)} key(s) in this repository "
+            f"({', '.join(sorted(str(k) for k in present_keys)) or 'none'})."
+        )
+    )
 
     disabled_count = 0
     for workflow in workflows_to_disable:
-        action_count = workflow.actions.count()
-        input_count = workflow.inputs.count()
-        run_count = workflow.runs.count()
-
-        job_result.log(
-            message=f"Disabling workflow '{workflow.name}' (key: {workflow.key}) "
-            f"with {action_count} actions, {input_count} inputs, {run_count} runs - no longer in repository"
-        )
-
         workflow.enabled = False
         workflow.save(update_fields=["enabled"])
-        reconcile_approval_definition(workflow, job_result=job_result)
         disabled_count += 1
+        try:
+            job_result.log(
+                message=(
+                    f"Disabling workflow '{workflow.name}' (key: {workflow.key}, "
+                    f"source_repo={workflow.source_repo_id or 'none'}) with {workflow.actions.count()} actions, "
+                    f"{workflow.inputs.count()} inputs, "
+                    f"{WorkflowRun.objects.filter(workflow_id=workflow.pk).count()} runs - no longer in repository"
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort logging only
+            job_result.log(
+                message=f"Disabled workflow '{workflow.name}' (key: {workflow.key}) - no longer in repository "
+                f"(detail logging failed: {exc})"
+            )
+        reconcile_approval_definition(workflow, job_result=job_result)
 
     if disabled_count > 0:
         job_result.log(
@@ -115,6 +174,32 @@ def _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys
         )
 
     return disabled_count
+
+
+class _Quiet:
+    """A job_result stand-in for pass 1, so include warnings are only logged once."""
+
+    def log(self, *args, **kwargs):  # pylint: disable=unused-argument
+        """Drop the message."""
+
+
+_QUIET = _Quiet()
+
+
+def _keys_on_disk(yaml_files):
+    """Pass 1: every workflow key that has a file in this sync, even if the file later fails to import.
+
+    A file that is there but broken must not switch its workflow off.
+    """
+    keys = set()
+    for yml in yaml_files:
+        try:
+            data = yaml.safe_load(_process_includes(_QUIET, yml))
+        except Exception:  # noqa: BLE001, S112 - the import pass reports the error
+            continue
+        if isinstance(data, dict) and data.get("key"):
+            keys.add(data["key"])
+    return keys
 
 
 def _validate_persisted_definition(data, source_repo):
@@ -513,11 +598,17 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
     # Track workflows found in this sync
     synced_workflow_keys = set()
 
+    yaml_files = list(workflows_path.glob("*.y*ml"))
+    yaml_files.sort(key=lambda item: str(getattr(item, "name", "") or ""))
+
+    # Pass 1: keys on disk. Switch off removed Git-managed workflows before importing, so a
+    # failing import later in the sync can't leave a removed workflow on the Workflows list.
+    present_keys = _keys_on_disk(yaml_files)
+    _disable_workflows_missing_from_repo(repository_record, present_keys, job_result)
+
     _sync_repo_python_modules(repository_record, repo_path, job_result)
     validate_repo_filter_modules(repository_record)
 
-    yaml_files = list(workflows_path.glob("*.y*ml"))
-    yaml_files.sort(key=lambda item: str(getattr(item, "name", "") or ""))
     for yml in yaml_files:
         filename = getattr(yml, "name", None) or "workflow.yaml"
         workflow_key = getattr(yml, "stem", None) or "workflow"
@@ -589,8 +680,6 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
             job_result.log(message=f"E-NWE-102 Skipping '{workflow_key}' from {filename}: {exc}")
             continue
 
-    # Disable workflows removed from the repo (YAML deleted or renamed) so they leave the launch page
-    _disable_workflows_missing_from_repo(repository_record, synced_workflow_keys, job_result)
     _archive_deleted_nautobot(repository_record, synced_workflow_keys, job_result)
 
     clear_repo_script_cache(repository_record)

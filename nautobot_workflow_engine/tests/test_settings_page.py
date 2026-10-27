@@ -1,21 +1,25 @@
 """The Settings page (Installed Apps gear) and how settings are read."""
 
+from types import SimpleNamespace
+
 from constance import config as constance_config
 from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from nautobot.extras.models import ScheduledJob
+from nautobot.extras.models import ExternalIntegration, ScheduledJob
 
 from nautobot_workflow_engine import executors, script_files
 from nautobot_workflow_engine.forms import WorkflowEngineSettingsForm
+from nautobot_workflow_engine.models import Workflow
 from nautobot_workflow_engine.schema.policy import content_type_allowed
 from nautobot_workflow_engine.settings_helpers import (
     APP_NAME,
     DEFAULTS,
     SETTING_KEYS,
     constance_key,
+    content_type_matches,
     get_setting,
 )
 from nautobot_workflow_engine.signals import GIT_SCHEDULE_NAME, ensure_git_maintenance_schedule
@@ -159,3 +163,42 @@ class SettingsPageTestCase(_ResetSettings, TestCase):
         self.client.force_login(self.admin)
         self.client.post(self.url, _post_data(git_sync_interval_minutes=15))
         self.assertEqual(ScheduledJob.objects.get(name=GIT_SCHEDULE_NAME).crontab, "*/15 * * * *")
+
+
+@override_settings(PLUGINS_CONFIG=_plugins())
+class SettingsFixesFromDevelopTestCase(_ResetSettings, TestCase):
+    """Cases ported from develop's config page tests (e2ddecd, 6d77ec3, 0f6f9f6)."""
+
+    def test_locked_field_validates_without_a_posted_value(self):
+        # 0f6f9f6: a locked (disabled) field ignores POST data and must still validate.
+        with override_settings(PLUGINS_CONFIG=_plugins(awx_poll_seconds=7)):
+            data = _post_data()
+            data.pop("awx_poll_seconds")
+            form = WorkflowEngineSettingsForm(data)
+            self.assertTrue(form.is_valid(), form.errors)
+            self.assertIn("awx_poll_seconds", form.file_locked_keys)
+            self.assertNotIn("awx_poll_seconds", form.changed_settings())
+
+    def test_create_new_matches_model_name_and_old_verbose_name(self):
+        content_type = SimpleNamespace(app_label="dcim", model="devicetype", name="device type")
+        self.assertTrue(content_type_matches(content_type, ["dcim.devicetype"]))
+        self.assertTrue(content_type_matches(content_type, ["DCIM.Device Type"]))
+        self.assertFalse(content_type_matches(content_type, ["dcim.device"]))
+        self.assertFalse(content_type_matches(content_type, []))
+
+    def test_old_create_new_values_show_as_selected(self):
+        setattr(constance_config, constance_key("show_add_new_item"), ["extras.Contact", "dcim.Device"])
+        self.assertEqual(
+            WorkflowEngineSettingsForm.initial_from_settings()["show_add_new_item"], ["extras.contact", "dcim.device"]
+        )
+
+    def test_switched_off_workflows_follow_the_setting(self):
+        Workflow.objects.create(key="off", name="Off", enabled=False, raw_definition={"key": "off"})
+        self.assertFalse(executors._get_workflow_queryset().filter(key="off").exists())  # pylint: disable=protected-access
+        setattr(constance_config, constance_key("show_disabled"), True)
+        self.assertTrue(executors._get_workflow_queryset().filter(key="off").exists())  # pylint: disable=protected-access
+
+    def test_awx_uses_the_configured_connection(self):
+        ExternalIntegration.objects.create(name="AWX lab", remote_url="https://awx.example.com")
+        setattr(constance_config, constance_key("awx_external_integration_name"), "AWX lab")
+        self.assertEqual(executors._awx_integration().name, "AWX lab")  # pylint: disable=protected-access

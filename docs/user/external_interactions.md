@@ -6,11 +6,13 @@ by their actions. Use HTTPS, verified certificates, and least-privilege accounts
 
 ## AWX
 
-Create a Nautobot External Integration whose name matches
-`awx_external_integration_name` (default: `AWX`). Set its remote URL to the AWX base
-URL, enable SSL verification, and attach a Secrets Group containing **Generic**
-access-type **Username** and **Password** secrets. The current client uses these
-credentials for HTTP basic authentication; it does not consume token secrets.
+Create a Nautobot External Integration whose name matches the
+**AWX connection** setting (default: `AWX`) on the
+[Settings page](../admin/install.md#settings-page). Set its
+remote URL to the AWX base URL, enable SSL verification, and attach a Secrets Group
+containing **Generic** access-type **Username** and **Password** secrets. The current
+client uses these credentials for HTTP basic authentication; it does not consume
+token secrets.
 
 ![External Integration configured for AWX](../assets/images/integrations/01-external-integration-awx.png)
 

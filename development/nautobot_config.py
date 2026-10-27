@@ -133,5 +133,3 @@ PLUGINS.extend(
 # Workflow Engine settings live on its Settings page (Installed Apps → gear icon).
 # A key set here overrides the page and shows there as locked.
 PLUGINS_CONFIG = {"nautobot_workflow_engine": {}}
-if os.getenv("SHOW_DISABLED_WORKFLOWS"):
-    PLUGINS_CONFIG["nautobot_workflow_engine"]["show_disabled"] = os.getenv("SHOW_DISABLED_WORKFLOWS").lower() == "true"

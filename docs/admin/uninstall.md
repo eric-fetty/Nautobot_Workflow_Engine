@@ -16,9 +16,11 @@ dependencies and retention requirements before any destructive database cleanup.
 ## Remove App configuration
 
 Remove the app entry from `PLUGINS` and any of its settings from `PLUGINS_CONFIG` in all web,
-worker, and scheduler environments. Remove workflow content-provider selections from
-configured sources as needed. Keep shared integrations and Secrets Groups unless no
-other application or workflow uses them.
+worker, and scheduler environments. Values saved on the app's Settings page are stored in
+Nautobot's Constance configuration and are no longer used once the app is disabled.
+Remove workflow content-provider selections from configured sources as needed. Keep
+shared integrations and Secrets Groups unless no other application or workflow uses
+them.
 
 ## Uninstall the package
 

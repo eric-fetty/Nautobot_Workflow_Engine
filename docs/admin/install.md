@@ -60,7 +60,7 @@ Workers, and Nautobot Scheduler:
 sudo systemctl restart nautobot nautobot-worker nautobot-scheduler
 ```
 
-Apply the same package and configuration to the web application, workers, and
+Apply the same package and `PLUGINS` entry to the web application, workers, and
 scheduler before synchronizing workflows.
 
 ## Settings Page
@@ -92,6 +92,9 @@ PLUGINS_CONFIG = {
 Upgrading from a version that used `PLUGINS_CONFIG` needs nothing: keys that are still in
 the file keep working and show as locked. To move one to the page, note its value,
 remove it from the file, restart, and enter it on the page.
+
+Credentials for AWX and ServiceNow stay on Nautobot External Integrations and Secrets
+Groups; they are not app settings.
 
 ## Configuration Reference
 
