@@ -19,7 +19,6 @@ from nautobot_workflow_engine.models import (
     GIT_STATUS_NOT_SYNCED,
     GIT_STATUS_PENDING,
     MANAGED_BY_NAUTOBOT,
-    WORKFLOW_PUBLISH_CONTENT,
     WORKFLOWS_CONTENT,
     Workflow,
     WorkflowRevision,
@@ -85,7 +84,6 @@ class PublishLog:
 
 
 PATH_CONFLICT = "wasn't created by this workflow"
-PUBLISH_CONTENT_LABEL = "Workflow publishing (Nautobot → Git)"
 
 
 def publish_blocker(repository):
@@ -99,10 +97,10 @@ def publish_blocker(repository):
         return ""
     name = repository.name
     contents = set(repository.provided_contents or [])
-    if WORKFLOW_PUBLISH_CONTENT not in contents or WORKFLOWS_CONTENT not in contents:
+    if WORKFLOWS_CONTENT not in contents:
         return (
-            f"Couldn't publish to {name}: the repository isn't set up for publishing. An admin needs to edit it "
-            f"in Nautobot and tick both “workflows” and “{PUBLISH_CONTENT_LABEL}” under Provides."
+            f"Couldn't publish to {name}: the repository doesn't provide workflows. An admin needs to edit it "
+            "in Nautobot and tick “workflows” under Provides."
         )
     group = getattr(repository, "secrets_group", None)
     if group is None:
@@ -130,7 +128,7 @@ def publish_blocker(repository):
 
 
 def repo_can_publish(repository):
-    """A repo publishes only when it opts in and has an HTTP(S) token."""
+    """A repo publishes when it provides workflows and has an HTTP(S) token."""
     return repository is not None and not publish_blocker(repository)
 
 
@@ -327,8 +325,7 @@ def run_git_maintenance(log=None):
     from nautobot_workflow_engine.utilities.git_probe import GitRemoteProbe
 
     for repository in GitRepository.objects.all():
-        contents = set(repository.provided_contents or [])
-        if WORKFLOW_PUBLISH_CONTENT not in contents:
+        if not repo_can_publish(repository):
             continue
         try:
             head = GitRemoteProbe(repository).remote_head()

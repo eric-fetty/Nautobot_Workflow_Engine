@@ -18,7 +18,7 @@ from nautobot_workflow_engine.models import (
     GIT_STATUS_DISABLED_REPO,
     GIT_STATUS_IN_SYNC,
     GIT_STATUS_NOT_SYNCED,
-    WORKFLOW_PUBLISH_CONTENT,
+    LEGACY_PUBLISH_CONTENT,
     WORKFLOWS_CONTENT,
 )
 from nautobot_workflow_engine.tests.git_support import TOKEN_VALUE, BareRepoMixin
@@ -111,7 +111,7 @@ class ReadableFailureTestCase(SimpleTestCase):
 class PublishBlockerTestCase(TestCase):
     """What a repository needs before Nautobot can push to it."""
 
-    def make(self, *, contents=(WORKFLOWS_CONTENT, WORKFLOW_PUBLISH_CONTENT), secret_types=("token",), url=None):
+    def make(self, *, contents=(WORKFLOWS_CONTENT,), secret_types=("token",), url=None):
         group = None
         if secret_types is not None:
             group = SecretsGroup.objects.create(name=f"grp-{uuid.uuid4().hex[:8]}")
@@ -144,13 +144,27 @@ class PublishBlockerTestCase(TestCase):
         )
         self.assertEqual(publish_blocker(repo), "")
 
-    def test_publishing_not_ticked(self):
+    def test_workflows_provider_and_token_are_enough(self):
         repo = self.make(contents=(WORKFLOWS_CONTENT,))
+        self.assertEqual(publish_blocker(repo), "")
+        self.assertTrue(repo_can_publish(repo))
+
+    def test_workflows_not_provided(self):
+        repo = self.make(contents=())
         message = publish_blocker(repo)
-        self.assertIn("isn't set up for publishing", message)
-        self.assertIn("Workflow publishing (Nautobot → Git)", message)
+        self.assertIn("doesn't provide workflows", message)
+        self.assertIn("tick “workflows” under Provides", message)
+        self.assertNotIn("Workflow publishing", message)
         self.assertIn(repo.name, message)
         self.assertFalse(repo_can_publish(repo))
+
+    def test_old_publishing_provider_still_works(self):
+        repo = self.make(contents=(WORKFLOWS_CONTENT, LEGACY_PUBLISH_CONTENT))
+        self.assertEqual(publish_blocker(repo), "")
+
+    def test_old_publishing_provider_alone_is_not_enough(self):
+        repo = self.make(contents=(LEGACY_PUBLISH_CONTENT,))
+        self.assertIn("doesn't provide workflows", publish_blocker(repo))
 
     def test_no_secrets_group(self):
         message = publish_blocker(self.make(secret_types=None))
@@ -207,7 +221,7 @@ class PublishErrorFlowTestCase(BareRepoMixin, TestCase):
 
     def test_publish_api_explains_an_unready_repository(self):
         saved, revision = self.save_and_push(self.definition(key="unready"))
-        self.repo.provided_contents = [WORKFLOWS_CONTENT]
+        self.repo.provided_contents = []
         self.repo.save()
         url = reverse("plugins-api:nautobot_workflow_engine-api:workflow-publish", kwargs={"key": saved.key})
         body = {
@@ -217,7 +231,7 @@ class PublishErrorFlowTestCase(BareRepoMixin, TestCase):
         }
         response = self.client.post(url, data=json.dumps(body), content_type="application/json")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("isn't set up for publishing", response.data["detail"])
+        self.assertIn("doesn't provide workflows", response.data["detail"])
         self.assertEqual(response.data["errors"][0]["section"], "details")
 
     def test_retry_on_an_unready_repository_says_why(self):

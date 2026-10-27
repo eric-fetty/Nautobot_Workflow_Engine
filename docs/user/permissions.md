@@ -37,7 +37,7 @@ Without **Write scripts**, the **New script…** panel shows the generated file 
 
 ## Repositories are not a permission
 
-Publishing to Git also needs a repository that is set up for it: both workflow contents ticked under **Provides**, and a secrets group with an HTTP(S) token. That is a property of the repository, not a second approval. See [Getting a repository ready](publishing.md#getting-a-repository-ready).
+Publishing to Git also needs a repository that is set up for it: **workflows** ticked under **Provides**, and a secrets group with an HTTP(S) token. That is a property of the repository, not a second approval. See [Getting a repository ready](publishing.md#getting-a-repository-ready).
 
 **Enabled** is Nautobot state. It applies immediately after the first publish and doesn't make a Git commit. A YAML `enabled:` value only sets the switch the first time the file is imported.
 

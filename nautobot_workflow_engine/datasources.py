@@ -601,11 +601,6 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
 datasource_contents = []
 
 
-def publish_target(repository_record, job_result, delete=False):  # pylint: disable=unused-argument
-    """No-op datasource callback. The repository opts in as a publish target."""
-    job_result.log(message="publish target")
-
-
 datasource_contents.append(
     (
         "extras.gitrepository",
@@ -614,17 +609,6 @@ datasource_contents.append(
             content_identifier="nautobot_workflow_engine.workflows",
             icon="mdi-file-document-outline",
             callback=sync_workflows_from_repo,
-        ),
-    )
-)
-datasource_contents.append(
-    (
-        "extras.gitrepository",
-        DatasourceContent(
-            name="Workflow publishing (Nautobot → Git)",
-            content_identifier="nautobot_workflow_engine.workflow_publish",
-            icon="mdi-source-branch",
-            callback=publish_target,
         ),
     )
 )

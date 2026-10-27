@@ -19,7 +19,6 @@ from nautobot_workflow_engine.models import (
     GIT_STATUS_IN_SYNC,
     GIT_STATUS_NOT_SYNCED,
     GIT_STATUS_PENDING,
-    WORKFLOW_PUBLISH_CONTENT,
     WORKFLOWS_CONTENT,
     Workflow,
 )
@@ -106,13 +105,14 @@ class BareRepoMixin:
             access_type=SecretsGroupAccessTypeChoices.TYPE_HTTP,
             secret_type=SecretsGroupSecretTypeChoices.TYPE_TOKEN,
         )
-        contents = [WORKFLOWS_CONTENT, WORKFLOW_PUBLISH_CONTENT] if publishable else [WORKFLOWS_CONTENT]
+        # A repository that provides workflows and has a token can be published to.
+        # Without the token it stays a read-only workflow source.
         return GitRepository.objects.create(
             name=f"Publish {uuid.uuid4().hex[:8]}",
             remote_url=f"https://example.invalid/wf-{uuid.uuid4().hex[:6]}.git",
             branch="main",
-            secrets_group=group,
-            provided_contents=contents,
+            secrets_group=group if publishable else None,
+            provided_contents=[WORKFLOWS_CONTENT],
         )
 
     def definition(self, key="lab-flow", **overrides):

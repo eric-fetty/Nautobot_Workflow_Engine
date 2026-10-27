@@ -29,7 +29,9 @@ GIT_STATUS_CHOICES = (
     (GIT_STATUS_GIT_INVALID, "Git version invalid"),
     (GIT_STATUS_DISABLED_REPO, "Publishing off"),
 )
-WORKFLOW_PUBLISH_CONTENT = "nautobot_workflow_engine.workflow_publish"
+# Older builds registered a second "Workflow publishing" provider. It is no longer registered;
+# migration 0012 removes it from repositories and nothing reads it.
+LEGACY_PUBLISH_CONTENT = "nautobot_workflow_engine.workflow_publish"
 WORKFLOWS_CONTENT = "nautobot_workflow_engine.workflows"
 
 

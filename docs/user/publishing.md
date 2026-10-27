@@ -57,9 +57,9 @@ Before a workflow can be published to a repository, an admin sets that repositor
 
 The repository needs three things:
 
-1. **Provides** includes both **workflows** and **Workflow publishing (Nautobot → Git)**.
+1. **Provides** includes **workflows**. That is the same option that lets Nautobot read the workflows from the repository; there is no separate publishing option.
 
-    ![Git repository Provides with workflows and Workflow publishing ticked](../assets/images/publishing/03-git-repository-provides.png)
+    ![Git repository Provides with workflows ticked](../assets/images/publishing/03-git-repository-provides.png)
 
 2. A **secrets group** with a secret of access type **HTTP(S)** and secret type **Token**. A token on its own is enough for GitHub and most servers. If your Git server also needs a username (some GitLab and Bitbucket setups do), add a second secret to the same group with access type **HTTP(S)** and secret type **Username**.
 
@@ -73,7 +73,7 @@ Step by step:
 
 1. **Secrets → Secrets → Add**. Pick a provider that returns the token, for example *Environment Variable* with the variable set on the Nautobot server and every worker.
 2. **Secrets → Secrets Groups → Add**. Under **Secrets**, add the token secret with access type **HTTP(S)** and secret type **Token**. Add the username secret too if your server needs one.
-3. **Extensibility → Git Repositories**, edit the repository. Set **Secrets group**, tick **workflows** and **Workflow publishing (Nautobot → Git)** under **Provides**, and save.
+3. **Extensibility → Git Repositories**, edit the repository. Set **Secrets group**, tick **workflows** under **Provides**, and save.
 4. **Sync** the repository once.
 5. Reopen the workflow in the builder. The repository problem is gone and **Publish changes** is available.
 
@@ -83,7 +83,7 @@ Every failure is explained in one sentence that names the repository. The same s
 
 | Message starts with | What to do |
 | --- | --- |
-| Couldn't publish to *repo*: the repository isn't set up for publishing | Tick both **workflows** and **Workflow publishing (Nautobot → Git)** under **Provides**, then sync the repository. |
+| Couldn't publish to *repo*: the repository doesn't provide workflows | Tick **workflows** under **Provides**, then sync the repository. |
 | Couldn't push to *repo*: the repository has no token | Give the repository a secrets group with an HTTP(S) Token secret. |
 | Couldn't push to *repo*: its secrets group “*group*” has no token | Add a secret with access type HTTP(S) and secret type Token to that group. |
 | Couldn't push to *repo*: publishing needs an https:// repository address | Change the repository's remote URL to its https address. |

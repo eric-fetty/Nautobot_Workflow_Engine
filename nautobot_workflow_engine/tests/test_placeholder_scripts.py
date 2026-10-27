@@ -12,7 +12,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from nautobot_workflow_engine import executors
-from nautobot_workflow_engine.models import WORKFLOWS_CONTENT, Workflow, WorkflowHelper
+from nautobot_workflow_engine.models import Workflow, WorkflowHelper
 from nautobot_workflow_engine.script_files import (
     SWITCHED_OFF_MESSAGE,
     check_script,
@@ -214,7 +214,7 @@ class ScriptApiTestCase(BareRepoMixin, TestCase):
         self.assertEqual(self.commit_count() if self.bare_has_commits() else 0, before)
 
     def test_create_explains_an_unready_repository(self):
-        self.repo.provided_contents = [WORKFLOWS_CONTENT]
+        self.repo.provided_contents = []
         self.repo.save()
         response = self.writer.post(
             self.url("builder-script-create"), data=self.body(), content_type="application/json"

@@ -6,16 +6,13 @@ Every workflow opens in the same editor. Git receives the published YAML. Drafts
 
 ## Setting up the repository
 
-The repository needs **Provides** with both:
-
-- `nautobot_workflow_engine.workflows`, shown as **workflows** (scripts and workflow YAML), and
-- `nautobot_workflow_engine.workflow_publish`, shown as **Workflow publishing (Nautobot → Git)**,
-
-and a secrets group with an **HTTP(S)** / **Token** secret. Add an **HTTP(S)** / **Username** secret too when the Git server needs a username. The step-by-step setup, with screenshots, is in [Getting a repository ready](publishing.md#getting-a-repository-ready).
+The repository needs **Provides** with **workflows** (`nautobot_workflow_engine.workflows`: scripts and workflow YAML) and a secrets group with an **HTTP(S)** / **Token** secret. Add an **HTTP(S)** / **Username** secret too when the Git server needs a username. The step-by-step setup, with screenshots, is in [Getting a repository ready](publishing.md#getting-a-repository-ready).
 
 The token is put into the clone address the same way Nautobot's own repository sync does it (`get_repo_access_url`), so whatever already works for syncing that repository, and for the Golden Config app, works for publishing. It is never written to a log or to the workflow's Git error.
 
-A repository that is missing either content or the token can't be picked for publishing, and the builder names what is missing.
+A repository that doesn't provide workflows, or has no token, can't be picked for publishing, and the builder names what is missing. A workflows repository without a token is still synced as a read-only source.
+
+Older builds had a second provider, **Workflow publishing (Nautobot → Git)**. It is gone: the upgrade removes it from every repository, and repositories that had it keep publishing because they also provide workflows.
 
 ### Webhook secret
 

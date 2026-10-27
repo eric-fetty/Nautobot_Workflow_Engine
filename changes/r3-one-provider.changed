@@ -1,0 +1,1 @@
+Publishing uses the existing "workflows" repository provider. Any repository that provides workflows and has an HTTP(S) token can be published to. The separate "Workflow publishing (Nautobot → Git)" provider is removed; the upgrade drops it from repositories that had it ticked, and they keep publishing.

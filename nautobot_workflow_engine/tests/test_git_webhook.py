@@ -14,7 +14,7 @@ from nautobot.extras.choices import SecretsGroupAccessTypeChoices, SecretsGroupS
 from nautobot.extras.models import GitRepository, Secret, SecretsGroup, SecretsGroupAssociation
 from rest_framework.test import APIClient
 
-from nautobot_workflow_engine.models import WORKFLOW_PUBLISH_CONTENT, WORKFLOWS_CONTENT
+from nautobot_workflow_engine.models import WORKFLOWS_CONTENT
 
 HOOK_ENV = "NWE_TEST_WEBHOOK_SECRET"
 HOOK_VALUE = "hook-secret-value"
@@ -45,7 +45,7 @@ class GitWebhookTestCase(TestCase):
             remote_url=f"https://example.invalid/hook-{uuid.uuid4().hex[:6]}.git",
             branch="main",
             secrets_group=group,
-            provided_contents=[WORKFLOWS_CONTENT, WORKFLOW_PUBLISH_CONTENT],
+            provided_contents=[WORKFLOWS_CONTENT],
         )
         self.plain = GitRepository.objects.create(
             name=f"Plain {uuid.uuid4().hex[:8]}",

@@ -111,12 +111,13 @@ To let the builder publish workflows (and create new scripts) in a repository:
    secret type **Token**. A token on its own works. Add an **HTTP(S)** / **Username**
    secret too if the Git server needs a username. These are the same credentials
    Nautobot core and the Golden Config app use for repositories.
-2. Under **Provides**, tick both **workflows** and **Workflow publishing (Nautobot → Git)**.
+2. Under **Provides**, tick **workflows**. Any repository that provides workflows and has
+   a token can be published to; there is no separate publishing option.
 3. Use an `https://` remote URL, and give the token's account push access to the
    repository's branch. Check branch protection rules.
 4. Sync the repository.
 
-![Git Repository Provides with workflows and Workflow publishing ticked](../assets/images/publishing/03-git-repository-provides.png)
+![Git Repository Provides with workflows ticked](../assets/images/publishing/03-git-repository-provides.png)
 
 If something is missing, the builder tells editors exactly what, and **Publish changes**
 stays off. Every publish error and its fix is listed in
