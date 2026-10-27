@@ -1,4 +1,4 @@
-"""Placeholder scripts written from the builder.
+"""Starter scripts written from the builder.
 
 The builder never runs, imports, or evaluates this code. It is only parsed with
 :func:`ast.parse` to check it. A new script is a starter: unless the person writes
@@ -19,8 +19,8 @@ NO_PERMISSION_MESSAGE = (
     "You need the “Write scripts” permission to create scripts. Copy the code and send it to an admin instead."
 )
 STARTER_NOTE = (
-    "Nothing runs in the builder. The script is saved to the repository as a starter: it prints each value it "
-    "gets to the run's log. Replace that with the real work in the repository."
+    "Nothing runs in the builder. Without code of your own, the script is a starter that prints each value it "
+    "gets to the run's log. Replace that with your logic in the repository."
 )
 MAX_BODY_CHARS = 20000
 _ALLOWED_TOP = ("PARAMETERS",)

@@ -1529,7 +1529,7 @@ function newScriptPanel(phase, action, index) {
         canWrite
             ? h("div", { class: "nwe-field" }, [
                 h("label", { class: "form-label", for: "nwe-ns-body", text: "What it does · optional" }),
-                h("textarea", { id: "nwe-ns-body", class: "form-control nwe-code nwe-ns-body", rows: "6", "data-ns": "body", spellcheck: "false", placeholder: "Python for the inside of run(params). Leave it empty for a placeholder that does nothing yet.", value: draft.body || "" }),
+                h("textarea", { id: "nwe-ns-body", class: "form-control nwe-code nwe-ns-body", rows: "6", "data-ns": "body", spellcheck: "false", placeholder: "Python for the inside of run(params). Leave it empty for a starter that prints each value it gets.", value: draft.body || "" }),
                 h("div", { class: "form-text", text: "Checked as you type. It isn’t run here." }),
             ])
             : h("p", { class: "nwe-muted small mb-2", text: "You can’t create scripts. Copy the code below and send it to an admin, or ask for the “Write scripts” permission." }),
@@ -1539,7 +1539,7 @@ function newScriptPanel(phase, action, index) {
             h("button", { type: "button", class: "nwe-link", "data-action": "ns-copy" }, [icon("content-copy"), "Copy code"]),
         ]),
         h("pre", { class: "nwe-ns-code", id: "nwe-ns-code", tabindex: "0", "aria-label": "Script code, read-only" }),
-        h("div", { class: "nwe-ns-note" }, [icon("shield-lock-outline"), h("span", { text: "Nothing runs in the builder. The script is saved to the repository as a starter that prints each value it gets to the run’s log. Replace that with your logic in the repository." })]),
+        h("div", { class: "nwe-ns-note" }, [icon("shield-lock-outline"), h("span", { text: "Nothing runs in the builder. Without code of your own, the script is a starter that prints each value it gets to the run’s log. Replace that with your logic in the repository." })]),
         repoMissing ? h("div", { class: "nwe-ns-problem" }, [icon("alert-circle-outline"), "Choose the repository on Details first."]) : null,
         h("div", { class: "d-flex gap-2 mt-2" }, [
             canWrite ? h("button", { type: "button", class: "btn btn-sm nwe-btn-accent", id: "nwe-ns-create", "data-action": "ns-create", "data-phase": phase, "data-index": String(index) }, [icon("plus"), draft.busy ? "Creating…" : "Create script"]) : null,
