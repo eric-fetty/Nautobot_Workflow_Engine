@@ -15,7 +15,7 @@ dependencies and retention requirements before any destructive database cleanup.
 
 ## Remove App configuration
 
-Remove the app entry from `PLUGINS` and its settings from `PLUGINS_CONFIG` in all web,
+Remove the app entry from `PLUGINS` and any of its settings from `PLUGINS_CONFIG` in all web,
 worker, and scheduler environments. Remove workflow content-provider selections from
 configured sources as needed. Keep shared integrations and Secrets Groups unless no
 other application or workflow uses them.

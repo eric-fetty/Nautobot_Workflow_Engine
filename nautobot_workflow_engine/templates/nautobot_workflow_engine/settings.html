@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% load form_helpers %}
+
+{% block title %}Workflow Engine settings{% endblock %}
+
+{% block content %}
+<form action="." method="post" class="h-100 vstack nwe-settings">
+    {% csrf_token %}
+    <div class="row align-content-start flex-fill">
+        <div class="col-lg-8 offset-lg-2">
+            <p class="text-secondary mb-3">
+                These settings apply to every workflow. Changes take effect straight away.
+            </p>
+
+            {% if file_locked_keys %}
+            <div class="alert alert-info d-flex align-items-start" role="alert">
+                <span aria-hidden="true" class="mdi mdi-lock-outline me-2 mt-1"></span>
+                <div>
+                    Some settings are set in <code>nautobot_config.py</code>, so they are shown here but
+                    can't be changed on this page.
+                </div>
+            </div>
+            {% endif %}
+
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            {% for title, fields in groups %}
+            <div class="card mb-3">
+                <div class="card-header"><strong>{{ title }}</strong></div>
+                <div class="card-body">
+                    {% for field in fields %}
+                        {% render_field field %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <p class="text-secondary small mb-3">
+                Who can view, build, run, publish and write scripts is set with permissions, not here.
+                See <a href="{% url 'plugins:nautobot_workflow_engine:docs' %}">the app's documentation</a>.
+            </p>
+        </div>
+    </div>
+    <div class="nb-form-sticky-footer">
+        <button type="submit" class="btn btn-primary">
+            <span aria-hidden="true" class="mdi mdi-check me-1"></span>
+            Save settings
+        </button>
+        <a href="{% url 'apps:apps_list' %}" class="btn btn-secondary">
+            <span aria-hidden="true" class="mdi mdi-close me-1"></span>
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

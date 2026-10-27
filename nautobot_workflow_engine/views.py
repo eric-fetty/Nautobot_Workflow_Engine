@@ -10,7 +10,6 @@ from math import ceil, floor
 from urllib.parse import urlencode
 
 from django.apps import apps
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
@@ -26,7 +25,13 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views import View
 from django.views.generic import TemplateView
-from nautobot.apps.views import NautobotUIViewSet, ObjectPermissionRequiredMixin, ObjectView
+from nautobot.apps.views import (
+    AdminRequiredMixin,
+    GenericView,
+    NautobotUIViewSet,
+    ObjectPermissionRequiredMixin,
+    ObjectView,
+)
 from nautobot.extras.models import ExternalIntegration, GitRepository
 
 from .approvals import (
@@ -36,7 +41,7 @@ from .approvals import (
 )
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet
-from .forms import DynamicWorkflowForm
+from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .scheduling import create_approval_gated_immediate_schedule
@@ -68,11 +73,11 @@ from .services import (
     status_label,
     update_draft,
 )
+from .settings_helpers import apply_git_sync_interval, constance_key, content_type_matches, get_setting
 from .tables import WorkflowTable
 from .timezones import timezone_choices
 
 logger = logging.getLogger(__name__)
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
 
 TERMINAL_WORKFLOW_STATUSES = {"success", "failed", "partial", "canceled"}
 STATUS_BADGE_MAP = {
@@ -966,8 +971,7 @@ class InputOptionsView(View):
             data.append({"value": str(obj.pk), "label": display_name, "meta": option_meta(obj)})
 
         # Check if we're supposed to prepend a "Create New XXX" to the dropdown
-        show_add_new_item = [x.lower() for x in PLUGIN_CFG.get("show_add_new_item", [])]
-        if f"{wi.content_type.app_label}.{wi.content_type.name}" in show_add_new_item:
+        if content_type_matches(wi.content_type, get_setting("show_add_new_item", [])):
             data.insert(0, {"value": "__create__", "label": f"Create New {wi.content_type.name.title()}"})
 
         response_data = {
@@ -2266,3 +2270,38 @@ class WorkflowBuilderYamlView(ObjectPermissionRequiredMixin, View):
             filename = definition.get("key") or "workflow"
             response["Content-Disposition"] = f'attachment; filename="{filename}.yaml"'
         return response
+
+
+class WorkflowEngineSettingsView(AdminRequiredMixin, GenericView):
+    """The Settings page, opened from the gear next to Workflow Engine under Installed Apps."""
+
+    template_name = "nautobot_workflow_engine/settings.html"
+
+    def _render(self, request, form):
+        return render(
+            request,
+            self.template_name,
+            {"form": form, "groups": form.grouped_fields(), "file_locked_keys": form.file_locked_keys},
+        )
+
+    def get(self, request):
+        """Show every setting with its current value."""
+        return self._render(request, WorkflowEngineSettingsForm())
+
+    def post(self, request):
+        """Save the settings that changed. Settings set in nautobot_config.py stay as they are."""
+        from constance import config
+
+        form = WorkflowEngineSettingsForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, form)
+        changed = form.changed_settings()
+        for key, value in changed.items():
+            setattr(config, constance_key(key), value)
+        if "git_sync_interval_minutes" in changed:
+            apply_git_sync_interval(changed["git_sync_interval_minutes"])
+        if changed:
+            messages.success(request, "Settings saved.")
+        else:
+            messages.info(request, "Nothing changed.")
+        return redirect(reverse("plugins:nautobot_workflow_engine:config"))

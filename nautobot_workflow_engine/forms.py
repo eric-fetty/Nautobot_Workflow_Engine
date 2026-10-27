@@ -8,9 +8,20 @@ from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
+from nautobot.apps.forms import BootstrapMixin, StaticSelect2Multiple
+from nautobot.extras.models import ExternalIntegration
 
 from .models import Workflow, WorkflowInput
 from .servicenow import normalize_change_ticket
+from .settings_helpers import (
+    DEFAULTS,
+    FILE_OVERRIDE_HELP,
+    SETTING_GROUPS,
+    SETTING_KEYS,
+    SETTING_META,
+    get_setting,
+    is_file_locked,
+)
 
 
 def _depends_on_attr(value):
@@ -925,3 +936,182 @@ class DynamicWorkflowForm(forms.Form):
 
             return field
         return None
+
+
+_MODEL_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*\.(\*|[a-z_][a-z0-9_]*)$")
+_EXCLUDED_CONTENT_TYPE_APPS = frozenset(
+    {
+        "admin",
+        "auth",
+        "contenttypes",
+        "django_celery_beat",
+        "django_celery_results",
+        "sessions",
+        "social_django",
+        "taggit",
+    }
+)
+
+
+def _object_type_choices(selected):
+    """``(app_label.model, label)`` pairs for object types, plus any stored value no longer found."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from .settings_helpers import content_type_setting_value
+
+    choices = []
+    for content_type in ContentType.objects.order_by("app_label", "model"):
+        if content_type.app_label in _EXCLUDED_CONTENT_TYPE_APPS or content_type.model_class() is None:
+            continue
+        label = getattr(content_type, "app_labeled_name", None) or f"{content_type.app_label} | {content_type.name}"
+        choices.append((content_type_setting_value(content_type), label))
+    known = {value for value, _label in choices}
+    for value in selected or []:
+        if value not in known:
+            choices.append((value, f"{value} (not found)"))
+            known.add(value)
+    return choices
+
+
+def _canonical_object_types(values):
+    """Stored object types as ``app_label.model``; older ``app_label.<Verbose name>`` values are mapped too."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from .settings_helpers import content_type_setting_value
+
+    lookup = {}
+    for content_type in ContentType.objects.all():
+        canonical = content_type_setting_value(content_type)
+        lookup.setdefault(canonical.lower(), canonical)
+        lookup.setdefault(f"{content_type.app_label}.{content_type.name}".lower(), canonical)
+    result = []
+    for raw in values or []:
+        value = str(raw).strip()
+        if value:
+            value = lookup.get(value.lower(), value)
+            if value not in result:
+                result.append(value)
+    return result
+
+
+class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
+    """The Settings page: every Workflow Engine setting, stored with Constance."""
+
+    workflow_dir = forms.CharField(max_length=255)
+    filters_dir = forms.CharField(max_length=255)
+    scripts_dir = forms.CharField(max_length=255)
+    show_disabled = forms.BooleanField(required=False)
+    show_add_new_item = forms.MultipleChoiceField(required=False, choices=[], widget=StaticSelect2Multiple())
+    builder_model_allowlist = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 6}))
+    git_committer_name = forms.CharField(max_length=255)
+    git_committer_email = forms.EmailField(max_length=255)
+    git_author_email_domain = forms.CharField(max_length=255)
+    git_sync_interval_minutes = forms.IntegerField(min_value=1, max_value=60)
+    git_remote_timeout_seconds = forms.IntegerField(min_value=1, max_value=300)
+    git_push_lock_timeout = forms.IntegerField(min_value=30, max_value=3600)
+    git_push_retry_backoff_minutes = forms.CharField(max_length=255)
+    awx_external_integration_name = forms.ChoiceField(choices=[])
+    awx_poll_seconds = forms.IntegerField(min_value=1, max_value=3600)
+
+    def __init__(self, *args, **kwargs):
+        """Fill labels and choices from the settings, and lock what nautobot_config.py sets."""
+        kwargs.setdefault("initial", self.initial_from_settings())
+        super().__init__(*args, **kwargs)
+        for key, field in self.fields.items():
+            label, help_text, _group = SETTING_META[key]
+            field.label = label
+            field.help_text = help_text
+
+        current = get_setting("awx_external_integration_name", "AWX") or "AWX"
+        choices = [(ei.name, ei.name) for ei in ExternalIntegration.objects.order_by("name")]
+        if current not in {name for name, _label in choices}:
+            choices.insert(0, (current, f"{current} (not found)"))
+        self.fields["awx_external_integration_name"].choices = choices
+        self.fields["show_add_new_item"].choices = _object_type_choices(self.initial.get("show_add_new_item"))
+
+        self.file_locked_keys = []
+        for key, field in self.fields.items():
+            if is_file_locked(key):
+                self.file_locked_keys.append(key)
+                field.disabled = True
+                field.help_text = f"{field.help_text} {FILE_OVERRIDE_HELP}"
+
+    @staticmethod
+    def initial_from_settings():
+        """Current values, in the shape the fields show them."""
+        values = {key: get_setting(key, DEFAULTS[key]) for key in SETTING_META}
+        values["show_disabled"] = bool(values["show_disabled"])
+        values["show_add_new_item"] = _canonical_object_types(values["show_add_new_item"])
+        values["builder_model_allowlist"] = "\n".join(str(item) for item in values["builder_model_allowlist"] or [])
+        values["git_push_retry_backoff_minutes"] = ", ".join(
+            str(item) for item in values["git_push_retry_backoff_minutes"] or []
+        )
+        return values
+
+    def grouped_fields(self):
+        """``[(title, [bound fields])]`` in page order."""
+        return [
+            (title, [self[key] for key in SETTING_KEYS if SETTING_META[key][2] == group])
+            for group, title in SETTING_GROUPS
+        ]
+
+    def clean_workflow_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("workflow_dir")
+
+    def clean_filters_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("filters_dir")
+
+    def clean_scripts_dir(self):
+        """A folder inside the repository."""
+        return self._clean_folder("scripts_dir")
+
+    def _clean_folder(self, key):
+        value = str(self.cleaned_data.get(key) or "").strip().strip("/")
+        if not value or ".." in value.split("/") or "\\" in value:
+            raise forms.ValidationError("Enter a folder inside the repository, for example “workflows”.")
+        return value
+
+    def clean_builder_model_allowlist(self):
+        """One ``app.model`` or ``app.*`` per line, stored as a list."""
+        items = []
+        for raw in re.split(r"[\n,]", self.cleaned_data.get("builder_model_allowlist") or ""):
+            item = raw.strip().lower()
+            if not item:
+                continue
+            if not _MODEL_PATTERN.match(item):
+                raise forms.ValidationError(
+                    f"“{raw.strip()}” isn't an object type. Use app.model or app.*, for example dcim.*."
+                )
+            if item not in items:
+                items.append(item)
+        return items
+
+    def clean_git_push_retry_backoff_minutes(self):
+        """Comma-separated whole minutes, stored as a list."""
+        parts = [part.strip() for part in str(self.cleaned_data.get("git_push_retry_backoff_minutes") or "").split(",")]
+        parts = [part for part in parts if part]
+        if not parts or not all(part.isdigit() and 1 <= int(part) <= 1440 for part in parts):
+            raise forms.ValidationError(
+                "Enter whole minutes between 1 and 1440, separated by commas, for example 1, 5, 15, 60."
+            )
+        return [int(part) for part in parts]
+
+    def clean_show_add_new_item(self):
+        """Deduplicated ``app_label.model`` values."""
+        seen, values = set(), []
+        for value in self.cleaned_data.get("show_add_new_item") or []:
+            if value.lower() not in seen:
+                seen.add(value.lower())
+                values.append(value)
+        return values
+
+    def changed_settings(self):
+        """``{key: value}`` for unlocked settings that differ from what is stored now."""
+        current = {key: get_setting(key, DEFAULTS[key]) for key in SETTING_META}
+        return {
+            key: self.cleaned_data[key]
+            for key in SETTING_META
+            if key not in self.file_locked_keys and self.cleaned_data[key] != current[key]
+        }

@@ -29,6 +29,7 @@ urlpatterns = [
     path("runs/<uuid:pk>/", views.WorkflowRunDetailView.as_view(), name="workflow_run"),
     path("runs/<uuid:pk>/progress/", views.WorkflowRunProgressView.as_view(), name="workflow_run_progress"),
     path("runs/<uuid:pk>/cancel/", views.WorkflowRunCancelView.as_view(), name="workflow_run_cancel"),
+    path("settings/", views.WorkflowEngineSettingsView.as_view(), name="config"),
     path("reports/", views.WorkflowReportView.as_view(), name="workflow_report"),
     path("docs/", RedirectView.as_view(url=static("nautobot_workflow_engine/docs/index.html")), name="docs"),
     path("", include(router.urls)),

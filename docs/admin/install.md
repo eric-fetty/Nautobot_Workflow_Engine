@@ -35,25 +35,15 @@ named `local_requirements.txt` (if not already existing) in the Nautobot root di
 echo nautobot-workflow-engine >> local_requirements.txt
 ```
 
-Once installed, enable the app in your Nautobot configuration. Add
-`nautobot_workflow_engine` to the existing `PLUGINS` list. Merge the following settings
-into `PLUGINS_CONFIG`; do not replace settings for other apps.
+Once installed, enable the app in your Nautobot configuration by adding
+`nautobot_workflow_engine` to the existing `PLUGINS` list. No `PLUGINS_CONFIG` entry is
+needed: every setting has a sensible default and can be changed later on the app's
+[Settings page](#settings-page).
 
 ```python
 PLUGINS = [
     "nautobot_workflow_engine",
 ]
-
-PLUGINS_CONFIG = {
-    "nautobot_workflow_engine": {
-        "workflow_dir": "workflows",
-        "filters_dir": "filters",
-        "awx_external_integration_name": "AWX",
-        "awx_poll_seconds": 5,
-        "show_disabled": False,
-        "show_add_new_item": [],
-    },
-}
 ```
 
 Once the Nautobot configuration is updated, run the Post Upgrade command to run
@@ -73,25 +63,55 @@ sudo systemctl restart nautobot nautobot-worker nautobot-scheduler
 Apply the same package and configuration to the web application, workers, and
 scheduler before synchronizing workflows.
 
+## Settings Page
+
+Open **Apps → Installed Apps** and choose the gear icon next to **Workflow Engine**
+(or go to `/plugins/workflow-engine/settings/`). The page is for Nautobot
+administrators (superusers) and shows every setting, grouped as **Repository folders**,
+**Builder and run form**, **Publishing to Git** and **AWX**. Choose **Save settings**;
+changes take effect straight away on the web servers and workers, with no restart.
+
+![The Workflow Engine settings page](../assets/images/admin/settings-page.png)
+
+Changing **Check repositories every (minutes)** also updates the
+*Workflow Engine Git sync* schedule.
+
+A setting can still be pinned in `nautobot_config.py` instead, for example to keep it
+the same across environments. A key set there wins, and the Settings page shows it
+greyed out with *Set in nautobot_config.py, so it can't be changed here.* Remove the key
+from the file to manage it on the page again.
+
+```python
+PLUGINS_CONFIG = {
+    "nautobot_workflow_engine": {
+        "scripts_dir": "automation/scripts",  # locked on the Settings page
+    },
+}
+```
+
+Upgrading from a version that used `PLUGINS_CONFIG` needs nothing: keys that are still in
+the file keep working and show as locked. To move one to the page, note its value,
+remove it from the file, restart, and enter it on the page.
+
 ## Configuration Reference
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `workflow_dir` | `workflows` | Directory containing workflow YAML in the workflow source. |
-| `filters_dir` | `filters` | Directory containing repository-backed Jinja filters. |
-| `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
-| `awx_poll_seconds` | `5` | Polling interval in seconds for AWX job monitoring. |
-| `show_disabled` | `False` | Display disabled workflows in the workflow list. |
-| `show_add_new_item` | Environment-derived | Model labels that offer the create-new-item choice; set an explicit list to override `SHOW_ADD_NEW_ITEM`. |
-| `scripts_dir` | `scripts` | Folder that workflow steps may run scripts from. **New script…** in the builder writes new scripts here. |
-| `builder_model_allowlist` | `dcim.*`, `ipam.*`, `circuits.*`, `tenancy.*`, `virtualization.*`, `cloud.*`, `wireless.*`, `vpn.*`, `load_balancers.*`, and a few `extras` models | Object types the builder offers for Nautobot object inputs. |
-| `git_committer_name` | `Nautobot Workflow Engine` | Committer name on publish commits. The author is the person who published. |
-| `git_committer_email` | `nautobot-workflow-engine@localhost` | Committer email on publish commits. |
-| `git_author_email_domain` | `users.noreply.nautobot.local` | Domain for the author email of a user who has no email address. |
-| `git_push_lock_timeout` | `300` | Seconds one publish may hold a repository before another can start. |
-| `git_remote_timeout_seconds` | `10` | Timeout for the Git check the builder does when it opens. |
-| `git_sync_interval_minutes` | `5` | How often **Workflow Git Maintenance** checks repositories and retries failed pushes. |
-| `git_push_retry_backoff_minutes` | `[1, 5, 15, 60]` | Wait before each automatic retry of a failed push. The last value repeats. |
+| Setting (on the page) | Key | Default | Purpose |
+| --- | --- | --- | --- |
+| Workflows folder | `workflow_dir` | `workflows` | Folder in each repository that holds the workflow files. |
+| Filters folder | `filters_dir` | `filters` | Folder in each repository that holds custom template filters. |
+| Scripts folder | `scripts_dir` | `scripts` | Folder that workflow steps may run scripts from. **New script…** in the builder writes new scripts here. |
+| Show switched-off workflows | `show_disabled` | Off | List switched-off workflows as well. |
+| Offer “Create new” for | `show_add_new_item` | Environment-derived | Object types whose pickers on the run form start with a “Create new” choice. Defaults to `SHOW_ADD_NEW_ITEM` until set. |
+| Object types the builder offers | `builder_model_allowlist` | `dcim.*`, `ipam.*`, `circuits.*`, `tenancy.*`, `virtualization.*`, `cloud.*`, `wireless.*`, `vpn.*`, `load_balancers.*`, and a few `extras` models | One per line, `app.model` or `app.*`. Empty means the default set. |
+| Committer name | `git_committer_name` | `Nautobot Workflow Engine` | Committer name on publish commits. The author is the person who published. |
+| Committer email | `git_committer_email` | `nautobot-workflow-engine@localhost` | Committer email on publish commits. |
+| Author email domain | `git_author_email_domain` | `users.noreply.nautobot.local` | Domain for the author email of a user who has no email address. |
+| Check repositories every (minutes) | `git_sync_interval_minutes` | `5` | How often **Workflow Git Maintenance** checks repositories and retries failed pushes. |
+| Give up reaching a repository after (seconds) | `git_remote_timeout_seconds` | `10` | Timeout for the Git check the builder does when it opens. |
+| Longest a publish may take (seconds) | `git_push_lock_timeout` | `300` | Seconds one publish may hold a repository before another can start. |
+| Retry a waiting publish after (minutes) | `git_push_retry_backoff_minutes` | `1, 5, 15, 60` | Wait before each automatic retry of a failed push. The last value repeats. |
+| AWX connection | `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
+| Check AWX jobs every (seconds) | `awx_poll_seconds` | `5` | Polling interval for AWX job monitoring. |
 
 The create-new-item choice passes `__create__` to the workflow. Its action code must
 handle that value; choosing it does not create an object automatically.

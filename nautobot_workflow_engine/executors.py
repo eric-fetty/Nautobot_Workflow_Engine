@@ -14,7 +14,6 @@ import traceback
 from collections.abc import Mapping
 
 import requests
-from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 from jinja2 import StrictUndefined, Undefined
@@ -23,13 +22,12 @@ from nautobot.extras.choices import SecretsGroupAccessTypeChoices, SecretsGroupS
 from nautobot.extras.models import ExternalIntegration, SecretsGroupAssociation
 
 from .models import AwxRun, WorkflowRun
-
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
+from .settings_helpers import get_setting
 
 
 def _should_show_workflow(workflow):
     """Check if a workflow should be shown based on enabled status and settings."""
-    show_disabled = PLUGIN_CFG.get("show_disabled", False)
+    show_disabled = get_setting("show_disabled", False)
     return workflow.enabled or show_disabled
 
 
@@ -37,7 +35,7 @@ def _get_workflow_queryset():
     """Get workflow queryset respecting the show_disabled setting."""
     from .models import Workflow
 
-    show_disabled = PLUGIN_CFG.get("show_disabled", False)
+    show_disabled = get_setting("show_disabled", False)
     if show_disabled:
         return Workflow.objects.all()
     else:
@@ -818,7 +816,7 @@ def _build_enhanced_inputs_context(workflow, inputs):
 
 def _wait_for_awx_completion(awx_run, workflow_run, max_wait_seconds=3600):
     """Wait for AWX job to complete and return final status with artifacts."""
-    poll_seconds = int(PLUGIN_CFG.get("awx_poll_seconds", 10))
+    poll_seconds = int(get_setting("awx_poll_seconds", 5) or 5)
     waited = 0
 
     while waited < max_wait_seconds:
@@ -1245,7 +1243,7 @@ def _run_nautobot_script(action, params, run, repo):
 
 def _awx_integration():
     """Get the AWX external integration from Nautobot configuration."""
-    name = PLUGIN_CFG["awx_external_integration_name"]
+    name = get_setting("awx_external_integration_name", "AWX")
     return ExternalIntegration.objects.get(name=name)
 
 

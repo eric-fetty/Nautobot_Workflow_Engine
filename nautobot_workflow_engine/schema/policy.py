@@ -168,24 +168,24 @@ def _model_label(label):
 
 def content_type_allowed(label):
     """Return True when a model may appear in the builder. The denylist wins."""
-    from django.conf import settings
-
     normalized = _model_label(label)
     if not normalized:
         return False
     for pattern in BUILDER_MODEL_DENYLIST:
         if _pattern_match(normalized, pattern):
             return False
-    configured = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get("builder_model_allowlist")
+    from ..settings_helpers import get_setting
+
+    configured = get_setting("builder_model_allowlist")
     allowlist = configured if isinstance(configured, (list, tuple)) and configured else DEFAULT_MODEL_ALLOWLIST
     return any(_pattern_match(normalized, pattern) for pattern in allowlist)
 
 
 def script_path_allowed(path):
     """Return True when a script path stays inside the configured scripts directory."""
-    from django.conf import settings
+    from ..settings_helpers import get_setting
 
-    configured = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get("scripts_dir", "scripts")
+    configured = get_setting("scripts_dir", "scripts")
     scripts_dir = str(configured or "scripts").strip().strip("/")
     normalized = str(path or "").strip().lstrip("/")
     if not normalized or not scripts_dir:

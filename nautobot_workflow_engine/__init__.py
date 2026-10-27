@@ -1,12 +1,14 @@
 """App declaration for nautobot_workflow_engine."""
 
 # Metadata is inherited from Nautobot. If not including Nautobot in the environment, this should be added
-import os
 import re
 from importlib import metadata
 from pathlib import Path
 
-from nautobot.apps import NautobotAppConfig
+from nautobot.apps import ConstanceConfigItem, NautobotAppConfig
+
+from .settings_helpers import DEFAULTS as _SETTING_DEFAULTS
+from .settings_helpers import SETTING_META as _SETTING_META
 
 
 def _package_version():
@@ -30,6 +32,17 @@ def _package_version():
 
 __version__ = _package_version()
 
+_CONSTANCE_FIELD_TYPES = {
+    "show_disabled": bool,
+    "awx_poll_seconds": int,
+    "git_sync_interval_minutes": int,
+    "git_remote_timeout_seconds": int,
+    "git_push_lock_timeout": int,
+    "show_add_new_item": "optional_json_field",
+    "builder_model_allowlist": "optional_json_field",
+    "git_push_retry_backoff_minutes": "optional_json_field",
+}
+
 
 class WorkflowEngineConfig(NautobotAppConfig):
     """App configuration for the nautobot_workflow_engine app."""
@@ -41,39 +54,20 @@ class WorkflowEngineConfig(NautobotAppConfig):
     description = "General-purpose workflow engine for Nautobot"
     base_url = "workflow-engine"
     required_settings = []
-    default_settings = {
-        "awx_external_integration_name": "AWX",
-        "workflow_dir": "workflows",
-        "filters_dir": "filters",
-        "scripts_dir": "scripts",
-        "builder_model_allowlist": [
-            "dcim.*",
-            "ipam.*",
-            "circuits.*",
-            "tenancy.*",
-            "virtualization.*",
-            "cloud.*",
-            "wireless.*",
-            "vpn.*",
-            "load_balancers.*",
-            "extras.tag",
-            "extras.status",
-            "extras.role",
-            "extras.dynamicgroup",
-        ],
-        "awx_poll_seconds": 5,
-        "show_disabled": False,
-        "show_add_new_item": os.getenv("SHOW_ADD_NEW_ITEM", "").split(","),
-        "git_committer_name": "Nautobot Workflow Engine",
-        "git_committer_email": "nautobot-workflow-engine@localhost",
-        "git_author_email_domain": "users.noreply.nautobot.local",
-        "git_push_lock_timeout": 300,
-        "git_remote_timeout_seconds": 10,
-        "git_sync_interval_minutes": 5,
-        "git_push_retry_backoff_minutes": [1, 5, 15, 60],
-        "allow_db_only_workflows": True,
+    # Every runtime setting is on the Settings page (Constance). Keys listed in
+    # constance_config are not copied into PLUGINS_CONFIG, so setting one in
+    # nautobot_config.py is an explicit override that locks it on the page.
+    default_settings = {"allow_db_only_workflows": True}
+    constance_config = {
+        key: ConstanceConfigItem(
+            default=_SETTING_DEFAULTS[key],
+            help_text=_SETTING_META[key][1],
+            field_type=_CONSTANCE_FIELD_TYPES.get(key, str),
+        )
+        for key in _SETTING_META
     }
     caching_config = {}
+    config_view_name = "plugins:nautobot_workflow_engine:config"
     docs_view_name = "plugins:nautobot_workflow_engine:docs"
     searchable_models = ["workflow"]
 

@@ -33,6 +33,15 @@ def enable_required_jobs(sender, *, apps, **kwargs):  # pylint: disable=unused-a
     ensure_git_maintenance_schedule(apps)
 
 
+def git_sync_crontab(minutes):
+    """Crontab for the Git sync schedule: every N minutes, at most hourly."""
+    try:
+        minutes = max(int(minutes), 1)
+    except (TypeError, ValueError):
+        minutes = 5
+    return f"*/{minutes} * * * *" if minutes < 60 else "0 * * * *"
+
+
 def ensure_git_maintenance_schedule(apps):
     """Create the fallback Git sync schedule once. Later runs leave an existing row alone."""
     try:
@@ -51,15 +60,10 @@ def ensure_git_maintenance_schedule(apps):
     ).first()
     if job is None:
         return
-    minutes = 5
-    try:
-        from django.conf import settings
+    from .settings_helpers import get_setting
 
-        minutes = int(settings.PLUGINS_CONFIG["nautobot_workflow_engine"].get("git_sync_interval_minutes", 5))
-    except Exception:
-        minutes = 5
-    minutes = max(minutes, 1)
-    crontab = f"*/{minutes} * * * *" if minutes < 60 else "0 * * * *"
+    minutes = get_setting("git_sync_interval_minutes", 5)
+    crontab = git_sync_crontab(minutes)
     try:
         scheduled_job.objects.create(
             name=GIT_SCHEDULE_NAME,
@@ -73,6 +77,6 @@ def ensure_git_maintenance_schedule(apps):
             kwargs={},
             args=[],
         )
-        logger.info("Scheduled Workflow Git maintenance every %s minute(s).", minutes)
+        logger.info("Scheduled Workflow Git maintenance (%s).", crontab)
     except Exception:
         logger.warning("Could not create the Workflow Git maintenance schedule.", exc_info=True)

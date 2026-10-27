@@ -28,9 +28,9 @@ _ALLOWED_TOP = ("PARAMETERS",)
 
 def scripts_dir():
     """The configured scripts directory, the same one discovery and the runner use."""
-    from django.conf import settings
+    from .settings_helpers import get_setting
 
-    configured = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get("scripts_dir", "scripts")
+    configured = get_setting("scripts_dir", "scripts")
     return str(configured or "scripts").strip().strip("/") or "scripts"
 
 

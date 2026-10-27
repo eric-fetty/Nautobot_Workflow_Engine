@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 import yaml
-from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
@@ -27,8 +26,7 @@ from .schema import PHASE_YAML_KEYS
 from .schema.normalize import normalize
 from .schema.validate import validate
 from .schema.yaml_io import content_hash, to_yaml
-
-PLUGIN_CFG = settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {})
+from .settings_helpers import get_setting
 
 
 def _process_includes(job_result, file_handler):
@@ -54,7 +52,7 @@ def _process_includes(job_result, file_handler):
 
 def _is_filter_module_path(relative_path):
     """Return True when the repository-relative path is inside the configured filters directory."""
-    filters_dir = Path(PLUGIN_CFG.get("filters_dir", "filters"))
+    filters_dir = Path(get_setting("filters_dir", "filters") or "filters")
     filters_parts = filters_dir.parts
     rel_parts = relative_path.parts
     return len(rel_parts) >= len(filters_parts) and rel_parts[: len(filters_parts)] == filters_parts
@@ -503,7 +501,7 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
         return
 
     repo_path = Path(repository_record.filesystem_path)
-    wf_dir = PLUGIN_CFG["workflow_dir"]
+    wf_dir = get_setting("workflow_dir", "workflows") or "workflows"
     workflows_path = repo_path / wf_dir
     if not workflows_path.exists():
         # Workflows directory removed — disable everything previously synced from this repo.

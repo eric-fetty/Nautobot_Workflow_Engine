@@ -139,8 +139,10 @@ def actor(name, email):
 
 
 def plugin_setting(name, default=None):
-    """Return one workflow-engine setting."""
-    return settings.PLUGINS_CONFIG.get("nautobot_workflow_engine", {}).get(name, default)
+    """Return one workflow-engine setting (nautobot_config.py first, then the Settings page)."""
+    from ..settings_helpers import get_setting
+
+    return get_setting(name, default)
 
 
 def lock_key(repository_id):
