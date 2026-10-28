@@ -22,6 +22,12 @@ Version 1.2 turns the workflow engine into a self-service builder that people us
 <!-- towncrier release notes start -->
 
 
+## v1.2.1 (2026-10-27)
+
+### Fixed
+
+- #pypi-readme-links - Fixed broken links in the PyPI project description and added project URLs.
+
 ## v1.2.0 (2026-10-27)
 
 ### Security
