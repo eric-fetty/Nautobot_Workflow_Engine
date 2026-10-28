@@ -5,6 +5,9 @@ description = "Workflow Engine"
 authors = ["Eric Fetty"]
 license = "Apache-2.0"
 readme = "README.md"
+homepage = "https://github.com/eric-fetty/Nautobot_Workflow_Engine"
+repository = "https://github.com/eric-fetty/Nautobot_Workflow_Engine"
+documentation = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/tree/main/docs"
 keywords = ["nautobot", "nautobot-app", "nautobot-plugin"]
 classifiers = [
     "Intended Audience :: Developers",
@@ -41,6 +44,10 @@ include = [
     # Poetry by default will exclude files that are in .gitignore
     { path = "nautobot_workflow_engine/static/nautobot_workflow_engine/docs/**/*", format = ["sdist", "wheel"] }
 ]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/issues"
+"Changelog" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/admin/release_notes/version_1.2.md"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.14"
