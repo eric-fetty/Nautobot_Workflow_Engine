@@ -1,6 +1,7 @@
 """Basic tests that do not require Django."""
 
 import os
+import re
 import unittest
 
 import toml
@@ -28,3 +29,23 @@ class TestDocsPackaging(unittest.TestCase):
             else:
                 version = "*"
             self.assertEqual(poetry_details[package_name], version)
+
+
+class TestReadmeLinks(unittest.TestCase):
+    """README.md is the PyPI long description, so its links must be absolute."""
+
+    # Inline links and images: [text](target) / ![alt](target), plus reference definitions: [id]: target
+    LINK_PATTERN = re.compile(r"\]\(\s*<?([^)\s>]+)|^\s*\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)", re.MULTILINE)
+    # HTML <img src="..."> / <a href="...">
+    HTML_PATTERN = re.compile(r"""(?:src|href)\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+    ALLOWED = re.compile(r"^(?:https?://|mailto:|#)", re.IGNORECASE)
+
+    def test_readme_has_no_relative_links(self):
+        """Fail if README.md links or images use relative targets, which break on PyPI."""
+        parent_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+        with open(os.path.join(parent_path, "README.md"), "r", encoding="utf-8") as file:
+            readme = file.read()
+        targets = [m.group(1) or m.group(2) for m in self.LINK_PATTERN.finditer(readme)]
+        targets += self.HTML_PATTERN.findall(readme)
+        relative = [target for target in targets if not self.ALLOWED.match(target)]
+        self.assertEqual(relative, [], f"README.md has relative links that break on PyPI: {relative}")
