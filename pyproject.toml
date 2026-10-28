@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nautobot-workflow-engine"
-version = "1.2.1a0"
+version = "1.2.1"
 description = "Workflow Engine"
 authors = ["Eric Fetty"]
 license = "Apache-2.0"
