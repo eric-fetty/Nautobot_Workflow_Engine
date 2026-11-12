@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, Subquery
@@ -517,8 +517,9 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
 
         Optionally prefill form fields from a previous WorkflowRun when the
         request includes ?from_run=<pk>. Only prefill when the previous run
-        belongs to the same workflow. Scheduling fields are intentionally
-        not prefilled.
+        belongs to the same workflow and the person may view that run.
+        A missing, invalid, or unreadable run is ignored. Scheduling fields
+        are intentionally not prefilled.
         """
         context = super().get_context_data(**kwargs)
         qs = _get_workflow_queryset()
@@ -528,53 +529,52 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
 
         initial = {}
         from_run = self.request.GET.get("from_run")
+        prev_run = None
         if from_run:
             try:
-                prev_run = WorkflowRun.objects.get(pk=from_run)
-                if prev_run.workflow_id == wf.id and prev_run.inputs:
-                    # Build initial mapping from workflow inputs to the values
-                    # stored in the previous run. Convert shapes where the
-                    # form expects specific types (JSON string for list,
-                    # object id string for object fields, list of strings for multichoice,
-                    # and string for single-choice fields).
-                    import json
+                prev_run = WorkflowRun.objects.restrict(self.request.user, "view").get(pk=from_run)
+            except (WorkflowRun.DoesNotExist, ValidationError, ValueError):
+                # Missing, not visible, or an invalid id: render an empty form.
+                prev_run = None
+        if prev_run is not None and prev_run.workflow_id == wf.id and prev_run.inputs:
+            # Build initial mapping from workflow inputs to the values
+            # stored in the previous run. Convert shapes where the form
+            # expects specific types (JSON string for list, object id
+            # string for object fields, list of strings for multichoice,
+            # and string for single-choice fields).
+            for wi in wf.inputs.all():
+                if wi.key not in prev_run.inputs:
+                    continue
+                val = prev_run.inputs.get(wi.key)
+                if val is None:
+                    continue
 
-                    for wi in wf.inputs.all():
-                        if wi.key not in prev_run.inputs:
-                            continue
-                        val = prev_run.inputs.get(wi.key)
-                        if val is None:
-                            continue
-
-                        if wi.input_type == "list":
-                            # List widget stores JSON string
-                            initial[wi.key] = val if isinstance(val, str) else json.dumps(val)
-                        elif wi.input_type == "listdict":
-                            # List-of-dicts widget stores JSON string
-                            initial[wi.key] = val if isinstance(val, str) else json.dumps(val)
-                        elif wi.input_type == "boolean":
-                            initial[wi.key] = bool(val)
-                        elif wi.input_type == "object":
-                            # Store the object's PK as a string for the field
-                            if isinstance(val, dict):
-                                initial[wi.key] = str(val.get("id") or val.get("pk") or "")
-                            else:
-                                initial[wi.key] = str(val)
-                        elif wi.input_type == "multichoice":
-                            # Ensure multichoice initial is a list of strings
-                            if isinstance(val, (list, tuple)):
-                                initial[wi.key] = [str(x) for x in val]
-                            else:
-                                initial[wi.key] = [str(val)]
-                        elif wi.input_type == "choice":
-                            # Ensure choice initial is a string matching option values
-                            initial[wi.key] = "" if val in (None, "") else str(val)
-                        else:
-                            # Default: cast to string for safety where appropriate
-                            initial[wi.key] = val if isinstance(val, (dict, list)) else val
-            except WorkflowRun.DoesNotExist:
-                # If the run can't be found, just render an empty form
-                pass
+                if wi.input_type == "list":
+                    # List widget stores JSON string
+                    initial[wi.key] = val if isinstance(val, str) else json.dumps(val)
+                elif wi.input_type == "listdict":
+                    # List-of-dicts widget stores JSON string
+                    initial[wi.key] = val if isinstance(val, str) else json.dumps(val)
+                elif wi.input_type == "boolean":
+                    initial[wi.key] = bool(val)
+                elif wi.input_type == "object":
+                    # Store the object's PK as a string for the field
+                    if isinstance(val, dict):
+                        initial[wi.key] = str(val.get("id") or val.get("pk") or "")
+                    else:
+                        initial[wi.key] = str(val)
+                elif wi.input_type == "multichoice":
+                    # Ensure multichoice initial is a list of strings
+                    if isinstance(val, (list, tuple)):
+                        initial[wi.key] = [str(x) for x in val]
+                    else:
+                        initial[wi.key] = [str(val)]
+                elif wi.input_type == "choice":
+                    # Ensure choice initial is a string matching option values
+                    initial[wi.key] = "" if val in (None, "") else str(val)
+                else:
+                    # Default: cast to string for safety where appropriate
+                    initial[wi.key] = val if isinstance(val, (dict, list)) else val
 
         form = DynamicWorkflowForm(wf, initial=initial)
         context.update(launch_context(self.request, wf, form))
