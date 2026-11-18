@@ -1,0 +1,36 @@
+---
+key: 02-reserve-vlan-id
+name: "02. Reserve a VLAN ID"
+description: >
+  Plan a VLAN reservation with a validated ID and name. Nothing is created
+  in Nautobot. Use this to learn whole-number limits, help text, placeholders,
+  and regex validation.
+category: Examples
+manual_duration_minutes: 5
+inputs:
+  - key: vid
+    label: VLAN ID
+    type: integer
+    required: true
+    min_value: 1
+    max_value: 4094
+    placeholder: "110"
+    help_text: A VLAN ID from 1 to 4094.
+  - key: name
+    label: VLAN name
+    type: string
+    required: true
+    placeholder: users-floor-2
+    help_text: Lowercase letters, numbers, and dashes only.
+    validators:
+      - regex: "^[a-z0-9-]+$"
+        message: Use lowercase letters, numbers, and dashes, for example users-floor-2.
+        flags: ["IGNORECASE"]
+actions:
+  - type: nautobot
+    name: reserve_vlan
+    label: Plan the VLAN reservation
+    script: scripts/reserve_vlan.py
+    with:
+      vid: "{{ inputs.vid }}"
+      name: "{{ inputs.name }}"

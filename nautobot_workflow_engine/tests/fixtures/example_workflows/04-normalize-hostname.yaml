@@ -1,0 +1,24 @@
+---
+key: 04-normalize-hostname
+name: "04. Normalize a hostname"
+description: >
+  Demonstrates a repo-backed Jinja filter that imports shared helpers from
+  scripts/lib. The hostname is normalized for DNS and echoed back. Nothing
+  in inventory is changed.
+category: Examples
+manual_duration_minutes: 5
+inputs:
+  - key: hostname
+    label: Hostname
+    type: string
+    required: true
+    placeholder: My Router Host
+    help_text: Spaces and underscores are turned into hyphens, and the value is lowercased.
+actions:
+  - type: nautobot
+    name: prepare_hostname
+    label: Prepare Hostname
+    script: scripts/echo_hostname.py
+    when: "{{ (inputs.hostname | normalize_for_dns) != '' }}"
+    with:
+      hostname: "{{ inputs.hostname | normalize_for_dns }}"

@@ -1,0 +1,22 @@
+---
+key: 01-echo-hostname
+name: "01. Echo a hostname"
+description: >
+  First example. Returns the hostname you enter without changing Nautobot
+  inventory. Use this to learn the launch form, Run now, and run details.
+category: Examples
+manual_duration_minutes: 5
+inputs:
+  - key: hostname
+    label: Hostname
+    type: string
+    required: true
+    placeholder: router.example.com
+    help_text: Any hostname. It is echoed back and nothing is changed.
+actions:
+  - type: nautobot
+    name: echo_hostname
+    label: Echo Hostname
+    script: scripts/echo_hostname.py
+    with:
+      hostname: "{{ inputs.hostname }}"

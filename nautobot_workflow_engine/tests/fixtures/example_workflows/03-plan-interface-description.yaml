@@ -1,0 +1,76 @@
+---
+key: 03-plan-interface-description
+name: "03. Plan an interface description"
+description: >
+  Pick a location, a device, and an interface, then plan a description.
+  The description can be built for you or entered by hand. Nothing is
+  written to the interface.
+category: Examples
+manual_duration_minutes: 10
+inputs:
+  - key: location
+    label: Location
+    type: object
+    model: dcim.Location
+    required: true
+    help_text: Where the device lives. Run the lab seed if this list is empty.
+    filter:
+      query:
+        status__name: Active
+  - key: device
+    label: Device
+    type: object
+    model: dcim.Device
+    required: true
+    depends_on: ["location"]
+    help_text: Only devices at the chosen location are listed.
+    filter:
+      query:
+        location: "{{ inputs.location.id }}"
+  - key: interface
+    label: Interface
+    type: object
+    model: dcim.Interface
+    required: true
+    depends_on: ["device"]
+    help_text: Choose the port whose description you want to plan.
+    filter:
+      query:
+        device_id: "{{ inputs.device.id }}"
+  - key: style
+    label: Description style
+    type: choice
+    required: true
+    default: standard
+    choices:
+      - {value: standard, label: Built from location, device, and interface}
+      - {value: custom, label: I'll type a custom description}
+  - key: include_role
+    label: Include the device role in the description
+    type: boolean
+    default: true
+    show_if:
+      style: standard
+  - key: custom_description
+    label: Custom description
+    type: string
+    required: true
+    placeholder: AMS01-acc-sw01 Ethernet1/1 user access
+    help_text: Letters, numbers, spaces, and . _ - / only.
+    validators:
+      - regex: "^[A-Za-z0-9 ._/-]{1,80}$"
+        message: Use letters, numbers, spaces, and . _ - / (max 80 characters).
+    show_if:
+      style: custom
+actions:
+  - type: nautobot
+    name: plan_description
+    label: Plan the interface description
+    script: scripts/plan_interface_description.py
+    when: "{{ inputs.style == 'standard' or inputs.custom_description != '' }}"
+    with:
+      device: "{{ inputs.device.id }}"
+      interface: "{{ inputs.interface.id }}"
+      style: "{{ inputs.style }}"
+      custom_description: "{{ inputs.custom_description }}"
+      include_role: "{{ inputs.include_role }}"
