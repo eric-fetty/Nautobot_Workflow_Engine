@@ -1,0 +1,88 @@
+---
+key: 07-turn-up-a-port
+name: "07. Turn up a port"
+description: >
+  Plan turning up an access port. A Before step simulates a reachability
+  check. The main step plans the change, and can set the interface
+  description when Apply is on. A journal entry is added afterwards only
+  when the change was applied and the main step succeeded.
+category: Examples
+manual_duration_minutes: 20
+inputs:
+  - key: location
+    label: Location
+    type: object
+    model: dcim.Location
+    required: true
+    filter:
+      query:
+        status__name: Active
+  - key: device
+    label: Device
+    type: object
+    model: dcim.Device
+    required: true
+    depends_on: ["location"]
+    filter:
+      query:
+        location: "{{ inputs.location.id }}"
+        status__name: Active
+  - key: interface
+    label: Interface
+    type: object
+    model: dcim.Interface
+    required: true
+    depends_on: ["device"]
+    help_text: Prefer an access port such as Ethernet1/1. The lab seed creates these on each switch.
+    filter:
+      query:
+        device_id: "{{ inputs.device.id }}"
+  - key: vlan_id
+    label: Access VLAN
+    type: integer
+    required: true
+    min_value: 1
+    max_value: 4094
+    default: 110
+  - key: description
+    label: Interface description
+    type: string
+    required: true
+    placeholder: user access floor 2
+    validators:
+      - regex: "^[A-Za-z0-9 ._/-]{1,80}$"
+        message: Use letters, numbers, spaces, and . _ - / (max 80 characters).
+  - key: apply
+    label: Apply these changes in Nautobot
+    type: boolean
+    default: false
+    help_text: Leave off to only plan. Turn on to set the interface description in this lab Nautobot and add a journal entry. Do not use this in production.
+pre_actions:
+  - type: nautobot
+    name: check_reachable
+    label: Check the device is reachable
+    script: scripts/check_reachability.py
+    with:
+      device: "{{ inputs.device.id }}"
+      attempts: 3
+actions:
+  - type: nautobot
+    name: plan_port_turn_up
+    label: Plan or apply the port turn-up
+    script: scripts/plan_port_turn_up.py
+    when: "{{ results.check_reachable is defined and results.check_reachable.status == 'success' and results.check_reachable.return_value is mapping and results.check_reachable.return_value.reachable == true }}"
+    with:
+      device: "{{ inputs.device.id }}"
+      interface: "{{ inputs.interface.id }}"
+      description: "{{ inputs.description }}"
+      vlan_id: "{{ inputs.vlan_id }}"
+      apply: "{{ inputs.apply }}"
+post_actions:
+  - type: nautobot
+    name: journal_entry
+    label: Add a journal entry
+    script: scripts/add_journal_entry.py
+    when: "{{ inputs.apply and results.plan_port_turn_up is defined and results.plan_port_turn_up.status == 'success' }}"
+    with:
+      device: "{{ inputs.device.id }}"
+      message: "Port turn-up on {{ inputs.interface.name }} for VLAN {{ inputs.vlan_id }}: {{ inputs.description }}"

@@ -125,6 +125,8 @@ Configure a Nautobot Git Repository for a trusted workflow source and select its
 Workflow Engine content. YAML lives under `workflow_dir`, action scripts under
 `scripts_dir`, and reusable helpers conventionally under `scripts/lib/`.
 Synchronize the source and inspect the synchronization result before launching runs.
+The [examples repository](https://github.com/eric-fetty/Nautobot-Demo-Workflows) is a
+ready-made source; see the [examples tutorial](../user/examples_tutorial.md).
 
 ### Publishing from the builder to Git
 
