@@ -51,3 +51,5 @@ A run's page shows its status, the inputs it got, each step's result, the run's 
 | Canceled | Canceled before it started. |
 
 **Cancel Run** stops a run that is still **Scheduled** or **Pending Approval**. A running workflow can't be interrupted. See the [FAQ](faq.md).
+
+**Run Again** on the run's page opens the launch form with that run's inputs already filled in. The address includes `?from_run=<id>`. The form is filled only when you are allowed to view that run; otherwise you get an empty form.

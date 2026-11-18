@@ -85,6 +85,7 @@ nav:
   - Getting Started:
       - App Overview: "user/app_overview.md"
       - Getting Started: "user/app_getting_started.md"
+      - Examples Tutorial: "user/examples_tutorial.md"
   - User Guide:
       - The Workflow Builder: "user/builder.md"
       - Inputs and CSV Import: "user/inputs.md"
