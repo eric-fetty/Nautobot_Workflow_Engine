@@ -1,6 +1,7 @@
 """Database models for the workflow engine plugin."""
 
 from django.conf import settings as dj_settings
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from nautobot.apps.models import BaseModel, ChangeLoggedModel
@@ -426,6 +427,12 @@ class WorkflowRun(BaseModel):
     schedule_window_end = models.DateTimeField(null=True, blank=True)
     schedule_last_synced = models.DateTimeField(null=True, blank=True)
     schedule_sync_error = models.TextField(blank=True)
+    search_text = models.TextField(
+        blank=True,
+        default="",
+        editable=False,
+        help_text="Input values and the names of picked objects, kept for run history search.",
+    )
 
     def get_absolute_url(self, **kwargs):
         """Return URL to this workflow run detail."""
@@ -436,6 +443,43 @@ class WorkflowRun(BaseModel):
     def __str__(self):
         """Return string representation of the workflow run."""
         return f"Run {self.pk} - {self.workflow.name}"
+
+
+class WorkflowRunObjectReference(BaseModel):
+    """One Nautobot object a run's form picked, for "runs that used this object" lookups.
+
+    Written from the run's ``object`` and ``multiobject`` inputs when the run is saved
+    (see ``run_index.py``). It is generic on purpose: any model can be a target, so
+    showing runs on another object type's page needs no schema change. There is no
+    foreign key to the object itself, so history survives the object being deleted;
+    ``object_display`` keeps the name it had when the run was recorded.
+    """
+
+    workflow_run = models.ForeignKey(WorkflowRun, related_name="object_references", on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    object_id = models.UUIDField()
+    referenced_object = GenericForeignKey("content_type", "object_id")
+    input_key = models.CharField(max_length=100)
+    object_display = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        """One row per run, input and object; indexed for lookups by object."""
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workflow_run", "input_key", "content_type", "object_id"],
+                name="nwe_unique_run_object_reference",
+            ),
+        ]
+        indexes = [models.Index(fields=["content_type", "object_id"], name="nwe_runref_object_idx")]
+
+    def get_absolute_url(self, **kwargs):
+        """Return URL to the run (no dedicated detail view)."""
+        return self.workflow_run.get_absolute_url(**kwargs)
+
+    def __str__(self):
+        """Return the object's recorded name and the input that picked it."""
+        return f"{self.object_display or self.object_id} ({self.input_key})"
 
 
 class AwxRun(BaseModel):

@@ -67,6 +67,11 @@
         "show_add_new_item": {
             "type": "array",
             "default": []
+        },
+        "run_history_object_types": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": ["dcim.device", "virtualization.virtualmachine"]
         }
     },
     "additionalProperties": false

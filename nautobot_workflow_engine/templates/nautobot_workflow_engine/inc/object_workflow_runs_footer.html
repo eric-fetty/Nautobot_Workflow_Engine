@@ -1,0 +1,6 @@
+{% if workflow_runs_total %}
+    <a href="{{ workflow_runs_url }}" class="nwe-object-runs-all">
+        <span class="mdi mdi-dots-horizontal" aria-hidden="true"></span>
+        {% if workflow_runs_more %}View all {{ workflow_runs_total }} runs{% else %}View in Run History{% endif %}
+    </a>
+{% endif %}

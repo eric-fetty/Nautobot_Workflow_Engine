@@ -35,6 +35,20 @@ A table input is an editable grid with **Add row**, **Download template** and **
 
 ![Run History](../assets/images/launch/05-run-history.png)
 
+### Searching runs
+
+The **Search** box on Run History matches the workflow name, who started the run, its status, its change ticket, and the values entered on the run's form: text, numbers, choices (value or label), list items, table cells, and the names of the devices, VMs and other objects that were picked. For example, search for `CHG0012345` or `leaf-01` to find every run that used that ticket or switch.
+
+Runs also show up in Nautobot's global search box at the top of every page, under **Workflow runs**.
+
+Object names are recorded when the run is saved. If an object is renamed later, search for its old name, or open the object and use its **Workflow runs** panel.
+
+### Runs on a device or virtual machine page
+
+Device and virtual machine pages have a **Workflow runs** panel listing the latest runs whose form picked that device or VM, with the workflow, status, who started it and when. **View in Run History** (or **View all *N* runs** when there are more than five) opens Run History narrowed to that object; **Show all runs** there removes the narrowing.
+
+Search results, the panel and the narrowed list only include runs you're allowed to see (**View runs**). The panel isn't shown to people without that permission. An administrator can add the panel to other object types; see [Workflow runs panel](../admin/install.md#workflow-runs-panel-on-object-pages).
+
 A run's page shows its status, the inputs it got, each step's result, the run's own log and the detailed log. While a run is going, the page shows progress, AWX job completion and elapsed time.
 
 ![A run's detail page](../assets/images/launch/06-run-detail.png)

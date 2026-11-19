@@ -28,6 +28,8 @@ urlpatterns = [
     path("workflows/<slug:key>/launch/", views.WorkflowRunCreateView.as_view(), name="workflow_launch"),
     path("workflows/<slug:key>/inputs/<slug:child>/options/", views.InputOptionsView.as_view(), name="input_options"),
     path("runs/", views.WorkflowRunListView.as_view(), name="workflow_run_list"),
+    # Nautobot's standard list-route name for WorkflowRun; global search and generic links use it.
+    path("runs/", views.WorkflowRunListView.as_view(), name="workflowrun_list"),
     path("runs/<uuid:pk>/", views.WorkflowRunDetailView.as_view(), name="workflow_run"),
     path("runs/<uuid:pk>/progress/", views.WorkflowRunProgressView.as_view(), name="workflow_run_progress"),
     path("runs/<uuid:pk>/cancel/", views.WorkflowRunCancelView.as_view(), name="workflow_run_cancel"),
