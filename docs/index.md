@@ -8,6 +8,7 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 
 - [Overview](user/app_overview.md): capabilities and execution model.
 - [Getting started](user/app_getting_started.md): a non-destructive first workflow.
+- [Examples tutorial](user/examples_tutorial.md): ten example workflows, from a first launch to a maintenance-window change.
 - [Installation and configuration](admin/install.md): prerequisites and the Settings page.
 
 ## Use and Extend Workflows
@@ -27,5 +28,5 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 - [Release notes](admin/release_notes/index.md).
 - [Contributing](dev/contributing.md) and [development environment](dev/dev_environment.md).
 
-The current package requires Nautobot 3.x and Python 3.10 through 3.13. Workflow
+The current package requires Nautobot 3.x and Python 3.11 through 3.13. Workflow
 scripts and custom filters are trusted code, not a sandbox for untrusted submissions.

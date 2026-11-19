@@ -20,14 +20,14 @@ in AWX, with ordered actions, reusable results, scheduling, and run history.
 
 ## Get Started
 
-The current package requires **Nautobot 3.x** and **Python 3.10 through 3.13**. The
+The current package requires **Nautobot 3.x** and **Python 3.11 through 3.13**. The
 selected Nautobot release must also support that Python version. These are package
 requirements, not a claim that every combination has been tested.
 
 1. Install from PyPI with `pip install nautobot-workflow-engine`, then follow
    [installation and configuration](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/admin/install.md).
 2. Configure a trusted workflow source and synchronize its Workflow Engine content.
-3. Run the non-destructive [hostname tutorial](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/user/app_getting_started.md).
+3. Add the [examples repository](https://github.com/eric-fetty/Nautobot-Demo-Workflows) as a trusted workflow source, then run the non-destructive [hostname tutorial](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/user/app_getting_started.md) or the full [examples tutorial](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/develop/docs/user/examples_tutorial.md).
 4. Use the [authoring reference](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/user/app_use_cases.md) to add inputs and actions.
 
 AWX and ServiceNow are optional. Individual workflows may require additional apps,
@@ -45,10 +45,14 @@ review and adaptation, not production-ready deployment definitions.
 
 ## Examples
 
-The [custom-filter workflow](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/examples/workflows/custom-filter-demo.yaml) uses
-[an echo script](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/examples/scripts/echo_hostname.py) and shared helpers without changing
-inventory. Other examples illustrate inventory operations and optional vendor
-integrations. Review their model, script, and service dependencies before use.
+The canonical examples live in [Nautobot-Demo-Workflows](https://github.com/eric-fetty/Nautobot-Demo-Workflows).
+They are a ladder of ten workflows, from echoing a hostname to a maintenance-window
+change, with a lab seed so you can follow along on a lab Nautobot without real
+devices or AWX. The first five examples never change inventory. Later examples have
+an optional apply switch that defaults to off.
+
+Add that repository as a trusted workflow source, then follow the
+[examples tutorial](https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/develop/docs/user/examples_tutorial.md).
 
 ## Trust and Execution Logs
 

@@ -1,11 +1,15 @@
 # Getting Started with the App
 
-This example returns a hostname without changing Nautobot inventory or calling an
+This first run returns a hostname without changing Nautobot inventory or calling an
 external service. Complete [installation](../admin/install.md) first and ensure the
 Nautobot background workers are running. Installation auto-enables the jobs required
 for scheduled runs; if you use ServiceNow change-window scheduling, you must still
 [enable and schedule the ServiceNow sync job](external_interactions.md#keeping-scheduled-runs-in-sync-with-servicenow)
 yourself.
+
+The full ladder of ten examples, a lab seed, and a step-by-step walkthrough are in
+the [examples tutorial](examples_tutorial.md) and the
+[examples repository](https://github.com/eric-fetty/Nautobot-Demo-Workflows).
 
 ## Define a Workflow
 
@@ -13,7 +17,7 @@ In a trusted workflow source, use the following layout:
 
 ```text
 workflows/
-    echo-hostname.yaml
+    01-echo-hostname.yaml
 scripts/
     echo_hostname.py
 ```
@@ -21,18 +25,19 @@ scripts/
 The workflow definition is:
 
 ```yaml
-key: echo-hostname
-name: Echo Hostname
+key: 01-echo-hostname
+name: "01. Echo a hostname"
 category: Examples
-enabled: true
 inputs:
   - key: hostname
     label: Hostname
     type: string
     required: true
+    placeholder: router.example.com
 actions:
   - type: nautobot
-    name: Echo Hostname
+    name: echo_hostname
+    label: Echo Hostname
     script: scripts/echo_hostname.py
     with:
       hostname: "{{ inputs.hostname }}"
@@ -48,8 +53,7 @@ def run(params):
     return {"hostname": hostname}
 ```
 
-The same script is included in the project's examples. No custom filters, AWX, or
-ServiceNow configuration are needed for this walkthrough.
+The same workflow is the first example in [Nautobot-Demo-Workflows](https://github.com/eric-fetty/Nautobot-Demo-Workflows). No custom filters, AWX, or ServiceNow configuration are needed for this walkthrough.
 
 ## Synchronize and Launch
 
@@ -58,7 +62,7 @@ ServiceNow configuration are needed for this walkthrough.
 
     ![Git Repository with Workflow Engine content selected](../assets/images/getting-started/01-git-repo-workflow-content.png)
 
-2. Synchronize it and confirm that **Echo Hostname** appears on the **Workflows** list.
+2. Synchronize it and confirm that **01. Echo a hostname** appears on the **Workflows** list.
 
     ![The Workflows list, with Run and Edit on each row](../assets/images/builder/01-workflows-list.png)
 
@@ -83,9 +87,12 @@ The same workflow can be made without writing YAML. Choose **New workflow** on t
 
 ## Next Steps
 
-Use the [builder guide](builder.md) or the [YAML reference](app_use_cases.md) for dependent inputs and multiple
-actions, or the [integration guide](external_interactions.md) for optional services.
-Review [data handling](../admin/security.md) before submitting real operational data.
+Continue with the [examples tutorial](examples_tutorial.md) for the rest of the ladder
+(validation, object pickers, filters, includes, tables, pre/post steps, approval,
+scheduling, and a maintenance-window capstone). Use the [builder guide](builder.md) or
+the [YAML reference](app_use_cases.md) when you write your own workflows, or the
+[integration guide](external_interactions.md) for optional services. Review
+[data handling](../admin/security.md) before submitting real operational data.
 
 ## Cancel a scheduled workflow run
 

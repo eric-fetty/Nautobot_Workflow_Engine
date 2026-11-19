@@ -1,0 +1,114 @@
+---
+key: 06-add-vlans
+name: "06. Add VLANs"
+description: >
+  Plan VLANs at a location and optionally create them in Nautobot. The VLAN
+  table supports CSV import. Leave Apply off to only plan. Creating VLANs is
+  a lab-safe inventory change and is off by default.
+category: Examples
+manual_duration_minutes: 30
+inputs:
+  - key: location
+    label: Location
+    type: object
+    model: dcim.Location
+    required: true
+    help_text: Where the VLANs belong. Run the lab seed if this list is empty.
+    filter:
+      query:
+        status__name: Active
+  - key: switches
+    label: Switches
+    type: multiobject
+    model: dcim.Device
+    required: true
+    depends_on: ["location"]
+    help_text: Access and distribution switches at the location that would receive the VLANs.
+    filter:
+      query:
+        location: "{{ inputs.location.id }}"
+  - key: vlans
+    label: VLANs
+    type: listdict
+    required: true
+    min_rows: 1
+    max_rows: 50
+    help_text: One row per VLAN. You can paste rows from a spreadsheet or import a CSV file.
+    columns:
+      - key: vid
+        label: VLAN ID
+        type: integer
+        required: true
+        unique: true
+        min_value: 1
+        max_value: 4094
+      - key: name
+        label: Name
+        type: string
+        required: true
+        validators:
+          - regex: "^[a-z0-9-]+$"
+            message: Use lowercase letters, numbers, and dashes.
+      - key: role
+        label: Role
+        type: choice
+        choices:
+          - {value: data, label: Data}
+          - {value: voice, label: Voice}
+          - {value: mgmt, label: Management}
+      - key: tagged
+        label: Tagged on trunks
+        type: boolean
+  - key: status
+    label: VLAN status
+    type: choice
+    required: true
+    default: active
+    choices:
+      - {value: active, label: Active}
+      - {value: reserved, label: Reserved}
+  - key: tags
+    label: Tags
+    type: multichoice
+    help_text: Added to every new VLAN when you apply the change.
+    choices:
+      - {value: pci, label: PCI}
+      - {value: critical, label: Critical}
+      - {value: lab, label: Lab}
+      - {value: guest, label: Guest}
+  - key: mtu
+    label: MTU
+    type: integer
+    default: 1500
+    min_value: 576
+    max_value: 9216
+    placeholder: "1500"
+  - key: trunk_ports
+    label: Extra trunk ports
+    type: list
+    placeholder: Ethernet1/49
+    max_items: 8
+    help_text: One interface per line. Leave this empty to use the uplinks only.
+    validators:
+      - regex: "^(Ethernet|Port-Channel)\\d+(/\\d+)*$"
+        message: Use an interface name like Ethernet1/49.
+        flags: ["IGNORECASE"]
+  - key: apply
+    label: Apply these changes in Nautobot
+    type: boolean
+    default: false
+    help_text: Leave off to only plan. Turn on to create the VLANs in this lab Nautobot. Do not use this in production.
+actions:
+  - type: nautobot
+    name: plan_or_create_vlans
+    label: Plan or create the VLANs
+    script: scripts/plan_or_create_vlans.py
+    with:
+      location: "{{ inputs.location.id }}"
+      switches: "{{ inputs.switches }}"
+      vlans: "{{ inputs.vlans }}"
+      status: "{{ inputs.status }}"
+      tags: "{{ inputs.tags }}"
+      trunk_ports: "{{ inputs.trunk_ports }}"
+      mtu: "{{ inputs.mtu }}"
+      apply: "{{ inputs.apply }}"

@@ -34,6 +34,7 @@ repository are required. AWX and ServiceNow are optional. Individual workflows m
 additional apps, Python dependencies, permissions, or remote services.
 
 Start with [installation](../admin/install.md), then follow the
-[first workflow tutorial](app_getting_started.md). See the
+[first workflow tutorial](app_getting_started.md) and the
+[examples tutorial](examples_tutorial.md). See the
 [builder guide](builder.md) and the [YAML reference](app_use_cases.md) for more advanced definitions, and the
 [reporting dashboard](app_reporting.md) for usage and time-savings reporting.
