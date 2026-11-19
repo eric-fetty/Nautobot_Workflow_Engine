@@ -14,11 +14,21 @@ Version 1.3 is a security and fixes release. It is a minor release rather than a
 ### Upgrading
 
 - There are no new migrations. Run `nautobot-server post_upgrade` as usual.
-- Compatibility: Nautobot `>=3.0.0,<4.0.0` and Python `>=3.11,<3.14`.
+- Compatibility: Nautobot `>=3.0.0,<4.0.0` and Python `>=3.11,<3.14` (1.3.0). 1.3.1 adds Python 3.14: `>=3.11,<3.15`.
 - Scheduled jobs created from now on have names that end with a short run ID, for example `Privileged Change · eric · CHG0001234 · run 1a2b3c4d`. Existing scheduled jobs keep their names and still run.
 
 <!-- towncrier release notes start -->
 
+
+## v1.3.1 (2026-11-19)
+
+### Added
+
+- #python-3.14 - Added support for Python 3.14. The package now supports Python 3.11 through 3.14, matching Nautobot 3.2.9. CI runs the unit tests on Python 3.11 and 3.14.
+
+### Fixed
+
+- #archive-own-push - Archiving a workflow now reliably removes its file from Git. Before, the file could be left behind when Git's whole-second commit time made the app's own earlier push look like a newer change made in Git.
 
 ## v1.3.0 (2026-11-19)
 
