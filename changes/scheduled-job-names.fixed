@@ -1,1 +1,0 @@
-Scheduling the same workflow twice with the same change ticket now works. Each scheduled run's name now ends with a short run ID, for example "Change VLANs · eric · CHG0001234 · run 1a2b3c4d".

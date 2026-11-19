@@ -1,1 +1,0 @@
-Updated the development lock file to Nautobot 3.2.9 (Django 5.2.19, Django REST framework 3.18.3, Pillow 13.0.0, social-auth-core 6.2.0, OpenTelemetry 1.45.2, oauthlib 4.0.1) to pick up multiple upstream security fixes, and updated the docs theme `mkdocs-material` to 9.7.7 to fix a cross-site scripting issue in the bundled documentation's search suggestions.

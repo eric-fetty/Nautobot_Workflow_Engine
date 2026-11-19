@@ -1,1 +1,0 @@
-Dropped support for Python 3.10. The package now requires Python 3.11 through 3.13, which lets every supported Python version get Nautobot 3.2.9 and its security fixes. If you run Python 3.10, stay on Workflow Engine 1.2.x or upgrade Python first.
