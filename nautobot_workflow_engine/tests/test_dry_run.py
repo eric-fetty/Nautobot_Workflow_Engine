@@ -241,3 +241,8 @@ class DryRunListInputsTestCase(TestCase):
         )
         self.assertEqual(result["phases"], [])
         self.assertEqual([error["key"] for error in result["form_errors"]], ["tags"])
+
+    def test_malformed_object_id_is_reported_not_raised(self):
+        result = dry_run(LIST_DEFINITION, {"tags": ["not-an-id"]}, {}, self.user)
+        self.assertEqual(result["phases"], [])
+        self.assertEqual([error["key"] for error in result["form_errors"]], ["tags"])

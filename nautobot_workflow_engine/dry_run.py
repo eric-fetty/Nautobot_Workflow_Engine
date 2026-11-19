@@ -6,6 +6,7 @@ import re
 import threading
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError as DjangoValidationError
 from jinja2 import TemplateError
 
 from .executors import _render, get_jinja_environment
@@ -220,6 +221,9 @@ def _clean_form(rows, submitted):
     for row in rows:
         if row.key not in cleaned and row.key in submitted:
             cleaned[row.key] = submitted[row.key]
+        elif row.input_type in JSON_LIST_TYPES and isinstance(cleaned.get(row.key), str):
+            # Steps get a list, as they do after a real launch.
+            cleaned[row.key] = _json_list(cleaned[row.key])
     return [], cleaned
 
 
@@ -232,6 +236,17 @@ def _form_list(row, value):
     if row.input_type == "multiobject":
         return [item.get("id") if isinstance(item, dict) else item for item in items]
     return items
+
+
+def _json_list(text):
+    """Parse the JSON list a launch form posts. Anything else becomes an empty list."""
+    if not text.strip():
+        return []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def _resolve_objects(user, rows, cleaned):
@@ -253,7 +268,10 @@ def _resolve_objects(user, rows, cleaned):
         keys = value if isinstance(value, list) else [value]
         found = []
         for key in keys:
-            obj = queryset.filter(pk=key).first()
+            try:
+                obj = queryset.filter(pk=key).first()
+            except (DjangoValidationError, TypeError, ValueError):
+                obj = None
             if obj is None:
                 errors.append({"key": row.key, "message": "That object is not available."})
             else:
