@@ -48,10 +48,28 @@ def _requester_username(workflow_run):
     return username.strip() if isinstance(username, str) and username.strip() else "unknown"
 
 
-def scheduled_job_name_for_run(workflow_run):
-    """Build a compact ScheduledJob name for approval widgets (no run UUID).
+SCHEDULED_JOB_NAME_MAX_LENGTH = 200
+_RUN_REFERENCE_LENGTH = 8
 
-    Format: ``{workflow name} · {requester} · {change ticket or schedule time}``.
+
+def _run_reference(workflow_run):
+    """Return a short, stable reference for a run, such as ``run 1a2b3c4d``."""
+    pk = str(getattr(workflow_run, "pk", "") or "").replace("-", "")
+    return f"run {pk[:_RUN_REFERENCE_LENGTH]}" if pk else ""
+
+
+def _clip(text, limit=60):
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def scheduled_job_name_for_run(workflow_run, *, full_reference=False):
+    """Build a compact ScheduledJob name for approval widgets.
+
+    Format: ``{workflow name} · {requester} · {change ticket or schedule time} · run {short id}``.
+
+    Nautobot requires ScheduledJob names to be unique, and the same person can schedule the
+    same workflow against the same change ticket more than once, so the name ends with the
+    first characters of the run's ID. ``full_reference`` uses the whole ID instead.
     """
     workflow_name = getattr(workflow_run.workflow, "name", None) or "Workflow"
     username = _requester_username(workflow_run)
@@ -62,7 +80,24 @@ def scheduled_job_name_for_run(workflow_run):
         third = workflow_run.scheduled_for.strftime("%b %d %H:%M UTC")
     else:
         third = "unscheduled"
-    return f"{workflow_name} · {username} · {third}"
+    if full_reference and getattr(workflow_run, "pk", None):
+        reference = f"run {workflow_run.pk}"
+    else:
+        reference = _run_reference(workflow_run)
+    parts = [_clip(username), _clip(third)] + ([reference] if reference else [])
+    suffix = " · " + " · ".join(parts)
+    room = SCHEDULED_JOB_NAME_MAX_LENGTH - len(suffix)
+    if len(workflow_name) > room:
+        workflow_name = workflow_name[: max(room - 1, 1)].rstrip() + "…"
+    return f"{workflow_name}{suffix}"
+
+
+def _unique_scheduled_job_name(workflow_run):
+    """Return a ScheduledJob name that no other scheduled job uses."""
+    name = scheduled_job_name_for_run(workflow_run)
+    if ScheduledJob.objects.filter(name=name).exists():
+        name = scheduled_job_name_for_run(workflow_run, full_reference=True)
+    return name
 
 
 def disable_and_delete_scheduled_job(scheduled_job):
@@ -105,7 +140,7 @@ def create_scheduled_job_for_run(workflow_run, *, run_status="scheduled"):
     # Do not set approval_required here; Nautobot begins an approval workflow on create when a
     # matching ApprovalWorkflowDefinition exists.
     scheduled_job_kwargs = {
-        "name": scheduled_job_name_for_run(workflow_run),
+        "name": _unique_scheduled_job_name(workflow_run),
         "task": job_model.class_path,
         "job_model": job_model,
         "job_queue": job_model.default_job_queue,

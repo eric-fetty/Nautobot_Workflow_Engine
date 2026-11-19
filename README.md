@@ -20,7 +20,7 @@ in AWX, with ordered actions, reusable results, scheduling, and run history.
 
 ## Get Started
 
-The current package requires **Nautobot 3.x** and **Python 3.10 through 3.13**. The
+The current package requires **Nautobot 3.x** and **Python 3.11 through 3.13**. The
 selected Nautobot release must also support that Python version. These are package
 requirements, not a claim that every combination has been tested.
 
