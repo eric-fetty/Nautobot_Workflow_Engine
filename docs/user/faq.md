@@ -30,6 +30,7 @@ Use Nautobot's **Approvals → Approval Dashboard**. The Workflow Engine submits
 scheduled job for approval; it does not provide a separate in-app approval UI.
 
 Pending items appear with a title like `{Workflow name} · {requester} · {change ticket or
-schedule time}` (for example `Privileged Change · eric · CHG0001234`). For ServiceNow
+schedule time} · run {short run ID}` (for example `Privileged Change · eric · CHG0001234 · run 1a2b3c4d`).
+The short run ID keeps two requests for the same change ticket apart. For ServiceNow
 schedules the ticket comes from the input named by `schedule.servicenow.change_input_key`;
 otherwise the scheduled UTC time is shown.

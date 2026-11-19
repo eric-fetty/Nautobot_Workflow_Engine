@@ -74,14 +74,16 @@ approval should be done from the Approvals UI; you can also cancel a **Pending A
 Scheduled jobs created for deferred or approval-gated runs use a compact display name so they
 are easy to recognize on the home page and Approval Dashboard:
 
-`{Workflow name} · {requester} · {change ticket or schedule time}`
+`{Workflow name} · {requester} · {change ticket or schedule time} · run {short run ID}`
 
 For ServiceNow-backed schedules, the third segment is the change ticket from the input named by
 `schedule.servicenow.change_input_key` (for example `change_ticket`). Otherwise it is the
-scheduled time in UTC (for example `Oct 16 14:00 UTC`). Examples:
+scheduled time in UTC (for example `Oct 16 14:00 UTC`). The last segment is the first eight
+characters of the run's ID, so the same person can schedule the same workflow for the same
+change ticket more than once. Examples:
 
-- `Privileged Change · eric · CHG0001234`
-- `Privileged Change · eric · Oct 16 14:00 UTC`
+- `Privileged Change · eric · CHG0001234 · run 1a2b3c4d`
+- `Privileged Change · eric · Oct 16 14:00 UTC · run 5e6f7a8b`
 
 On Nautobot versions below 3.2 the `approval_required` flag is stored but ignored (sync logs
 a skip message). Scheduled and immediate launches keep their existing behavior.
