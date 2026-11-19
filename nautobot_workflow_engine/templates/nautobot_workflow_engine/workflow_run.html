@@ -2,6 +2,7 @@
 {% load helpers %}
 {% load static %}
 {% load workflow_extras %}
+{% load buttons %}
 
 {% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock title %}
 
@@ -309,10 +310,11 @@
         <!-- User-friendly Print Output -->
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header">
+                <div class="card-header d-flex align-items-center">
                     <h5 class="mb-0">
                         <i class="mdi mdi-account-voice"></i> User Log
                     </h5>
+                    {% copy_button target="#run-user-log" label="Copy user log" %}
                 </div>
                 <div class="card-body">
                     {% if object.user_log %}
@@ -327,10 +329,11 @@
         <!-- Execution Log -->
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header">
+                <div class="card-header d-flex align-items-center">
                     <h5 class="mb-0">
                         <i class="mdi mdi-text-box-outline"></i> Debug Log
                     </h5>
+                    {% copy_button target="#run-debug-log" label="Copy debug log" %}
                 </div>
                 <div class="card-body">
                     {% if object.log %}

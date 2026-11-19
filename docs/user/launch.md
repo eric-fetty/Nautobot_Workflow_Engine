@@ -49,7 +49,7 @@ Device and virtual machine pages have a **Workflow runs** panel listing the late
 
 Search results, the panel and the narrowed list only include runs you're allowed to see (**View runs**). The panel isn't shown to people without that permission. An administrator can show the panel on other object types, such as prefixes or locations, from the app's Settings page; see [Workflow runs panel](../admin/install.md#workflow-runs-panel-on-object-pages).
 
-A run's page shows its status, the inputs it got, each step's result, the run's own log and the detailed log. While a run is going, the page shows progress, AWX job completion and elapsed time.
+A run's page shows its status, the inputs it got, each step's result, the run's own log and the detailed log. Hover over the **User Log** or **Debug Log** heading and click the copy button to copy that log as plain text. While a run is going, the page shows progress, AWX job completion and elapsed time.
 
 ![A run's detail page](../assets/images/launch/06-run-detail.png)
 
