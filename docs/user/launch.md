@@ -37,9 +37,9 @@ A table input is an editable grid with **Add row**, **Download template** and **
 
 ### Searching runs
 
-The **Search** box on Run History matches the workflow name, who started the run, its status, its change ticket, and the values entered on the run's form: text, numbers, choices (value or label), list items, table cells, and the names of the devices, VMs and other objects that were picked. For example, search for `CHG0012345` or `leaf-01` to find every run that used that ticket or switch.
+On Run History, the search box at the top of the page shows **in: Run History**, the same way it shows **in: Devices** on the Devices list. Type there and press Enter to filter the run list. Search matches the workflow name, who started the run, its status, its change ticket, and the values entered on the run's form: text, numbers, choices (value or label), list items, table cells, and the names of the devices, VMs and other objects that were picked. For example, search for `CHG0012345` or `leaf-01` to find every run that used that ticket or switch. Remove the **in: Run History** badge to search everything instead.
 
-Runs also show up in Nautobot's global search box at the top of every page, under **Workflow runs**.
+Runs also show up in Nautobot's global search, from any page, under **Workflow Runs**.
 
 Object names are recorded when the run is saved. If an object is renamed later, search for its old name, or open the object and use its **Workflow runs** panel.
 
