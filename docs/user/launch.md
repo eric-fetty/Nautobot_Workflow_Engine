@@ -53,6 +53,10 @@ A run's page shows its status, the inputs it got, each step's result, the run's 
 
 ![A run's detail page](../assets/images/launch/06-run-detail.png)
 
+Devices, VMs, prefixes and other objects picked on the form appear under **Workflow Inputs** as their names, each with its type, and link to the object's page. A multi-object input lists one per object. An object you're not allowed to view shows its name without a link. An object deleted since the run shows the name it had at the time, struck through and marked **deleted**.
+
+![Picked objects on a run's page](../assets/images/launch/07-run-inputs-objects.png)
+
 | Status | Meaning |
 | --- | --- |
 | Scheduled | Booked for later. |
