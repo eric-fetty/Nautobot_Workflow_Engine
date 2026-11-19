@@ -47,7 +47,7 @@ Object names are recorded when the run is saved. If an object is renamed later, 
 
 Device and virtual machine pages have a **Workflow runs** panel listing the latest runs whose form picked that device or VM, with the workflow, status, who started it and when. **View in Run History** (or **View all *N* runs** when there are more than five) opens Run History narrowed to that object; **Show all runs** there removes the narrowing.
 
-Search results, the panel and the narrowed list only include runs you're allowed to see (**View runs**). The panel isn't shown to people without that permission. An administrator can add the panel to other object types; see [Workflow runs panel](../admin/install.md#workflow-runs-panel-on-object-pages).
+Search results, the panel and the narrowed list only include runs you're allowed to see (**View runs**). The panel isn't shown to people without that permission. An administrator can show the panel on other object types, such as prefixes or locations, from the app's Settings page; see [Workflow runs panel](../admin/install.md#workflow-runs-panel-on-object-pages).
 
 A run's page shows its status, the inputs it got, each step's result, the run's own log and the detailed log. While a run is going, the page shows progress, AWX job completion and elapsed time.
 

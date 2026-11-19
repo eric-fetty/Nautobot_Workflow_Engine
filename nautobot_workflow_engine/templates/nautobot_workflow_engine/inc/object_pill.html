@@ -1,0 +1,22 @@
+{% spaceless %}
+{% if item.state == "link" %}
+    <a href="{{ item.url }}" class="nwe-object-pill nwe-object-pill-link" title="Open {{ item.type_label|lower|default:'object' }} {{ item.name }}">
+        {% if item.type_label %}<span class="nwe-object-pill-type">{{ item.type_label }}</span>{% endif %}
+        <span class="nwe-object-pill-name">{{ item.name }}</span>
+        <span class="mdi mdi-open-in-app nwe-object-pill-icon" aria-hidden="true"></span>
+    </a>
+{% elif item.state == "hidden" %}
+    <span class="nwe-object-pill">
+        {% if item.type_label %}<span class="nwe-object-pill-type">{{ item.type_label }}</span>{% endif %}
+        <span class="nwe-object-pill-name">{{ item.name }}</span>
+    </span>
+{% elif item.state == "deleted" %}
+    <span class="nwe-object-pill nwe-object-pill-deleted" title="This {{ item.type_label|lower|default:'object' }} has been deleted">
+        {% if item.type_label %}<span class="nwe-object-pill-type">{{ item.type_label }}</span>{% endif %}
+        <span class="nwe-object-pill-name">{{ item.name }}</span>
+        <span class="nwe-object-pill-marker">deleted</span>
+    </span>
+{% else %}
+    <code class="nwe-object-raw">{{ item.name }}</code>
+{% endif %}
+{% endspaceless %}

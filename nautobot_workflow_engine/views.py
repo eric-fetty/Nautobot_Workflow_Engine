@@ -44,6 +44,7 @@ from .filters import WorkflowFilterSet, WorkflowRunFilterSet, content_type_for_l
 from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
+from .run_inputs import run_input_rows
 from .run_permissions import can_cancel, can_run
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -1062,6 +1063,7 @@ class WorkflowRunDetailView(ObjectView):
         # Show workflow info in run view even if workflow is now disabled
         context["workflow_available"] = instance.workflow.enabled if instance.workflow else False
         context["can_cancel_run"] = can_cancel(request.user, instance)
+        context["input_rows"] = run_input_rows(instance, request.user)
         return context
 
 
