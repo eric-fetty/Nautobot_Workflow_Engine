@@ -1,0 +1,5 @@
+{% if workflow_runs_total %}
+    <a href="{{ workflow_runs_url }}" class="badge bg-primary">{{ workflow_runs_total }}</a>
+{% else %}
+    <span class="badge bg-secondary">0</span>
+{% endif %}

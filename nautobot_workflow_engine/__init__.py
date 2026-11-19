@@ -7,6 +7,7 @@ from pathlib import Path
 
 from nautobot.apps import ConstanceConfigItem, NautobotAppConfig
 
+from .settings_helpers import DEFAULT_RUN_HISTORY_OBJECT_TYPES
 from .settings_helpers import DEFAULTS as _SETTING_DEFAULTS
 from .settings_helpers import SETTING_META as _SETTING_META
 
@@ -57,7 +58,13 @@ class WorkflowEngineConfig(NautobotAppConfig):
     # Every runtime setting is on the Settings page (Constance). Keys listed in
     # constance_config are not copied into PLUGINS_CONFIG, so setting one in
     # nautobot_config.py is an explicit override that locks it on the page.
-    default_settings = {"allow_db_only_workflows": True}
+    # run_history_object_types: the object types whose detail pages show a "Workflow runs" panel
+    # listing runs whose form picked that object. Read at startup; add "app_label.model" entries
+    # (e.g. "ipam.prefix") to show the panel on more pages.
+    default_settings = {
+        "allow_db_only_workflows": True,
+        "run_history_object_types": list(DEFAULT_RUN_HISTORY_OBJECT_TYPES),
+    }
     constance_config = {
         key: ConstanceConfigItem(
             default=_SETTING_DEFAULTS[key],
@@ -69,16 +76,21 @@ class WorkflowEngineConfig(NautobotAppConfig):
     caching_config = {}
     config_view_name = "plugins:nautobot_workflow_engine:config"
     docs_view_name = "plugins:nautobot_workflow_engine:docs"
-    searchable_models = ["workflow"]
+    searchable_models = ["workflow", "workflowrun"]
 
     def ready(self):
         """Connect database-ready handlers after the app is fully loaded."""
         super().ready()
-        from django.db.models.signals import post_migrate
+        from django.db.models.signals import post_init, post_migrate, post_save
         from nautobot.apps import nautobot_database_ready
 
         from .default_permissions import ensure_default_permissions
+        from .models import WorkflowRun
+        from .run_index import reindex_on_save, remember_inputs
         from .signals import enable_required_jobs
+
+        post_init.connect(remember_inputs, sender=WorkflowRun, dispatch_uid="nwe_run_index_remember")
+        post_save.connect(reindex_on_save, sender=WorkflowRun, dispatch_uid="nwe_run_index_save")
 
         nautobot_database_ready.connect(enable_required_jobs, sender=self)
         nautobot_database_ready.connect(ensure_default_permissions, sender=self)

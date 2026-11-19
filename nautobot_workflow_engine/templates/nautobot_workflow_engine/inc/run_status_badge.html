@@ -1,0 +1,9 @@
+{% if run.status == "success" %}<span class="badge bg-success"><i class="mdi mdi-check"></i> Success</span>
+{% elif run.status == "failed" %}<span class="badge bg-danger"><i class="mdi mdi-close"></i> Failed</span>
+{% elif run.status == "running" %}<span class="badge bg-primary"><i class="mdi mdi-play"></i> Running</span>
+{% elif run.status == "pending" %}<span class="badge bg-warning text-dark"><i class="mdi mdi-clock"></i> Pending</span>
+{% elif run.status == "pending_approval" %}<span class="badge bg-warning text-dark"><i class="mdi mdi-account-check"></i> Pending Approval</span>
+{% elif run.status == "scheduled" %}<span class="badge bg-info text-dark"><i class="mdi mdi-calendar-clock"></i> Scheduled</span>
+{% elif run.status == "canceled" %}<span class="badge bg-secondary"><i class="mdi mdi-cancel"></i> Canceled</span>
+{% elif run.status == "partial" %}<span class="badge bg-warning text-dark"><i class="mdi mdi-alert"></i> Partial</span>
+{% else %}<span class="badge bg-secondary">{{ run.get_status_display }}</span>{% endif %}

@@ -113,6 +113,24 @@ Groups; they are not app settings.
 | Give up reaching a repository after (seconds) | `git_remote_timeout_seconds` | `10` | Timeout for the Git check the builder does when it opens. |
 | Longest a publish may take (seconds) | `git_push_lock_timeout` | `300` | Seconds one publish may hold a repository before another can start. |
 | Retry a waiting publish after (minutes) | `git_push_retry_backoff_minutes` | `1, 5, 15, 60` | Wait before each automatic retry of a failed push. The last value repeats. |
+
+### Workflow runs panel on object pages
+
+Device and virtual machine detail pages show a **Workflow runs** panel listing the runs whose form picked that object. The list of object types is a startup setting, `run_history_object_types`, because Nautobot adds detail-page panels when it loads the app. To add another type, list it with its `app_label.model` name and restart Nautobot:
+
+```python
+PLUGINS_CONFIG = {
+    "nautobot_workflow_engine": {
+        "run_history_object_types": [
+            "dcim.device",
+            "virtualization.virtualmachine",
+            "ipam.prefix",  # new
+        ],
+    },
+}
+```
+
+Runs record every object an object or multi-object input picks, whatever its type, so the panel works for a newly listed type straight away, including for older runs.
 | AWX connection | `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
 | Check AWX jobs every (seconds) | `awx_poll_seconds` | `5` | Polling interval for AWX job monitoring. |
 

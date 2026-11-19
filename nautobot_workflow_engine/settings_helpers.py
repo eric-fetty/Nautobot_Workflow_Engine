@@ -28,6 +28,26 @@ DEFAULT_MODEL_ALLOWLIST = [
     "extras.dynamicgroup",
 ]
 
+# Object types whose detail pages get the "Workflow runs" panel. Startup-only (PLUGINS_CONFIG
+# ``run_history_object_types``), because Nautobot registers detail-page panels when the app loads.
+DEFAULT_RUN_HISTORY_OBJECT_TYPES = ("dcim.device", "virtualization.virtualmachine")
+
+
+def run_history_object_types():
+    """Return the ``app_label.model`` labels that show the "Workflow runs" panel, lower-cased, de-duplicated."""
+    configured = settings.PLUGINS_CONFIG.get(APP_NAME, {}).get("run_history_object_types")
+    if configured is None:
+        configured = DEFAULT_RUN_HISTORY_OBJECT_TYPES
+    if isinstance(configured, str):
+        configured = [configured]
+    labels = []
+    for label in configured or ():
+        text = str(label).strip().lower()
+        if text.count(".") == 1 and text not in labels:
+            labels.append(text)
+    return labels
+
+
 DEFAULTS = {
     "workflow_dir": "workflows",
     "filters_dir": "filters",

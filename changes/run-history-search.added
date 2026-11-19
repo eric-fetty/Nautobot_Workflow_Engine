@@ -1,0 +1,1 @@
+Added run history search: the Run History search box and Nautobot's global search match runs by workflow, user, status, change ticket, form values and the names of picked objects, and device and virtual machine pages show a "Workflow runs" panel (more object types via `run_history_object_types`).
