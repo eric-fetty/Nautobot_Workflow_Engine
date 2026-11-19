@@ -1,0 +1,1 @@
+Archiving a workflow now reliably removes its file from Git. Before, the file could be left behind when Git's whole-second commit time made the app's own earlier push look like a newer change made in Git.

@@ -562,7 +562,8 @@ def _write_rule(helper, repository, workflow, path, relative, log, job_result):
     touch = commit_touch(helper.repo.working_tree_dir, relative)
 
     if workflow.archived:
-        return _archive_file(workflow, path, exists, pushed_before, touch, revision, log)
+        unchanged = bool(known) and current_hash == known
+        return _archive_file(workflow, path, exists, pushed_before, touch, revision, log, unchanged=unchanged)
 
     if exists and not pushed_before and current_hash != desired_hash:
         workflow.git_status = GIT_STATUS_NOT_SYNCED
@@ -605,15 +606,18 @@ def _write_rule(helper, repository, workflow, path, relative, log, job_result):
     return _entry(workflow, revision, desired)
 
 
-def _archive_file(workflow, path, exists, pushed_before, touch, revision, log):
+def _archive_file(workflow, path, exists, pushed_before, touch, revision, log, *, unchanged=False):
     published_at = revision.published_at if revision is not None else None
     if not exists:
         return None
     # Our own push is never "a newer Git change": Git keeps whole seconds, so its time can read later.
+    # A later commit that didn't touch the file moves ``git_commit`` on, so also accept a file whose
+    # content still matches what was last pushed or synced: nobody changed it in Git.
     own_push = bool(touch["sha"]) and touch["sha"] == (workflow.git_commit or "")
     if (
         pushed_before
         and not own_push
+        and not unchanged
         and touch["at"] is not None
         and published_at is not None
         and touch["at"] > published_at
