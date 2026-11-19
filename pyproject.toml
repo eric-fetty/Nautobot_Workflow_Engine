@@ -14,7 +14,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -50,7 +49,7 @@ include = [
 "Changelog" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/admin/release_notes/version_1.2.md"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.14"
+python = ">=3.11,<3.14"
 # Used for local development
 nautobot = ">=3.0.0,<4.0.0"
 pyyaml = ">=6.0"
