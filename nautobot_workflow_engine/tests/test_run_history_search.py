@@ -399,6 +399,11 @@ class RunHistoryViewsTestCase(TestCase):
 class RunHistoryObjectTypesSettingTestCase(TestCase):
     """Which pages show the panel is a Settings-page setting that applies without a restart."""
 
+    def setUp(self):
+        # Constance can be cached outside the test database; start from the default.
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().setUp()
+
     def tearDown(self):
         setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
         super().tearDown()
