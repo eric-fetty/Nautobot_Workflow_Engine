@@ -28,5 +28,5 @@ or job templates in AWX. Runs retain inputs, results, execution logs, and status
 - [Release notes](admin/release_notes/index.md).
 - [Contributing](dev/contributing.md) and [development environment](dev/dev_environment.md).
 
-The current package requires Nautobot 3.x and Python 3.11 through 3.13. Workflow
+The current package requires Nautobot 3.x and Python 3.11 through 3.14. Workflow
 scripts and custom filters are trusted code, not a sandbox for untrusted submissions.
