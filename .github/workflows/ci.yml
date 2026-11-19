@@ -14,9 +14,9 @@ concurrency:
 env:
   APP_NAME: "nautobot-workflow-engine"
   PYTHON_VER: "3.12"
-  NAUTOBOT_VER: "3.2.5"
+  NAUTOBOT_VER: "3.2.9"
   INVOKE_NAUTOBOT_WORKFLOW_ENGINE_PYTHON_VER: "3.12"
-  INVOKE_NAUTOBOT_WORKFLOW_ENGINE_NAUTOBOT_VER: "3.2.5"
+  INVOKE_NAUTOBOT_WORKFLOW_ENGINE_NAUTOBOT_VER: "3.2.9"
 
 jobs:
   ruff:
@@ -45,7 +45,16 @@ jobs:
         run: "poetry run invoke ruff"
 
   unittest:
+    name: "unittest (Python ${{ matrix.python-version }})"
     runs-on: "ubuntu-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest supported Python versions.
+        python-version: ["3.11", "3.14"]
+    env:
+      PYTHON_VER: "${{ matrix.python-version }}"
+      INVOKE_NAUTOBOT_WORKFLOW_ENGINE_PYTHON_VER: "${{ matrix.python-version }}"
     steps:
       - name: "Check out repository code"
         uses: "actions/checkout@v4"
