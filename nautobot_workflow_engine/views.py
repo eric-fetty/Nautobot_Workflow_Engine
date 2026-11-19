@@ -103,7 +103,8 @@ RUN_HISTORY_PAGE_SIZE_OPTIONS = (10, 25, 50, 100)
 RUN_HISTORY_DEFAULT_PAGE_SIZE = 50
 RUN_HISTORY_SESSION_KEY = "nautobot_workflow_engine_run_history_filters"
 RUN_HISTORY_PERSISTED_KEYS = ("workflow", "status", "user", "category", "time_range", "start", "end", "per_page")
-# Search box, global search and "View all" links from object pages; carried in the URL, not remembered.
+# Header search (scoped to Run History), global search and "View all" links from object pages;
+# carried in the URL, not remembered.
 RUN_HISTORY_SEARCH_KEYS = ("q", "referenced_object", "referenced_object_type")
 
 
@@ -1333,6 +1334,9 @@ class WorkflowRunListView(TemplateView):
         query_params.update(search)
         context["querystring_without_page"] = urlencode({k: v for k, v in query_params.items() if v not in (None, "")})
         context["search_query"] = search.get("q", "")
+        # Core's header search shows the "in: <nav item>" scope when a list page provides its
+        # content type, and then submits ?q= to this list, just like Devices.
+        context["content_type"] = ContentType.objects.get_for_model(WorkflowRun)
         context["referenced_object_param"] = search.get("referenced_object", "")
         context["referenced_object_type_param"] = search.get("referenced_object_type", "")
         context["referenced_object_label"] = _referenced_object_label(

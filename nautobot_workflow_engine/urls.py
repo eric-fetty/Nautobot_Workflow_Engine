@@ -27,9 +27,11 @@ urlpatterns = [
     ),
     path("workflows/<slug:key>/launch/", views.WorkflowRunCreateView.as_view(), name="workflow_launch"),
     path("workflows/<slug:key>/inputs/<slug:child>/options/", views.InputOptionsView.as_view(), name="input_options"),
-    path("runs/", views.WorkflowRunListView.as_view(), name="workflow_run_list"),
-    # Nautobot's standard list-route name for WorkflowRun; global search and generic links use it.
+    # Nautobot's standard list-route name for WorkflowRun comes first, so resolving /runs/ gives it.
+    # Core maps that name to the model for the header search scope ("in: Run History"), live search
+    # and global search. The older name stays for existing links and reverse() calls.
     path("runs/", views.WorkflowRunListView.as_view(), name="workflowrun_list"),
+    path("runs/", views.WorkflowRunListView.as_view(), name="workflow_run_list"),
     path("runs/<uuid:pk>/", views.WorkflowRunDetailView.as_view(), name="workflow_run"),
     path("runs/<uuid:pk>/progress/", views.WorkflowRunProgressView.as_view(), name="workflow_run_progress"),
     path("runs/<uuid:pk>/cancel/", views.WorkflowRunCancelView.as_view(), name="workflow_run_cancel"),

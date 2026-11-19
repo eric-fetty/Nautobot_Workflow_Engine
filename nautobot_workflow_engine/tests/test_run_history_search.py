@@ -8,7 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.urls import resolve, reverse
 from nautobot.dcim.models import Device, DeviceType, Location, LocationType, Manufacturer
 from nautobot.extras.models import Role, Status
 from nautobot.users.models import ObjectPermission
@@ -296,13 +296,37 @@ class RunHistoryViewsTestCase(TestCase):
         self.client.force_login(User.objects.get(pk=user.pk))
         return user
 
-    def test_search_box_filters_run_history(self):
+    def test_header_search_is_scoped_to_run_history(self):
         self._login("rs-viewer", VIEW_RUNS)
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.context["content_type"], ContentType.objects.get_for_model(WorkflowRun))
+        content = response.content.decode()
+        # Core's header search shows the active list's scope badge and submits there.
+        self.assertIn("in: Run History", content)
+        self.assertIn(f'data-nb-link="{self.list_url}"', content)
+        # No second search box on the page.
+        self.assertNotIn('id="nwe-run-search"', content)
+
+    def test_q_from_header_search_filters_run_history(self):
+        self._login("rs-viewer-q", VIEW_RUNS)
         response = self.client.get(self.list_url, {"q": "CHG4242"})
         self.assertContains(response, "Port turn-up")
-        self.assertContains(response, 'value="CHG4242"')
         response = self.client.get(self.list_url, {"q": "nothing-matches"})
         self.assertContains(response, "No workflow runs found")
+
+    def test_list_route_resolves_to_standard_name(self):
+        self.assertEqual(resolve(self.list_url).view_name, "plugins:nautobot_workflow_engine:workflowrun_list")
+        self.assertEqual(reverse("plugins:nautobot_workflow_engine:workflowrun_list"), self.list_url)
+
+    def test_live_search_returns_runs(self):
+        self._login("rs-live", VIEW_RUNS)
+        response = self.client.get(
+            reverse("live_search", kwargs={"path": self.list_url.lstrip("/")}),
+            {"q": "CHG4242"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Port turn-up")
 
     def test_view_all_link_filter_shows_object_name(self):
         self._login("rs-viewer2", VIEW_RUNS, extra=[(Device, ["view"])])
