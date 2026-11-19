@@ -1,1 +1,0 @@
-The launch form table (for example a VLAN list) no longer keeps redrawing itself after it refreshes while a cell is selected, so drop-downs in the table, such as Role, work again.
