@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" font-family="Inter, Helvetica Neue, Arial, sans-serif">
+  <defs>
+    <filter id="s2shadow" x="-3%" y="-3%" width="106%" height="112%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="rgba(0,0,0,0.09)"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="640" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="450" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#1E293B" letter-spacing="0.5">Nautobot Workflow Engine</text>
+  <text x="450" y="54" text-anchor="middle" font-size="10" fill="#94A3B8" letter-spacing="2">WHERE IT FITS IN THE NAF REFERENCE ARCHITECTURE</text>
+
+  <!-- === PRESENTATION — #f5c518 Golden Yellow === -->
+  <rect x="55" y="72" width="790" height="86" rx="14" fill="#f5c518" filter="url(#s2shadow)"/>
+  <svg x="350" y="86" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <line x1="8" y1="21" x2="16" y2="21"/>
+    <line x1="12" y1="17" x2="12" y2="21"/>
+  </svg>
+  <text x="450" y="104" text-anchor="middle" font-size="17" font-weight="700" fill="#000000">PRESENTATION</text>
+  <text x="450" y="126" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.6)">Launch forms  ·  Builder  ·  Run History  ·  Device/VM run panels</text>
+  <text x="450" y="142" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.6)">Search  ·  Reports  ·  REST API  ·  Nautobot RBAC  ·  ServiceNow tickets</text>
+
+  <!-- Flow connectors: Presentation → Middle -->
+  <path d="M180,158 L180,178 L195,194" stroke="rgba(245,197,24,0.45)" stroke-width="2" fill="none"/>
+  <path d="M450,158 L450,194" stroke="rgba(245,197,24,0.45)" stroke-width="2" fill="none"/>
+  <path d="M720,158 L720,178 L705,194" stroke="rgba(245,197,24,0.45)" stroke-width="2" fill="none"/>
+
+  <!-- === OBSERVABILITY — #00e676 Vivid Green === -->
+  <rect x="55" y="194" width="250" height="168" rx="14" fill="#00e676" filter="url(#s2shadow)"/>
+  <svg x="107" y="204" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round">
+    <circle cx="11" cy="11" r="8"/>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+  <text x="195" y="221" text-anchor="middle" font-size="15" font-weight="700" fill="#000000">OBSERVABILITY</text>
+  <text x="180" y="237" text-anchor="middle" font-size="9" font-weight="700" fill="rgba(0,0,0,0.62)" letter-spacing="1">LIGHT</text>
+  <rect x="72" y="248" width="216" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="180" y="266" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Run history</text>
+  <text x="180" y="280" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Objects each run touched</text>
+  <rect x="72" y="300" width="216" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="180" y="318" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">No network state stored</text>
+  <text x="180" y="332" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Not a telemetry store</text>
+
+  <!-- === ORCHESTRATION — #00d4ff Electric Cyan === -->
+  <rect x="325" y="194" width="250" height="168" rx="14" fill="#00d4ff" filter="url(#s2shadow)"/>
+  <svg x="375" y="204" width="22" height="22" viewBox="0 0 24 24">
+    <rect x="4" y="4" width="6" height="6" rx="2" fill="#000000" opacity="0.5"/>
+    <rect x="14" y="4" width="6" height="6" rx="2" fill="#000000" opacity="0.5"/>
+    <rect x="4" y="14" width="6" height="6" rx="2" fill="#000000" opacity="0.5"/>
+    <rect x="14" y="14" width="6" height="6" rx="2" fill="#000000"/>
+    <path d="M10 7h4M7 10v4M17 10v4" stroke="#000000" stroke-width="1.5" fill="none"/>
+  </svg>
+  <text x="465" y="221" text-anchor="middle" font-size="15" font-weight="700" fill="#000000">ORCHESTRATION</text>
+  <text x="450" y="237" text-anchor="middle" font-size="9" font-weight="700" fill="rgba(0,0,0,0.62)" letter-spacing="1">CORE</text>
+  <rect x="342" y="248" width="105" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="394" y="266" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Ordered actions</text>
+  <text x="394" y="279" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Conditions · results</text>
+  <rect x="453" y="248" width="105" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="505" y="266" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Scheduling</text>
+  <text x="505" y="279" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Approvals · windows</text>
+  <rect x="342" y="298" width="105" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="394" y="316" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Dry run · logs</text>
+  <text x="394" y="329" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Celery queue</text>
+  <rect x="453" y="298" width="105" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="505" y="316" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">Rollback</text>
+  <text x="505" y="329" text-anchor="middle" font-size="9.5" font-weight="500" fill="rgba(0,0,0,0.8)">not built in</text>
+
+  <!-- === INTENT — #ff6d2e Hot Orange === -->
+  <rect x="595" y="194" width="250" height="168" rx="14" fill="#ff6d2e" filter="url(#s2shadow)"/>
+  <svg x="668" y="204" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.8">
+    <path d="M12 3L2 9l10 6 10-6-10-6z"/>
+    <path d="M2 15l10 6 10-6" stroke-dasharray="3,2"/>
+  </svg>
+  <text x="735" y="221" text-anchor="middle" font-size="15" font-weight="700" fill="#000000">INTENT</text>
+  <rect x="612" y="248" width="216" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="720" y="266" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Workflow YAML in Git</text>
+  <text x="720" y="280" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">sync · revisions · publish</text>
+  <rect x="612" y="300" width="216" height="44" rx="8" fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.13)" stroke-width="1"/>
+  <text x="720" y="318" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Nautobot SoT data as inputs</text>
+  <text x="720" y="332" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(0,0,0,0.8)">Schema validation</text>
+
+  <!-- Horizontal connectors between middle blocks -->
+  <line x1="305" y1="268" x2="325" y2="268" stroke="rgba(0,0,0,0.13)" stroke-width="2"/>
+  <line x1="305" y1="278" x2="325" y2="278" stroke="rgba(0,0,0,0.13)" stroke-width="2"/>
+  <line x1="575" y1="268" x2="595" y2="268" stroke="rgba(0,0,0,0.13)" stroke-width="2"/>
+  <line x1="575" y1="278" x2="595" y2="278" stroke="rgba(0,0,0,0.13)" stroke-width="2"/>
+
+  <!-- Flow connectors: Middle → Collector/Executor -->
+  <path d="M180,362 L180,398" stroke="rgba(244,63,94,0.45)" stroke-width="2" fill="none"/>
+  <path d="M450,362 L310,398" stroke="rgba(0,212,255,0.35)" stroke-width="1.5" fill="none" stroke-dasharray="4,4"/>
+  <path d="M450,362 L590,398" stroke="rgba(0,212,255,0.35)" stroke-width="1.5" fill="none" stroke-dasharray="4,4"/>
+  <path d="M720,362 L720,398" stroke="rgba(99,102,241,0.45)" stroke-width="2" fill="none"/>
+
+  <!-- === COLLECTOR — Rose Red #F43F5E === -->
+  <rect x="100" y="398" width="310" height="96" rx="14" fill="#F43F5E" fill-opacity="0.85" stroke="#F43F5E" stroke-width="2" stroke-dasharray="6,4" filter="url(#s2shadow)"/>
+  <svg x="175" y="408" width="24" height="24" viewBox="0 0 24 24" fill="rgba(0,0,0,0.73)">
+    <path d="M5 10l7-7 7 7" opacity="0.4"/>
+    <path d="M5 14l7-7 7 7" opacity="0.7"/>
+    <path d="M5 18l7-7 7 7"/>
+  </svg>
+  <text x="255" y="426" text-anchor="middle" font-size="15" font-weight="700" fill="#000000">COLLECTOR</text>
+  <text x="255" y="442" text-anchor="middle" font-size="9" font-weight="700" fill="rgba(0,0,0,0.62)" letter-spacing="1">NOT BUILT IN</text>
+  <text x="255" y="462" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.75)">via your scripts / AWX playbooks</text>
+  <text x="255" y="478" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.67)">▲ READ FROM INFRASTRUCTURE</text>
+
+  <!-- === EXECUTOR — Indigo #6366F1 === -->
+  <rect x="490" y="398" width="310" height="96" rx="14" fill="#6366F1" filter="url(#s2shadow)"/>
+  <svg x="548" y="414" width="24" height="24" viewBox="0 0 24 24" fill="rgba(0,0,0,0.73)">
+    <path d="M5 6l7 7 7-7" opacity="0.4"/>
+    <path d="M5 10l7 7 7-7" opacity="0.7"/>
+    <path d="M5 14l7 7 7-7"/>
+  </svg>
+  <text x="645" y="432" text-anchor="middle" font-size="15" font-weight="700" fill="#000000">EXECUTOR</text>
+  <text x="645" y="456" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.75)">Python scripts on the Nautobot Celery worker</text>
+  <text x="645" y="474" text-anchor="middle" font-size="10" fill="rgba(0,0,0,0.67)">AWX job templates  ·  job monitoring</text>
+
+  <!-- Flow connectors: Collector/Executor → Infrastructure -->
+  <path d="M255,494 L255,522" stroke="rgba(244,63,94,0.45)" stroke-width="2" fill="none" stroke-dasharray="4,4"/>
+  <path d="M645,494 L645,522" stroke="rgba(99,102,241,0.45)" stroke-width="2" fill="none"/>
+
+  <!-- === INFRASTRUCTURE — Gray #64748B === -->
+  <rect x="55" y="522" width="790" height="78" rx="14" fill="#64748B" filter="url(#s2shadow)"/>
+  <svg x="328" y="536" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.8">
+    <circle cx="12" cy="12" r="3"/>
+    <circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/>
+    <circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
+    <line x1="6.5" y1="6.5" x2="10" y2="10"/>
+    <line x1="17.5" y1="6.5" x2="14" y2="10"/>
+    <line x1="6.5" y1="17.5" x2="10" y2="14"/>
+    <line x1="17.5" y1="17.5" x2="14" y2="14"/>
+  </svg>
+  <text x="450" y="555" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">INFRASTRUCTURE</text>
+  <text x="450" y="575" text-anchor="middle" font-size="10" fill="#94A3B8">The engine does not talk to devices itself — executors and your collectors do</text>
+
+  <text x="845" y="622" text-anchor="end" font-size="8" fill="#94A3B8">Mapped to the Network Automation Forum NAF reference architecture</text>
+</svg>
