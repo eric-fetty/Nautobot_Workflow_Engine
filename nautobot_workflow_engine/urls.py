@@ -16,6 +16,9 @@ router.register("workflow", views.WorkflowUIViewSet)
 urlpatterns = [
     # Old address of the Settings page, kept so bookmarks still work.
     path("config/", RedirectView.as_view(pattern_name="plugins:nautobot_workflow_engine:config"), name="config_legacy"),
+    # "workflow_catalog" resolves first: Nautobot maps a view name's "workflow_" prefix to the Workflow
+    # model, which the header search's live results need on this page. Links keep using workflows_list.
+    path("workflows_list/", views.WorkflowListView.as_view(), name="workflow_catalog"),
     path("workflows_list/", views.WorkflowListView.as_view(), name="workflows_list"),
     path("workflows/builder/", views.WorkflowBuilderView.as_view(), name="workflow_builder_create"),
     path("workflows/builder/yaml/", views.WorkflowBuilderYamlView.as_view(), name="workflow_builder_yaml"),

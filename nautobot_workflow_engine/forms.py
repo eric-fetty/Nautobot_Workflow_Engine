@@ -21,6 +21,8 @@ from .settings_helpers import (
     SETTING_META,
     get_setting,
     is_file_locked,
+    normalize_object_type_labels,
+    run_history_eligible_models,
 )
 
 
@@ -973,6 +975,21 @@ def _object_type_choices(selected):
     return choices
 
 
+def _run_history_type_choices(selected):
+    """``(app_label.model, label)`` for object types that can show the "Workflow runs" panel."""
+    choices = []
+    for model in run_history_eligible_models():
+        meta = model._meta
+        choices.append((f"{meta.app_label}.{meta.model_name}", f"{meta.app_config.verbose_name} | {meta.verbose_name}"))
+    choices.sort(key=lambda choice: choice[1].lower())
+    known = {value for value, _label in choices}
+    for value in selected or []:
+        if value not in known:
+            choices.append((value, f"{value} (not found)"))
+            known.add(value)
+    return choices
+
+
 def _canonical_object_types(values):
     """Stored object types as ``app_label.model``; older ``app_label.<Verbose name>`` values are mapped too."""
     from django.contrib.contenttypes.models import ContentType
@@ -1012,6 +1029,7 @@ class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
     git_push_retry_backoff_minutes = forms.CharField(max_length=255)
     awx_external_integration_name = forms.ChoiceField(choices=[])
     awx_poll_seconds = forms.IntegerField(min_value=1, max_value=3600)
+    run_history_object_types = forms.MultipleChoiceField(required=False, choices=[], widget=StaticSelect2Multiple())
 
     def __init__(self, *args, **kwargs):
         """Fill labels and choices from the settings, and lock what nautobot_config.py sets."""
@@ -1028,6 +1046,9 @@ class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
             choices.insert(0, (current, f"{current} (not found)"))
         self.fields["awx_external_integration_name"].choices = choices
         self.fields["show_add_new_item"].choices = _object_type_choices(self.initial.get("show_add_new_item"))
+        self.fields["run_history_object_types"].choices = _run_history_type_choices(
+            self.initial.get("run_history_object_types")
+        )
 
         self.file_locked_keys = []
         for key, field in self.fields.items():
@@ -1042,6 +1063,7 @@ class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
         values = {key: get_setting(key, DEFAULTS[key]) for key in SETTING_META}
         values["show_disabled"] = bool(values["show_disabled"])
         values["show_add_new_item"] = _canonical_object_types(values["show_add_new_item"])
+        values["run_history_object_types"] = normalize_object_type_labels(values["run_history_object_types"])
         values["builder_model_allowlist"] = "\n".join(str(item) for item in values["builder_model_allowlist"] or [])
         values["git_push_retry_backoff_minutes"] = ", ".join(
             str(item) for item in values["git_push_retry_backoff_minutes"] or []
@@ -1106,6 +1128,10 @@ class WorkflowEngineSettingsForm(BootstrapMixin, forms.Form):
                 seen.add(value.lower())
                 values.append(value)
         return values
+
+    def clean_run_history_object_types(self):
+        """Deduplicated, lower-case ``app_label.model`` values."""
+        return normalize_object_type_labels(self.cleaned_data.get("run_history_object_types"))
 
     def changed_settings(self):
         """``{key: value}`` for unlocked settings that differ from what is stored now."""

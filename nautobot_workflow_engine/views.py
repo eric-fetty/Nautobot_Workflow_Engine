@@ -338,6 +338,10 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         git_status = self.request.GET.get("git_status")
         if git_status:
             qs = qs.filter(git_status=git_status)
+        # The header search, scoped "in: Workflows", submits ?q= here (Nautobot's list-page pattern).
+        search = (self.request.GET.get("q") or "").strip()
+        if search:
+            qs = WorkflowFilterSet({"q": search}, queryset=qs).qs
 
         latest_workflow_run = WorkflowRun.objects.filter(workflow_id=OuterRef("pk")).order_by("-started", "-id")
         qs = qs.annotate(
@@ -448,6 +452,9 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         context["catalog"] = catalog
         context["status_counts"] = counts
         context["selected_status"] = selected_status
+        context["search_query"] = (self.request.GET.get("q") or "").strip()
+        # Lets Nautobot's header search show the "in: Workflows" scope, as on core list pages.
+        context["content_type"] = ContentType.objects.get_for_model(Workflow)
         context["unsynced"] = [
             workflow for workflow in workflows if workflow.git_status in ("not_synced", "git_invalid")
         ]

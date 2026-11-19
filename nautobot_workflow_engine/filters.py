@@ -15,6 +15,7 @@ class WorkflowFilterSet(NautobotFilterSet):
     q = SearchFilter(
         filter_predicates={
             "name": "icontains",
+            "key": "icontains",
             "description": "icontains",
             "category": "icontains",
         },

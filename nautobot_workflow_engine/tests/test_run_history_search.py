@@ -3,6 +3,7 @@
 import importlib
 import uuid
 
+from constance import config as constance_config
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import connection
@@ -11,14 +12,16 @@ from django.test import TestCase, override_settings
 from django.urls import resolve, reverse
 from nautobot.dcim.models import Device, DeviceType, Location, LocationType, Manufacturer
 from nautobot.extras.models import Role, Status
+from nautobot.ipam.models import Namespace, Prefix
 from nautobot.users.models import ObjectPermission
 from nautobot.virtualization.models import Cluster, ClusterType, VirtualMachine
 
 from nautobot_workflow_engine.datasources import save_workflow_definition
 from nautobot_workflow_engine.filters import WorkflowRunFilterSet
-from nautobot_workflow_engine.models import WorkflowRun, WorkflowRunObjectReference
+from nautobot_workflow_engine.forms import WorkflowEngineSettingsForm
+from nautobot_workflow_engine.models import Workflow, WorkflowRun, WorkflowRunObjectReference
 from nautobot_workflow_engine.run_index import build_run_index, object_ids, sync_run_index
-from nautobot_workflow_engine.settings_helpers import run_history_object_types
+from nautobot_workflow_engine.settings_helpers import DEFAULTS, constance_key, run_history_object_types
 
 User = get_user_model()
 VIEW_RUNS = "Workflow Engine: View runs"
@@ -392,19 +395,143 @@ class RunHistoryViewsTestCase(TestCase):
 
 
 class RunHistoryObjectTypesSettingTestCase(TestCase):
-    """The object types with the panel come from one setting."""
+    """Which pages show the panel is a Settings-page setting that applies without a restart."""
+
+    def tearDown(self):
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().tearDown()
 
     def test_default_types(self):
         self.assertEqual(run_history_object_types(), ["dcim.device", "virtualization.virtualmachine"])
 
-    @override_settings(
-        PLUGINS_CONFIG={"nautobot_workflow_engine": {"run_history_object_types": ["IPAM.Prefix", "bad", "ipam.prefix"]}}
-    )
-    def test_configured_types(self):
+    def test_settings_page_value_is_used(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["IPAM.Prefix", "bad", "ipam.prefix"])
         self.assertEqual(run_history_object_types(), ["ipam.prefix"])
+
+    @override_settings(PLUGINS_CONFIG={"nautobot_workflow_engine": {"run_history_object_types": ["dcim.location"]}})
+    def test_nautobot_config_wins_and_locks(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["ipam.prefix"])
+        self.assertEqual(run_history_object_types(), ["dcim.location"])
+        form = WorkflowEngineSettingsForm()
+        self.assertTrue(form.fields["run_history_object_types"].disabled)
+
+    def test_extensions_cover_eligible_types(self):
         module = importlib.import_module("nautobot_workflow_engine.template_content")
-        extensions = [module._extension_for(label) for label in run_history_object_types()]
-        self.assertEqual([ext.model for ext in extensions], ["ipam.prefix"])
+        registered = {extension.model for extension in module.template_extensions}
+        for label in (
+            "dcim.device",
+            "virtualization.virtualmachine",
+            "ipam.prefix",
+            "dcim.location",
+            "circuits.circuit",
+        ):
+            self.assertIn(label, registered)
+        self.assertNotIn("nautobot_workflow_engine.workflowrun", registered)
+        self.assertNotIn("users.user", registered)
+
+    def test_settings_form_offers_eligible_types(self):
+        form = WorkflowEngineSettingsForm()
+        values = {value for value, _label in form.fields["run_history_object_types"].choices}
+        self.assertIn("ipam.prefix", values)
+        self.assertIn("dcim.device", values)
+        self.assertEqual(form.initial["run_history_object_types"], ["dcim.device", "virtualization.virtualmachine"])
+
+
+class RunHistoryPanelFollowsSettingTestCase(TestCase):
+    """Adding a type on the Settings page shows the panel there at once; removing one hides it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.device, _, _, _ = _lab_objects()
+        active = Status.objects.get(name="Active")
+        active.content_types.add(ContentType.objects.get_for_model(Prefix))
+        cls.prefix = Prefix.objects.create(
+            prefix="10.77.0.0/24", namespace=Namespace.objects.get(name="Global"), status=active
+        )
+        definition = _definition()
+        definition["key"] = "prefix-flow"
+        definition["inputs"].append({"key": "prefix", "label": "Prefix", "type": "object", "model": "ipam.Prefix"})
+        workflow = save_workflow_definition(definition, source_repo=None)
+        cls.owner = User.objects.create(username="rs-prefix-owner")
+        cls.prefix_run = WorkflowRun.objects.create(
+            workflow=workflow,
+            requested_by=cls.owner,
+            status="success",
+            inputs={"prefix": str(cls.prefix.pk), "device": str(cls.device.pk)},
+        )
+
+    def setUp(self):
+        self.admin = User.objects.create(username="rs-admin", is_superuser=True, is_staff=True)
+        self.client.force_login(self.admin)
+
+    def tearDown(self):
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().tearDown()
+
+    def test_add_prefix_on_settings_page(self):
+        response = self.client.get(self.prefix.get_absolute_url())
+        self.assertNotContains(response, "WORKFLOW RUNS")
+        data = WorkflowEngineSettingsForm.initial_from_settings()
+        data["show_disabled"] = "on" if data["show_disabled"] else ""
+        data["run_history_object_types"] = ["dcim.device", "virtualization.virtualmachine", "ipam.prefix"]
+        response = self.client.post(reverse("plugins:nautobot_workflow_engine:config"), data)
+        self.assertEqual(response.status_code, 302)
+        response = self.client.get(self.prefix.get_absolute_url())
+        self.assertContains(response, "WORKFLOW RUNS")
+        self.assertContains(response, self.prefix_run.get_absolute_url())
+
+    def test_removing_device_hides_panel(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["virtualization.virtualmachine"])
+        response = self.client.get(self.device.get_absolute_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "WORKFLOW RUNS")
+
+
+class WorkflowsListHeaderSearchTestCase(TestCase):
+    """The Workflows list uses the header search scope ("in: Workflows") instead of its own box."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.alpha = save_workflow_definition(_definition(), source_repo=None)
+        other = _definition()
+        other.update({"key": "vm-patch", "name": "VM patching", "category": "Compute", "description": "Patch VMs"})
+        cls.beta = save_workflow_definition(other, source_repo=None)
+        for workflow in (cls.alpha, cls.beta):
+            workflow.enabled = True
+            workflow.save()
+        cls.url = reverse("plugins:nautobot_workflow_engine:workflows_list")
+
+    def setUp(self):
+        self.client.force_login(User.objects.create(username="wf-admin", is_superuser=True, is_staff=True))
+
+    def test_scope_badge_and_no_custom_box(self):
+        response = self.client.get(self.url)
+        content = response.content.decode()
+        self.assertEqual(response.context["content_type"], ContentType.objects.get_for_model(Workflow))
+        self.assertIn("in: Workflows", content)
+        self.assertIn(f'data-nb-link="{self.url}"', content)
+        self.assertNotIn("nwe-catalog-search", content)
+
+    def test_q_filters_the_list(self):
+        response = self.client.get(self.url, {"q": "compute"})
+        self.assertContains(response, "VM patching")
+        self.assertNotContains(response, "Port turn-up</a>")
+        response = self.client.get(self.url, {"q": "port-turnup"})
+        self.assertContains(response, "Port turn-up")
+        self.assertNotContains(response, "VM patching</a>")
+
+    def test_route_maps_to_workflow_model(self):
+        self.assertEqual(resolve(self.url).view_name, "plugins:nautobot_workflow_engine:workflow_catalog")
+        response = self.client.get(
+            reverse("live_search", kwargs={"path": self.url.lstrip("/")}), {"q": "patch"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(response, "VM patching")
+
+    def test_global_search_finds_workflows(self):
+        response = self.client.get(
+            reverse("search"), {"q": "Patch VMs", "model": "nautobot_workflow_engine.workflow"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(response, "VM patching")
 
 
 class BackfillMigrationTestCase(TestCase):

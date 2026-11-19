@@ -28,24 +28,71 @@ DEFAULT_MODEL_ALLOWLIST = [
     "extras.dynamicgroup",
 ]
 
-# Object types whose detail pages get the "Workflow runs" panel. Startup-only (PLUGINS_CONFIG
-# ``run_history_object_types``), because Nautobot registers detail-page panels when the app loads.
+# Object types whose detail pages show the "Workflow runs" panel, until changed on the Settings page.
 DEFAULT_RUN_HISTORY_OBJECT_TYPES = ("dcim.device", "virtualization.virtualmachine")
+# Apps whose models never get the panel: Django/third-party internals and this app's own models.
+RUN_HISTORY_EXCLUDED_APPS = frozenset(
+    {
+        "admin",
+        "auth",
+        "contenttypes",
+        "sessions",
+        "constance",
+        "django_celery_beat",
+        "django_celery_results",
+        "social_django",
+        "taggit",
+        "silk",
+        "users",
+        APP_NAME,
+    }
+)
 
 
-def run_history_object_types():
-    """Return the ``app_label.model`` labels that show the "Workflow runs" panel, lower-cased, de-duplicated."""
-    configured = settings.PLUGINS_CONFIG.get(APP_NAME, {}).get("run_history_object_types")
+def run_history_eligible_models():
+    """Models that may show the "Workflow runs" panel: Nautobot object types with their own detail page.
+
+    Read from the app registry (no database), so it can be used when the app loads to register
+    one detail-page extension per model; the Settings page then picks which of them show the panel.
+    """
+    from django.apps import apps
+    from nautobot.apps.models import OrganizationalModel, PrimaryModel
+
+    eligible = []
+    for model in apps.get_models():
+        meta = model._meta
+        if meta.app_label in RUN_HISTORY_EXCLUDED_APPS or meta.abstract or meta.proxy:
+            continue
+        if not issubclass(model, (PrimaryModel, OrganizationalModel)):
+            continue
+        if not hasattr(model, "get_absolute_url"):
+            continue
+        eligible.append(model)
+    return sorted(eligible, key=lambda model: (model._meta.app_label, model._meta.model_name))
+
+
+def normalize_object_type_labels(configured):
+    """Return ``app_label.model`` labels, lower-cased and de-duplicated, from a stored value."""
     if configured is None:
-        configured = DEFAULT_RUN_HISTORY_OBJECT_TYPES
+        return []
     if isinstance(configured, str):
-        configured = [configured]
+        configured = [item for item in configured.replace("\n", ",").split(",")]
     labels = []
     for label in configured or ():
         text = str(label).strip().lower()
         if text.count(".") == 1 and text not in labels:
             labels.append(text)
     return labels
+
+
+def run_history_object_types():
+    """The ``app_label.model`` labels that show the "Workflow runs" panel right now.
+
+    Read on every page view, so a change on the Settings page applies without a restart.
+    ``PLUGINS_CONFIG["nautobot_workflow_engine"]["run_history_object_types"]`` wins (and locks the
+    setting on the page), like every other Workflow Engine setting.
+    """
+    return normalize_object_type_labels(get_setting("run_history_object_types", list(DEFAULT_RUN_HISTORY_OBJECT_TYPES)))
 
 
 DEFAULTS = {
@@ -64,6 +111,7 @@ DEFAULTS = {
     "git_push_retry_backoff_minutes": [1, 5, 15, 60],
     "awx_external_integration_name": "AWX",
     "awx_poll_seconds": 5,
+    "run_history_object_types": list(DEFAULT_RUN_HISTORY_OBJECT_TYPES),
 }
 
 # Label, help text and the group each setting is shown in on the Settings page.
@@ -131,6 +179,11 @@ SETTING_META = {
         "awx",
     ),
     "awx_poll_seconds": ("Check AWX jobs every (seconds)", "How often a running AWX job is checked.", "awx"),
+    "run_history_object_types": (
+        "Show “Workflow runs” on",
+        "Object types whose pages list the workflow runs that used the object. Changes apply straight away.",
+        "runs",
+    ),
 }
 
 SETTING_GROUPS = (
@@ -138,6 +191,7 @@ SETTING_GROUPS = (
     ("builder", "Builder and run form"),
     ("publishing", "Publishing to Git"),
     ("awx", "AWX"),
+    ("runs", "Run history"),
 )
 
 SETTING_KEYS = tuple(SETTING_META)

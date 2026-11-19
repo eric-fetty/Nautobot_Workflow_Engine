@@ -20,16 +20,6 @@ import { onEnableChange } from "./shared/run_control.js";
         });
     }
 
-    var search = document.getElementById("nwe-catalog-search");
-    if (search) {
-        search.addEventListener("input", function () {
-            var query = search.value.trim().toLowerCase();
-            document.querySelectorAll("#nwe-catalog-table tbody tr[data-search]").forEach(function (row) {
-                row.hidden = query && row.getAttribute("data-search").toLowerCase().indexOf(query) === -1;
-            });
-        });
-    }
-
     document.querySelectorAll("[data-nwe-enable]").forEach(function (input) {
         input.addEventListener("change", function () {
             var row = input.closest("tr");
