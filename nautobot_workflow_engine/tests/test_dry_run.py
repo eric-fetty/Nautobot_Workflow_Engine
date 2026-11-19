@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
-from nautobot.extras.models import ObjectChange, ScheduledJob
+from nautobot.extras.models import ObjectChange, ScheduledJob, Tag
 from rest_framework.test import APIClient
 
 from nautobot_workflow_engine.dry_run import dry_run
@@ -171,3 +171,73 @@ class DryRunTestCase(TestCase):
         field = form.fields["reason"]
         self.assertEqual(field.help_text, "Why this device is rebooting")
         self.assertEqual(field.widget.attrs["placeholder"], "power supply")
+
+
+LIST_DEFINITION = {
+    "key": "tag-many",
+    "name": "Tag many",
+    "inputs": [
+        {"key": "tags", "label": "Tags", "type": "multiobject", "model": "extras.tag", "required": True},
+        {
+            "key": "modes",
+            "label": "Modes",
+            "type": "multichoice",
+            "choices": [{"value": "soft", "label": "Soft"}, {"value": "hard", "label": "Hard"}],
+        },
+        {"key": "names", "label": "Names", "type": "list"},
+    ],
+    "actions": [
+        {
+            "type": "script",
+            "name": "apply",
+            "with": {
+                "tags": "{{ inputs.tags | map(attribute='name') | join(',') }}",
+                "modes": "{{ inputs.modes | join(',') }}",
+                "names": "{{ inputs.names | join(',') }}",
+            },
+        }
+    ],
+}
+
+
+class DryRunListInputsTestCase(TestCase):
+    """Preview run accepts several picked objects, choices and list items, like a real launch."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="dry-runner-lists")
+        grant(self.user, ["view", "add", "change"], Workflow)
+        grant(self.user, ["view"], Tag)
+        self.first = Tag.objects.create(name="preview-first")
+        self.second = Tag.objects.create(name="preview-second")
+
+    def _params(self, inputs):
+        result = dry_run(LIST_DEFINITION, inputs, {}, self.user)
+        self.assertEqual(result["form_errors"], [])
+        return result["phases"][1]["steps"][0]["params"]
+
+    def test_several_objects_are_accepted(self):
+        params = self._params(
+            {
+                "tags": [str(self.first.pk), str(self.second.pk)],
+                "modes": ["soft", "hard"],
+                "names": ["a", "b"],
+            }
+        )
+        self.assertEqual(params["tags"], "preview-first,preview-second")
+        self.assertEqual(params["modes"], "soft,hard")
+        self.assertEqual(params["names"], "a,b")
+
+    def test_one_object_in_a_list_and_json_text_are_accepted(self):
+        self.assertEqual(self._params({"tags": [str(self.first.pk)]})["tags"], "preview-first")
+        self.assertEqual(self._params({"tags": json.dumps([str(self.second.pk)])})["tags"], "preview-second")
+
+    def test_picked_objects_with_names_are_accepted(self):
+        picked = [{"id": str(self.first.pk), "name": "x"}, {"id": str(self.second.pk), "name": "y"}]
+        self.assertEqual(self._params({"tags": picked})["tags"], "preview-first,preview-second")
+
+    def test_missing_object_is_still_reported(self):
+        result = dry_run(
+            LIST_DEFINITION, {"tags": [str(self.first.pk), "00000000-0000-0000-0000-000000000000"]}, {}, self.user
+        )
+        self.assertEqual(result["phases"], [])
+        self.assertEqual([error["key"] for error in result["form_errors"]], ["tags"])

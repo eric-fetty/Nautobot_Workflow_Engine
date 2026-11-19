@@ -1,0 +1,1 @@
+Preview run now accepts inputs that pick several objects, such as a Devices field, instead of reporting the selection as an invalid ID. Pick-many choices and lists also keep their values in a preview.

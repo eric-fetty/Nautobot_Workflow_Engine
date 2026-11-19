@@ -692,11 +692,22 @@ function tableControl(spec, ctx, id) {
     }
 
     // Repaint after focus has moved, so tabbing between cells keeps working.
+    // One repaint at a time: several cells can ask for one in the same moment.
+    let repaintTimer = null;
     function repaintSoon() {
-        window.setTimeout(paintRows, 0);
+        if (repaintTimer !== null) return;
+        repaintTimer = window.setTimeout(() => {
+            repaintTimer = null;
+            paintRows();
+        }, 0);
     }
 
+    // Redrawing the rows removes the focused cell, and some browsers report that as
+    // focus leaving the row. That is not the person leaving the row, so it must not
+    // ask for another redraw, or the table redraws itself forever.
+    let painting = false;
     body.addEventListener("focusout", (event) => {
+        if (painting) return;
         const from = event.target.closest("tr");
         const to = event.relatedTarget && event.relatedTarget.closest ? event.relatedTarget.closest("tr") : null;
         if (!from || from === to) return;
@@ -742,19 +753,24 @@ function tableControl(spec, ctx, id) {
                 out.push(h("tr", { class: "rowerr" }, [h("td", { colspan: String(columns.length + 2) }, [icon("alert-circle-outline"), `Row ${index + 1}: ${Object.values(problem).join(" · ")}`])]));
             }
         });
-        body.replaceChildren(...out);
-        if (focusCell) {
-            const again = body.querySelector(`[data-cell="${CSS.escape(focusCell)}"]`);
-            if (again) {
-                again.focus({ preventScroll: true });
-                if (caret) {
-                    try {
-                        again.setSelectionRange(caret[0], caret[1]);
-                    } catch (error) {
-                        /* number inputs don't support selection ranges */
+        painting = true;
+        try {
+            body.replaceChildren(...out);
+            if (focusCell) {
+                const again = body.querySelector(`[data-cell="${CSS.escape(focusCell)}"]`);
+                if (again) {
+                    again.focus({ preventScroll: true });
+                    if (caret) {
+                        try {
+                            again.setSelectionRange(caret[0], caret[1]);
+                        } catch (error) {
+                            /* number inputs don't support selection ranges */
+                        }
                     }
                 }
             }
+        } finally {
+            painting = false;
         }
         const bits = [plural(rows.length, "row")];
         if (spec.max_rows != null && spec.max_rows !== "") bits.push(`up to ${spec.max_rows}`);

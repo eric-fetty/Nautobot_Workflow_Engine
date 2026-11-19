@@ -18,6 +18,8 @@ TRUTHY = {"true", "1", "yes", "on", "y"}
 DEFAULT_TIMEOUT = 5
 DEFAULT_OUTPUT_CAP = 1_000_000
 PHASES = (("pre", "pre_actions"), ("main", "actions"), ("post", "post_actions"))
+# The launch form posts these as one JSON text value, so the preview sends lists the same way.
+JSON_LIST_TYPES = ("list", "listdict", "multichoice", "multiobject")
 
 
 class DryRunTimeout(Exception):
@@ -193,6 +195,8 @@ def _clean_form(rows, submitted):
         value = submitted.get(row.key)
         if row.input_type == "boolean":
             data[row.key] = bool(value)
+        elif row.input_type in JSON_LIST_TYPES and isinstance(value, (list, tuple)):
+            data[row.key] = json.dumps(_form_list(row, value), default=str)
         elif value is not None:
             data[row.key] = value
     form = DynamicWorkflowForm(workflow, data, inputs=rows)
@@ -217,6 +221,17 @@ def _clean_form(rows, submitted):
         if row.key not in cleaned and row.key in submitted:
             cleaned[row.key] = submitted[row.key]
     return [], cleaned
+
+
+def _form_list(row, value):
+    """Return the list the way the launch form would post it.
+
+    Object pickers post plain IDs. A preview may hold ``{"id": ..., "name": ...}`` items instead.
+    """
+    items = list(value)
+    if row.input_type == "multiobject":
+        return [item.get("id") if isinstance(item, dict) else item for item in items]
+    return items
 
 
 def _resolve_objects(user, rows, cleaned):
