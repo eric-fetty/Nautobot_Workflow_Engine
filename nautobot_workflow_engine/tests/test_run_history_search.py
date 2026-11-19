@@ -3,22 +3,27 @@
 import importlib
 import uuid
 
+from constance import config as constance_config
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.test.utils import CaptureQueriesContext
+from django.urls import resolve, reverse
 from nautobot.dcim.models import Device, DeviceType, Location, LocationType, Manufacturer
 from nautobot.extras.models import Role, Status
+from nautobot.ipam.models import Namespace, Prefix
 from nautobot.users.models import ObjectPermission
 from nautobot.virtualization.models import Cluster, ClusterType, VirtualMachine
 
 from nautobot_workflow_engine.datasources import save_workflow_definition
 from nautobot_workflow_engine.filters import WorkflowRunFilterSet
-from nautobot_workflow_engine.models import WorkflowRun, WorkflowRunObjectReference
+from nautobot_workflow_engine.forms import WorkflowEngineSettingsForm
+from nautobot_workflow_engine.models import Workflow, WorkflowRun, WorkflowRunObjectReference
 from nautobot_workflow_engine.run_index import build_run_index, object_ids, sync_run_index
-from nautobot_workflow_engine.settings_helpers import run_history_object_types
+from nautobot_workflow_engine.run_inputs import run_input_rows
+from nautobot_workflow_engine.settings_helpers import DEFAULTS, constance_key, run_history_object_types
 
 User = get_user_model()
 VIEW_RUNS = "Workflow Engine: View runs"
@@ -296,13 +301,37 @@ class RunHistoryViewsTestCase(TestCase):
         self.client.force_login(User.objects.get(pk=user.pk))
         return user
 
-    def test_search_box_filters_run_history(self):
+    def test_header_search_is_scoped_to_run_history(self):
         self._login("rs-viewer", VIEW_RUNS)
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.context["content_type"], ContentType.objects.get_for_model(WorkflowRun))
+        content = response.content.decode()
+        # Core's header search shows the active list's scope badge and submits there.
+        self.assertIn("in: Run History", content)
+        self.assertIn(f'data-nb-link="{self.list_url}"', content)
+        # No second search box on the page.
+        self.assertNotIn('id="nwe-run-search"', content)
+
+    def test_q_from_header_search_filters_run_history(self):
+        self._login("rs-viewer-q", VIEW_RUNS)
         response = self.client.get(self.list_url, {"q": "CHG4242"})
         self.assertContains(response, "Port turn-up")
-        self.assertContains(response, 'value="CHG4242"')
         response = self.client.get(self.list_url, {"q": "nothing-matches"})
         self.assertContains(response, "No workflow runs found")
+
+    def test_list_route_resolves_to_standard_name(self):
+        self.assertEqual(resolve(self.list_url).view_name, "plugins:nautobot_workflow_engine:workflowrun_list")
+        self.assertEqual(reverse("plugins:nautobot_workflow_engine:workflowrun_list"), self.list_url)
+
+    def test_live_search_returns_runs(self):
+        self._login("rs-live", VIEW_RUNS)
+        response = self.client.get(
+            reverse("live_search", kwargs={"path": self.list_url.lstrip("/")}),
+            {"q": "CHG4242"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Port turn-up")
 
     def test_view_all_link_filter_shows_object_name(self):
         self._login("rs-viewer2", VIEW_RUNS, extra=[(Device, ["view"])])
@@ -368,19 +397,269 @@ class RunHistoryViewsTestCase(TestCase):
 
 
 class RunHistoryObjectTypesSettingTestCase(TestCase):
-    """The object types with the panel come from one setting."""
+    """Which pages show the panel is a Settings-page setting that applies without a restart."""
+
+    def setUp(self):
+        # Constance can be cached outside the test database; start from the default.
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().setUp()
+
+    def tearDown(self):
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().tearDown()
 
     def test_default_types(self):
         self.assertEqual(run_history_object_types(), ["dcim.device", "virtualization.virtualmachine"])
 
-    @override_settings(
-        PLUGINS_CONFIG={"nautobot_workflow_engine": {"run_history_object_types": ["IPAM.Prefix", "bad", "ipam.prefix"]}}
-    )
-    def test_configured_types(self):
+    def test_settings_page_value_is_used(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["IPAM.Prefix", "bad", "ipam.prefix"])
         self.assertEqual(run_history_object_types(), ["ipam.prefix"])
+
+    @override_settings(PLUGINS_CONFIG={"nautobot_workflow_engine": {"run_history_object_types": ["dcim.location"]}})
+    def test_nautobot_config_wins_and_locks(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["ipam.prefix"])
+        self.assertEqual(run_history_object_types(), ["dcim.location"])
+        form = WorkflowEngineSettingsForm()
+        self.assertTrue(form.fields["run_history_object_types"].disabled)
+
+    def test_extensions_cover_eligible_types(self):
         module = importlib.import_module("nautobot_workflow_engine.template_content")
-        extensions = [module._extension_for(label) for label in run_history_object_types()]
-        self.assertEqual([ext.model for ext in extensions], ["ipam.prefix"])
+        registered = {extension.model for extension in module.template_extensions}
+        for label in (
+            "dcim.device",
+            "virtualization.virtualmachine",
+            "ipam.prefix",
+            "dcim.location",
+            "circuits.circuit",
+        ):
+            self.assertIn(label, registered)
+        self.assertNotIn("nautobot_workflow_engine.workflowrun", registered)
+        self.assertNotIn("users.user", registered)
+
+    def test_settings_form_offers_eligible_types(self):
+        form = WorkflowEngineSettingsForm()
+        values = {value for value, _label in form.fields["run_history_object_types"].choices}
+        self.assertIn("ipam.prefix", values)
+        self.assertIn("dcim.device", values)
+        self.assertEqual(form.initial["run_history_object_types"], ["dcim.device", "virtualization.virtualmachine"])
+
+
+class RunHistoryPanelFollowsSettingTestCase(TestCase):
+    """Adding a type on the Settings page shows the panel there at once; removing one hides it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.device, _, _, _ = _lab_objects()
+        active = Status.objects.get(name="Active")
+        active.content_types.add(ContentType.objects.get_for_model(Prefix))
+        cls.prefix = Prefix.objects.create(
+            prefix="10.77.0.0/24", namespace=Namespace.objects.get_or_create(name="Global")[0], status=active
+        )
+        definition = _definition()
+        definition["key"] = "prefix-flow"
+        definition["inputs"].append({"key": "prefix", "label": "Prefix", "type": "object", "model": "ipam.Prefix"})
+        workflow = save_workflow_definition(definition, source_repo=None)
+        cls.owner = User.objects.create(username="rs-prefix-owner")
+        cls.prefix_run = WorkflowRun.objects.create(
+            workflow=workflow,
+            requested_by=cls.owner,
+            status="success",
+            inputs={"prefix": str(cls.prefix.pk), "device": str(cls.device.pk)},
+        )
+
+    def setUp(self):
+        self.admin = User.objects.create(username="rs-admin", is_superuser=True, is_staff=True)
+        self.client.force_login(self.admin)
+
+    def tearDown(self):
+        setattr(constance_config, constance_key("run_history_object_types"), DEFAULTS["run_history_object_types"])
+        super().tearDown()
+
+    def test_add_prefix_on_settings_page(self):
+        response = self.client.get(self.prefix.get_absolute_url())
+        self.assertNotContains(response, "WORKFLOW RUNS")
+        data = WorkflowEngineSettingsForm.initial_from_settings()
+        data["show_disabled"] = "on" if data["show_disabled"] else ""
+        data["run_history_object_types"] = ["dcim.device", "virtualization.virtualmachine", "ipam.prefix"]
+        response = self.client.post(reverse("plugins:nautobot_workflow_engine:config"), data)
+        self.assertEqual(response.status_code, 302)
+        response = self.client.get(self.prefix.get_absolute_url())
+        self.assertContains(response, "WORKFLOW RUNS")
+        self.assertContains(response, self.prefix_run.get_absolute_url())
+
+    def test_removing_device_hides_panel(self):
+        setattr(constance_config, constance_key("run_history_object_types"), ["virtualization.virtualmachine"])
+        response = self.client.get(self.device.get_absolute_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "WORKFLOW RUNS")
+
+
+class WorkflowsListHeaderSearchTestCase(TestCase):
+    """The Workflows list uses the header search scope ("in: Workflows") instead of its own box."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.alpha = save_workflow_definition(_definition(), source_repo=None)
+        other = _definition()
+        other.update({"key": "vm-patch", "name": "VM patching", "category": "Compute", "description": "Patch VMs"})
+        cls.beta = save_workflow_definition(other, source_repo=None)
+        for workflow in (cls.alpha, cls.beta):
+            workflow.enabled = True
+            workflow.save()
+        cls.url = reverse("plugins:nautobot_workflow_engine:workflows_list")
+
+    def setUp(self):
+        self.client.force_login(User.objects.create(username="wf-admin", is_superuser=True, is_staff=True))
+
+    def test_scope_badge_and_no_custom_box(self):
+        response = self.client.get(self.url)
+        content = response.content.decode()
+        self.assertEqual(response.context["content_type"], ContentType.objects.get_for_model(Workflow))
+        self.assertIn("in: Workflows", content)
+        self.assertIn(f'data-nb-link="{self.url}"', content)
+        self.assertNotIn("nwe-catalog-search", content)
+
+    def test_q_filters_the_list(self):
+        response = self.client.get(self.url, {"q": "compute"})
+        self.assertContains(response, "VM patching")
+        self.assertNotContains(response, "Port turn-up</a>")
+        response = self.client.get(self.url, {"q": "port-turnup"})
+        self.assertContains(response, "Port turn-up")
+        self.assertNotContains(response, "VM patching</a>")
+
+    def test_route_maps_to_workflow_model(self):
+        self.assertEqual(resolve(self.url).view_name, "plugins:nautobot_workflow_engine:workflow_catalog")
+        response = self.client.get(
+            reverse("live_search", kwargs={"path": self.url.lstrip("/")}), {"q": "patch"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(response, "VM patching")
+
+    def test_global_search_finds_workflows(self):
+        response = self.client.get(
+            reverse("search"), {"q": "Patch VMs", "model": "nautobot_workflow_engine.workflow"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(response, "VM patching")
+
+
+class RunInputPillsTestCase(TestCase):
+    """Picked objects on the run page show as linked names, respecting permissions."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.device, cls.other_device, cls.vm_a, cls.vm_b = _lab_objects()
+        cls.workflow = save_workflow_definition(_definition(), source_repo=None)
+        cls.owner = User.objects.create(username="pill-owner")
+        cls.run_obj = WorkflowRun.objects.create(
+            workflow=cls.workflow,
+            requested_by=cls.owner,
+            status="success",
+            inputs={
+                "ticket": "CHG7001",
+                "device": str(cls.device.pk),
+                "vms": [str(cls.vm_a.pk), str(cls.vm_b.pk)],
+            },
+        )
+        cls.url = reverse("plugins:nautobot_workflow_engine:workflow_run", kwargs={"pk": cls.run_obj.pk})
+
+    def _login(self, username, *models):
+        user = User.objects.create(username=username)
+        ObjectPermission.objects.get(name=VIEW_RUNS).users.add(user)
+        for index, model in enumerate(models):
+            permission = ObjectPermission.objects.create(name=f"{username}-{index}", actions=["view"])
+            permission.object_types.add(ContentType.objects.get_for_model(model))
+            permission.users.add(user)
+        user = User.objects.get(pk=user.pk)
+        self.client.force_login(user)
+        return user
+
+    def _row(self, rows, key):
+        return next(row for row in rows if row["key"] == key)
+
+    def test_objects_link_to_their_pages(self):
+        self._login("pill-viewer", Device, VirtualMachine)
+        response = self.client.get(self.url)
+        content = response.content.decode()
+        self.assertIn(f'href="{self.device.get_absolute_url()}" class="nwe-object-pill nwe-object-pill-link"', content)
+        self.assertIn(f'href="{self.vm_a.get_absolute_url()}"', content)
+        self.assertIn(f'href="{self.vm_b.get_absolute_url()}"', content)
+        self.assertIn('<span class="nwe-object-pill-type">Device</span>', content)
+        self.assertIn('<span class="nwe-object-pill-type">Virtual machine</span>', content)
+        self.assertIn('<span class="nwe-object-pill-name">leaf-rs-01</span>', content)
+        self.assertNotIn(f"<code>{self.device.pk}</code>", content)
+        # Plain values are unchanged.
+        self.assertIn("<code>CHG7001</code>", content)
+        vms = self._row(response.context["input_rows"], "vms")
+        self.assertEqual([item["name"] for item in vms["objects"]], ["vm-rs-a", "vm-rs-b"])
+
+    def test_objects_the_user_cannot_view_are_plain_text(self):
+        self._login("pill-no-devices", VirtualMachine)
+        response = self.client.get(self.url)
+        content = response.content.decode()
+        self.assertNotIn(self.device.get_absolute_url(), content)
+        self.assertIn('<span class="nwe-object-pill-name">leaf-rs-01</span>', content)
+        device = self._row(response.context["input_rows"], "device")
+        self.assertEqual(device["objects"][0]["state"], "hidden")
+        self.assertEqual(device["objects"][0]["url"], "")
+        self.assertIn(f'href="{self.vm_a.get_absolute_url()}"', content)
+
+    def test_deleted_objects_keep_their_saved_name(self):
+        run = WorkflowRun.objects.create(
+            workflow=self.workflow,
+            requested_by=self.owner,
+            status="success",
+            inputs={"vms": [str(self.vm_a.pk), str(self.vm_b.pk)]},
+        )
+        gone_url = self.vm_b.get_absolute_url()
+        VirtualMachine.objects.filter(pk=self.vm_b.pk).delete()
+        self._login("pill-deleted", Device, VirtualMachine)
+        response = self.client.get(reverse("plugins:nautobot_workflow_engine:workflow_run", kwargs={"pk": run.pk}))
+        content = response.content.decode()
+        vms = self._row(response.context["input_rows"], "vms")
+        self.assertEqual(
+            [(i["state"], i["name"]) for i in vms["objects"]], [("link", "vm-rs-a"), ("deleted", "vm-rs-b")]
+        )
+        self.assertNotIn(gone_url, content)
+        self.assertIn('<span class="nwe-object-pill-marker">deleted</span>', content)
+
+    def test_unresolvable_values_fall_back_to_the_raw_value(self):
+        stray = uuid.uuid4()
+        run = WorkflowRun.objects.create(
+            workflow=self.workflow,
+            requested_by=self.owner,
+            status="success",
+            inputs={"device": "not-an-id", "vms": [str(stray)]},
+        )
+        self._login("pill-raw", Device, VirtualMachine)
+        response = self.client.get(reverse("plugins:nautobot_workflow_engine:workflow_run", kwargs={"pk": run.pk}))
+        rows = response.context["input_rows"]
+        self.assertEqual(self._row(rows, "device")["objects"][0]["state"], "raw")
+        stray_item = self._row(rows, "vms")["objects"][0]
+        self.assertEqual((stray_item["state"], stray_item["name"], stray_item["url"]), ("raw", str(stray), ""))
+        self.assertContains(response, '<code class="nwe-object-raw">not-an-id</code>', html=False)
+
+    def test_lookups_are_batched(self):
+        user = self._login("pill-batch", Device, VirtualMachine)
+        small = WorkflowRun.objects.create(
+            workflow=self.workflow,
+            requested_by=self.owner,
+            status="success",
+            inputs={"device": str(self.device.pk), "vms": [str(self.vm_a.pk)]},
+        )
+        large = WorkflowRun.objects.create(
+            workflow=self.workflow,
+            requested_by=self.owner,
+            status="success",
+            inputs={"device": str(self.other_device.pk), "vms": [str(self.vm_a.pk), str(self.vm_b.pk)]},
+        )
+        run_input_rows(WorkflowRun.objects.get(pk=small.pk), user)  # warm caches (content types, permissions)
+
+        def count(run):
+            run = WorkflowRun.objects.select_related("workflow").get(pk=run.pk)
+            with CaptureQueriesContext(connection) as captured:
+                run_input_rows(run, user)
+            return len(captured.captured_queries)
+
+        self.assertEqual(count(small), count(large))
 
 
 class BackfillMigrationTestCase(TestCase):

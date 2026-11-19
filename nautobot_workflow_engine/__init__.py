@@ -7,7 +7,6 @@ from pathlib import Path
 
 from nautobot.apps import ConstanceConfigItem, NautobotAppConfig
 
-from .settings_helpers import DEFAULT_RUN_HISTORY_OBJECT_TYPES
 from .settings_helpers import DEFAULTS as _SETTING_DEFAULTS
 from .settings_helpers import SETTING_META as _SETTING_META
 
@@ -42,6 +41,7 @@ _CONSTANCE_FIELD_TYPES = {
     "show_add_new_item": "optional_json_field",
     "builder_model_allowlist": "optional_json_field",
     "git_push_retry_backoff_minutes": "optional_json_field",
+    "run_history_object_types": "optional_json_field",
 }
 
 
@@ -58,13 +58,7 @@ class WorkflowEngineConfig(NautobotAppConfig):
     # Every runtime setting is on the Settings page (Constance). Keys listed in
     # constance_config are not copied into PLUGINS_CONFIG, so setting one in
     # nautobot_config.py is an explicit override that locks it on the page.
-    # run_history_object_types: the object types whose detail pages show a "Workflow runs" panel
-    # listing runs whose form picked that object. Read at startup; add "app_label.model" entries
-    # (e.g. "ipam.prefix") to show the panel on more pages.
-    default_settings = {
-        "allow_db_only_workflows": True,
-        "run_history_object_types": list(DEFAULT_RUN_HISTORY_OBJECT_TYPES),
-    }
+    default_settings = {"allow_db_only_workflows": True}
     constance_config = {
         key: ConstanceConfigItem(
             default=_SETTING_DEFAULTS[key],

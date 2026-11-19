@@ -8,7 +8,7 @@ The builder is where workflows are made and changed. Open **Workflows** in the N
 
 Every workflow is on one list. Each row shows its status, category, how often it ran in the last 30 days, its last run, and the **Enabled** switch. **Run** opens the launch page. **Edit** opens the builder. The **⋯** menu on a row has **Versions**, **Duplicate**, **Run history**, **Download YAML**, and **Delete…**.
 
-The cards above the list count workflows, runs in the last 30 days, time saved, and the success rate. The filters are **All**, **Published**, **Unpublished changes**, and **Draft**. People without edit rights only see published workflows.
+The cards above the list count workflows, runs in the last 30 days, time saved, and the success rate. The filters are **All**, **Published**, **Unpublished changes**, and **Draft**. People without edit rights only see published workflows. To find a workflow by name, key, category or description, use the search box at the top of the page: on this list it shows **in: Workflows**, like **in: Devices** on the Devices list, and filters the list when you press Enter.
 
 ## Layout
 

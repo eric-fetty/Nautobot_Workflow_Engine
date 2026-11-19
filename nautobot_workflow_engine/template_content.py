@@ -1,10 +1,13 @@
 """Detail-page content the Workflow Engine adds to other Nautobot object types.
 
-A "Workflow runs" panel on each object type named in ``run_history_object_types``
-(PLUGINS_CONFIG, default: devices and virtual machines) lists the latest runs whose
-form picked that object. The panel works for any model because it reads the generic
-``WorkflowRunObjectReference`` rows, so showing it on another page is a one-line
-settings change.
+A "Workflow runs" panel lists the latest runs whose form picked the object on the page.
+It reads the generic ``WorkflowRunObjectReference`` rows, so it works for any model.
+
+Nautobot registers detail-page extensions once, when the app loads, so one is registered
+for every eligible object type (see ``run_history_eligible_models``). Whether the panel
+shows is decided on each page view from the **Show “Workflow runs” on** setting
+(default: devices and virtual machines), so changing it on the Settings page needs no
+restart.
 """
 
 from django.contrib.contenttypes.models import ContentType
@@ -14,7 +17,7 @@ from nautobot.apps.ui import Panel, SectionChoices, TemplateExtension
 
 from .filters import runs_referencing
 from .models import WorkflowRun
-from .settings_helpers import run_history_object_types
+from .settings_helpers import run_history_eligible_models, run_history_object_types
 
 PANEL_RUN_LIMIT = 5
 VIEW_RUNS_PERMISSION = "nautobot_workflow_engine.view_workflowrun"
@@ -36,6 +39,16 @@ class WorkflowRunsPanel(Panel):
         kwargs.setdefault("required_permissions", [VIEW_RUNS_PERMISSION])
         super().__init__(**kwargs)
         self.limit = limit
+
+    def should_render(self, context):
+        """Show only on object types picked in the setting, and only to people who may view runs."""
+        if not super().should_render(context):
+            return False
+        obj = context.get("object")
+        if obj is None or getattr(obj, "pk", None) is None:
+            return False
+        meta = obj._meta
+        return f"{meta.app_label}.{meta.model_name}" in run_history_object_types()
 
     def get_extra_context(self, context):
         """Add the runs, their total and the "View all" link for the page's object."""
@@ -81,4 +94,6 @@ def _extension_for(model_label):
     )
 
 
-template_extensions = [_extension_for(label) for label in run_history_object_types()]
+template_extensions = [
+    _extension_for(f"{model._meta.app_label}.{model._meta.model_name}") for model in run_history_eligible_models()
+]

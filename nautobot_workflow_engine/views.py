@@ -44,6 +44,7 @@ from .filters import WorkflowFilterSet, WorkflowRunFilterSet, content_type_for_l
 from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
+from .run_inputs import run_input_rows
 from .run_permissions import can_cancel, can_run
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -103,7 +104,8 @@ RUN_HISTORY_PAGE_SIZE_OPTIONS = (10, 25, 50, 100)
 RUN_HISTORY_DEFAULT_PAGE_SIZE = 50
 RUN_HISTORY_SESSION_KEY = "nautobot_workflow_engine_run_history_filters"
 RUN_HISTORY_PERSISTED_KEYS = ("workflow", "status", "user", "category", "time_range", "start", "end", "per_page")
-# Search box, global search and "View all" links from object pages; carried in the URL, not remembered.
+# Header search (scoped to Run History), global search and "View all" links from object pages;
+# carried in the URL, not remembered.
 RUN_HISTORY_SEARCH_KEYS = ("q", "referenced_object", "referenced_object_type")
 
 
@@ -337,6 +339,10 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         git_status = self.request.GET.get("git_status")
         if git_status:
             qs = qs.filter(git_status=git_status)
+        # The header search, scoped "in: Workflows", submits ?q= here (Nautobot's list-page pattern).
+        search = (self.request.GET.get("q") or "").strip()
+        if search:
+            qs = WorkflowFilterSet({"q": search}, queryset=qs).qs
 
         latest_workflow_run = WorkflowRun.objects.filter(workflow_id=OuterRef("pk")).order_by("-started", "-id")
         qs = qs.annotate(
@@ -447,6 +453,9 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         context["catalog"] = catalog
         context["status_counts"] = counts
         context["selected_status"] = selected_status
+        context["search_query"] = (self.request.GET.get("q") or "").strip()
+        # Lets Nautobot's header search show the "in: Workflows" scope, as on core list pages.
+        context["content_type"] = ContentType.objects.get_for_model(Workflow)
         context["unsynced"] = [
             workflow for workflow in workflows if workflow.git_status in ("not_synced", "git_invalid")
         ]
@@ -1054,6 +1063,7 @@ class WorkflowRunDetailView(ObjectView):
         # Show workflow info in run view even if workflow is now disabled
         context["workflow_available"] = instance.workflow.enabled if instance.workflow else False
         context["can_cancel_run"] = can_cancel(request.user, instance)
+        context["input_rows"] = run_input_rows(instance, request.user)
         return context
 
 
@@ -1333,6 +1343,9 @@ class WorkflowRunListView(TemplateView):
         query_params.update(search)
         context["querystring_without_page"] = urlencode({k: v for k, v in query_params.items() if v not in (None, "")})
         context["search_query"] = search.get("q", "")
+        # Core's header search shows the "in: <nav item>" scope when a list page provides its
+        # content type, and then submits ?q= to this list, just like Devices.
+        context["content_type"] = ContentType.objects.get_for_model(WorkflowRun)
         context["referenced_object_param"] = search.get("referenced_object", "")
         context["referenced_object_type_param"] = search.get("referenced_object_type", "")
         context["referenced_object_label"] = _referenced_object_label(
