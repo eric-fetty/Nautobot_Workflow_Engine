@@ -522,6 +522,7 @@ function paintChrome() {
     renderHeader();
     renderStepper();
     renderPreview();
+    paintRuleFields();
 }
 
 function renderAll() {
@@ -1299,10 +1300,32 @@ function rulesEditor(base, help) {
     ]);
 }
 
+/** What is wrong with a rule's pattern: blank, unreadable in the browser, or refused by the server's Python check. */
+function ruleProblem(base, ruleIndex) {
+    const rule = rulesOf(base)[ruleIndex] || {};
+    if (!rule.regex) return { invalid: true, text: "Enter a pattern." };
+    const local = regexProblem(rule);
+    if (local) return { invalid: true, text: `Browsers can’t read this pattern: ${local}` };
+    const pointer = `/${base.split(".").join("/")}/validators/${ruleIndex}/regex`;
+    const server = (state.serverErrors || []).find((item) => item && item.pointer === pointer);
+    if (server) return { invalid: true, text: server.message };
+    return { invalid: false, text: "" };
+}
+
+function paintRuleFields() {
+    app.querySelectorAll("[data-rule-problem]").forEach((note) => {
+        const [base, ruleIndex] = note.dataset.ruleProblem.split("|");
+        const problem = ruleProblem(base, Number(ruleIndex));
+        note.textContent = problem.text;
+        const field = app.querySelector(`[data-rule="${base}|${ruleIndex}|regex"]`);
+        if (field) field.classList.toggle("is-invalid", problem.invalid);
+    });
+}
+
 function ruleCard(base, rule, ruleIndex) {
     const flags = new Set(rule.flags || []);
     const extra = (rule.flags || []).filter((flag) => !RULE_FLAGS.some(([name]) => name === flag));
-    const problem = rule.regex ? regexProblem(rule) : "";
+    const problem = ruleProblem(base, ruleIndex);
     const id = `${base}.${ruleIndex}`.replace(/\./g, "-");
     return h("div", { class: "nwe-rule" }, [
         h("div", { class: "nwe-rule-top" }, [
@@ -1310,8 +1333,8 @@ function ruleCard(base, rule, ruleIndex) {
             h("div", { class: "nwe-rule-fields" }, [
                 h("div", {}, [
                     h("label", { class: "form-label", for: `rule-${id}-regex`, text: "Pattern" }),
-                    h("input", { id: `rule-${id}-regex`, class: `form-control font-monospace${problem || !rule.regex ? " is-invalid" : ""}`, "data-rule": `${base}|${ruleIndex}|regex`, value: rule.regex || "", placeholder: "^[A-Za-z0-9-]+$", spellcheck: "false", autocomplete: "off", disabled: config.read_only }),
-                    h("div", { class: "invalid-feedback", "data-rule-problem": `${base}|${ruleIndex}`, text: problem ? `Browsers can’t read this pattern: ${problem}` : "Enter a pattern." }),
+                    h("input", { id: `rule-${id}-regex`, class: `form-control font-monospace${problem.invalid ? " is-invalid" : ""}`, "data-rule": `${base}|${ruleIndex}|regex`, value: rule.regex || "", placeholder: "^[A-Za-z0-9-]+$", spellcheck: "false", autocomplete: "off", disabled: config.read_only }),
+                    h("div", { class: "invalid-feedback", "data-rule-problem": `${base}|${ruleIndex}`, text: problem.text }),
                 ]),
                 h("div", {}, [
                     h("label", { class: "form-label", for: `rule-${id}-message`, text: "Error text" }),
@@ -1349,14 +1372,7 @@ function sampleView(base) {
 
 /** Repaint a rule's problem text and the test box in place, so the field being typed in keeps focus. */
 function paintRules(base, ruleIndex) {
-    if (ruleIndex != null) {
-        const rule = rulesOf(base)[ruleIndex] || {};
-        const problem = rule.regex ? regexProblem(rule) : "";
-        const field = app.querySelector(`[data-rule="${base}|${ruleIndex}|regex"]`);
-        if (field) field.classList.toggle("is-invalid", Boolean(problem) || !rule.regex);
-        const note = app.querySelector(`[data-rule-problem="${base}|${ruleIndex}"]`);
-        if (note) note.textContent = problem ? `Browsers can’t read this pattern: ${problem}` : "Enter a pattern.";
-    }
+    if (ruleIndex != null) paintRuleFields();
     const result = app.querySelector(`[data-rule-result="${base}"]`);
     if (result) result.replaceChildren(...sampleView(base));
 }
