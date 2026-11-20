@@ -362,16 +362,59 @@ The object examples above assume that this parent `location` input is also defin
 
 ## Input Validation
 
-All text-based input types (`string`, `list`, and `listdict` columns) support regex validation:
+`string` and `list` inputs and `string` columns of a `listdict` input take a list of `validators`. The builder edits them in the **Validation** panel. See [Validation rules](inputs.md#validation-rules).
 
 ```yaml
-validators:
-  - regex: "^[A-Za-z0-9_-]+$"
-    message: "Only letters, numbers, underscores, and hyphens are allowed."
-    flags: ["IGNORECASE"]  # Optional regex flags
+inputs:
+  - key: hostname
+    label: Switch hostname
+    type: string
+    validators:
+      - regex: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
+        message: "Enter a hostname: letters, numbers, and hyphens."
+      - regex: "^(sw|leaf|spine)"
+        message: "Start with sw, leaf, or spine."
+        flags: ["IGNORECASE"]
+  - key: dns_servers
+    label: DNS servers
+    type: list
+    validators:
+      - regex: "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$"
+        message: "Enter an IPv4 address, like 10.0.0.1."
+  - key: ports
+    label: Access ports
+    type: listdict
+    columns:
+      - key: interface
+        label: Interface
+        type: string
+        validators:
+          - regex: "^[A-Za-z][A-Za-z-]*[0-9]+(?:[/:][0-9]+)*(?:\\.[0-9]+)?$"
+            message: "Enter an interface name, like GigabitEthernet1/0/1."
 ```
 
-Validation is performed client-side in real time and again at form submission.
+| Key | Required | Description |
+| --- | --- | --- |
+| `regex` | Yes | The pattern. The value passes when the pattern is found in it, so use `^` and `$` to match the whole value. |
+| `message` | No | Shown when the value doesn't match. |
+| `flags` | No | Any of `IGNORECASE`, `MULTILINE`, `DOTALL`, `VERBOSE`. |
+
+How rules apply:
+
+- A value must match every rule. The launch form shows the message of the first rule that fails.
+- On a `list` input every line is checked, and the message starts with the line number, for example `Line 2: ...`.
+- On a table column every cell is checked, and the message names the row and column, for example `Row 1, Interface: ...`.
+- An empty value is not checked. Use `required: true` to make a field mandatory.
+- A single `regex` with `message` and `flags` at the input's top level still works. It is read as one rule.
+
+Where rules run:
+
+- The launch page checks each value in the browser with JavaScript `RegExp` as people type, and the server checks it again with Python `re.search` when the form is submitted. The server's answer is the one that counts.
+- Write patterns that mean the same in both. Use `[0-9]` instead of `\d` and spell out character classes instead of `\w` and `\s`, because Python also matches non-ASCII digits and letters with them. Avoid `(?P<name>...)`, `(?<name>...)`, inline flags such as `(?i)`, `\A`, and `\Z`. Use `flags` instead of inline flags.
+- `VERBOSE` exists only in Python. The browser checks the pattern without it, so spaces and `#` comments in a verbose pattern are taken literally there. Avoid it in rules for the launch page.
+- A pattern Python can't compile is a validation error (`regex_invalid`) on save, publish, and Git sync. The builder also flags a pattern the browser can't compile.
+
+The builder's **Insert preset** menu has ready-made rules for a hostname, an IPv4 address, an IPv4 network (CIDR), a MAC address, an interface name, a VLAN name, and a ServiceNow change number. The patterns are in the [schema reference](workflow_schema.md#validation-presets).
 
 ## Workflow Actions
 

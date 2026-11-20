@@ -67,6 +67,14 @@ The builder checks the draft after every change: typing, picking from a list, to
 
 **Enabled** turns a workflow on or off for people running it. It applies immediately once the workflow has been published, and it doesn't make a new version. Turning it off keeps all run history.
 
+## Validation rules
+
+Text, list-of-text, and table inputs can check what people type before the workflow runs. Open an input, open **Validation**, then choose **Add rule** for your own pattern or **Insert preset** for a ready-made one: hostname, IPv4 address, IPv4 network (CIDR), MAC address, interface name, VLAN name, or ServiceNow change number. **Try a value** shows straight away whether a sample would be accepted and which message people would see.
+
+![A text input with a hostname preset and a custom rule, rejecting rtr1 in Try a value](../assets/images/builder/20-validation-rules.png)
+
+A pattern that can't be read is flagged on its field and blocks publishing. See [Validation rules](inputs.md#validation-rules) for details.
+
 ## Next
 
 - [Inputs](inputs.md): the fields people fill in.

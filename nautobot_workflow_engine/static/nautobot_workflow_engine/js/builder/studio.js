@@ -1348,7 +1348,7 @@ function ruleCard(base, rule, ruleIndex) {
                 h("input", { class: "form-check-input", type: "checkbox", "data-rule-flag": `${base}|${ruleIndex}`, value: flag, checked: flags.has(flag), disabled: config.read_only }),
                 h("span", { class: "form-check-label", text: label }),
             ])),
-            ...extra.map((flag) => h("span", { class: "nwe-tag amber", title: "Kept from the YAML. The launch page in the browser ignores it; the server still applies it.", text: `${flag} (server only)` })),
+            ...extra.map((flag) => h("span", { class: "nwe-tag amber", title: "Kept from the YAML. Only the server applies this flag; the browser checks the pattern without it.", text: `${flag} (server only)` })),
         ]),
     ]);
 }
