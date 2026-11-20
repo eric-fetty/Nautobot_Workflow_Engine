@@ -1337,8 +1337,8 @@ function sampleView(base) {
     const result = trySample(rules, text);
     return [
         result.message
-            ? h("span", { class: "nwe-tag red", "data-rule-verdict": "fail" }, [icon("close-circle-outline"), `Rejected: ${result.message}`])
-            : h("span", { class: "nwe-tag green", "data-rule-verdict": "pass" }, [icon("check-circle-outline"), "Accepted"]),
+            ? h("span", { class: "nwe-tag red nwe-rules-verdict", "data-rule-verdict": "fail" }, [icon("close-circle-outline"), `Rejected: ${result.message}`])
+            : h("span", { class: "nwe-tag green nwe-rules-verdict", "data-rule-verdict": "pass" }, [icon("check-circle-outline"), "Accepted"]),
         h("span", { class: "nwe-rules-each" }, result.rules.map((item, ruleIndex) => h("span", {
             class: `nwe-tag ${item.ok === true ? "green" : item.ok === false ? "red" : "amber"}`,
             title: item.problem || "",

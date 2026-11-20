@@ -28,7 +28,7 @@ export function regexProblem(validator) {
         new RegExp(validator.regex, regexFlags(validator.flags));
         return "";
     } catch (error) {
-        return String((error && error.message) || error).replace(/^Invalid regular expression:\s*/, "");
+        return String((error && error.message) || error).replace(/^Invalid regular expression:\s*/, "").replace(/^\/.*\/[a-z]*:\s*/, "");
     }
 }
 

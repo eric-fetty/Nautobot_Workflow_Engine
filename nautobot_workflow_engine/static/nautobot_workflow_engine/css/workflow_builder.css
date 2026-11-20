@@ -1730,8 +1730,12 @@ body.nwe-studio-body #header > .container-fluid {
 .nwe-rule-fields {
     display: grid;
     flex: 1;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-    gap: 0.6rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.45rem;
+}
+
+.nwe-rule-fields .form-label {
+    margin-bottom: 0.2rem;
 }
 
 .nwe-rule-top .nwe-iconbtn {
@@ -1784,8 +1788,6 @@ body.nwe-studio-body #header > .container-fluid {
     font-size: 0.84rem;
 }
 
-@media (max-width: 720px) {
-    .nwe-rule-fields {
-        grid-template-columns: minmax(0, 1fr);
-    }
+.nwe-rules-result .nwe-tag.nwe-rules-verdict {
+    white-space: normal;
 }
