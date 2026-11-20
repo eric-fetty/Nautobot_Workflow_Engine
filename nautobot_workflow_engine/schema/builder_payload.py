@@ -428,8 +428,9 @@ def _input_to_raw(item, pointer, errors):
         built["show_if"] = show_if
     elif isinstance(show_if, str) and show_if.strip():
         built["show_if"] = show_if
-    if item.get("validators"):
-        built["validators"] = item.get("validators")
+    rules = _clean_rules(item.get("validators"))
+    if rules:
+        built["validators"] = rules
     elif item.get("regex"):
         built["regex"] = item.get("regex")
         if item.get("message"):
@@ -452,6 +453,29 @@ def _input_to_raw(item, pointer, errors):
     return built
 
 
+def _clean_rules(rules):
+    """Validation rules as YAML keeps them: a rule without a pattern is still being typed, so it is left out."""
+    if not isinstance(rules, list):
+        return []
+    cleaned = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        regex = rule.get("regex")
+        if not isinstance(regex, str) or not regex:
+            continue
+        built = {"regex": regex}
+        if rule.get("message"):
+            built["message"] = rule["message"]
+        if rule.get("flags"):
+            built["flags"] = list(rule["flags"])
+        for key, value in rule.items():
+            if key not in built and key not in ("regex", "message", "flags") and not str(key).startswith("_"):
+                built[key] = value
+        cleaned.append(built)
+    return cleaned
+
+
 def _column_to_raw(column):
     built = {"key": column.get("key"), "type": column.get("type") or "string"}
     if column.get("label"):
@@ -462,8 +486,9 @@ def _column_to_raw(column):
         built["unique"] = True
     if column.get("choices"):
         built["choices"] = column.get("choices")
-    if column.get("validators"):
-        built["validators"] = column.get("validators")
+    rules = _clean_rules(column.get("validators"))
+    if rules:
+        built["validators"] = rules
     for limit_key in ("min_value", "max_value"):
         if column.get(limit_key) not in (None, ""):
             built[limit_key] = column.get(limit_key)

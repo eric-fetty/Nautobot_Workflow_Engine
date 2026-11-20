@@ -21,6 +21,31 @@ function compiled(validator) {
     }
 }
 
+/** Why the browser can't read a rule's pattern, or "" when it can. A blank pattern is not a problem here. */
+export function regexProblem(validator) {
+    if (!validator || !validator.regex) return "";
+    try {
+        new RegExp(validator.regex, regexFlags(validator.flags));
+        return "";
+    } catch (error) {
+        return String((error && error.message) || error).replace(/^Invalid regular expression:\s*/, "");
+    }
+}
+
+/**
+ * Try a sample value against every rule, the way the launch form does.
+ * Returns {message, rules: [{ok, problem}]}: message is what the form would show ("" when it passes).
+ */
+export function trySample(validators, text) {
+    const rules = (validators || []).map((validator) => {
+        if (!validator || !validator.regex) return { ok: null, problem: "No pattern yet" };
+        const problem = regexProblem(validator);
+        if (problem) return { ok: null, problem };
+        return { ok: compiled(validator).test(text), problem: "" };
+    });
+    return { message: text ? patternError(validators, text) : "", rules };
+}
+
 export function patternError(validators, text) {
     if (!text) return "";
     for (const validator of validators || []) {

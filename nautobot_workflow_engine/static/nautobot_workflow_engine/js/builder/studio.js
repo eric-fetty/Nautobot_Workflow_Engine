@@ -6,6 +6,7 @@ import { parseWhen, STEP_TESTS, writeWhen as writeCondition } from "../shared/co
 import { draftSnapshot, mergeIssues, validationGate } from "../shared/issues.js";
 import { jinjaEditor } from "../shared/jinja.js";
 import { fixedText, fixedValue, inputRef, isTemplate, paramMode } from "../shared/template.js";
+import { regexProblem, trySample } from "../shared/validate.js";
 
 const configNode = document.getElementById("workflow-builder-config");
 const config = configNode ? JSON.parse(configNode.textContent) : {};
@@ -68,6 +69,8 @@ const state = {
     yamlText: "",
     yamlError: "",
     serverErrors: [],
+    rulesOpen: {},
+    ruleSamples: {},
     note: "",
     enableOnPublish: true,
     gitStatus: config.git_status || "",
@@ -260,6 +263,11 @@ function localIssues() {
         if (input.type === "listdict" && !(input.columns || []).length) {
             buckets.inputs.push(`${who}: add a column.`);
         }
+        ruleIssues(input.validators, `inputs.${index}`, `${who}:`).forEach((item) => buckets.inputs.push(item));
+        (input.columns || []).forEach((column, columnIndex) => {
+            const name = column.label || column.key || `column ${columnIndex + 1}`;
+            ruleIssues(column.validators, `inputs.${index}.columns.${columnIndex}`, `${who}, ${name}:`).forEach((item) => buckets.inputs.push(item));
+        });
     });
     PHASES.forEach(([phase]) => {
         (payload.actions[phase] || []).forEach((action, index) => {
@@ -276,6 +284,17 @@ function localIssues() {
         buckets.schedule.push([`“${zone}” isn’t a timezone. Choose one from the list.`, "schedule.timezone"]);
     }
     return mergeIssues(buckets, state.serverErrors);
+}
+
+/** A rule with no pattern, or one the browser can't read, has to be fixed before publishing. */
+function ruleIssues(rules, base, who) {
+    const out = [];
+    (rules || []).forEach((rule, ruleIndex) => {
+        const key = `${base}.validators.${ruleIndex}.regex`;
+        if (!rule || !rule.regex) out.push([`${who} validation rule ${ruleIndex + 1} needs a pattern.`, key]);
+        else if (regexProblem(rule)) out.push([`${who} validation rule ${ruleIndex + 1} has a pattern browsers can’t read: ${regexProblem(rule)}.`, key]);
+    });
+    return out;
 }
 
 function selectedRepo() {
@@ -871,7 +890,7 @@ function inputPills(input) {
     const waits = (input.depends_on || []).map((key) => inputByKey(key)?.label || key);
     if (waits.length) pills.push([`Waits for ${waits.join(", ")}`, "amber"]);
     if (input.show_if && (typeof input.show_if === "string" ? input.show_if.trim() : Object.keys(input.show_if).length)) pills.push(["Conditional", ""]);
-    if ((input.validators || []).length) pills.push(["Validated", ""]);
+    if ((input.validators || []).length || (input.columns || []).some((column) => (column.validators || []).length)) pills.push(["Validated", ""]);
     return pills;
 }
 
@@ -920,6 +939,9 @@ function inputEditor(input, index) {
             input.type === "integer" ? gridField("Largest allowed · optional", h("input", { class: "form-control", type: "number", "data-bind": `${base}.max_value`, value: input.max_value ?? "" })) : null,
             input.type === "list" ? gridField("At least · lines", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.min_items`, value: input.min_items ?? "" })) : null,
             input.type === "list" ? gridField("At most · lines", h("input", { class: "form-control", type: "number", min: "0", "data-bind": `${base}.max_items`, value: input.max_items ?? "" })) : null,
+            input.type === "string" || input.type === "list" || (input.validators || []).length
+                ? h("div", { class: "nwe-span" }, [rulesEditor(base, input.type === "list" ? "Each line must match every rule." : "The value must match every rule.")])
+                : null,
             input.type === "choice" || input.type === "multichoice" ? h("div", { class: "nwe-span" }, [choicesEditor(input, index)]) : null,
             object ? h("div", { class: "nwe-span" }, [filterEditor(input, index)]) : null,
             input.type === "listdict" ? h("div", { class: "nwe-span" }, [tableEditor(input, index)]) : null,
@@ -1215,6 +1237,141 @@ function showValue(source, row, index) {
     return h("input", { class: "form-control form-control-sm", "data-show": "value", "data-index": String(index), value: row.value ?? "" });
 }
 
+const RULE_FLAGS = [
+    ["IGNORECASE", "Case-insensitive"],
+    ["MULTILINE", "Multi-line"],
+    ["DOTALL", "Dot matches newline"],
+];
+
+/** The input or column a rules editor writes to: "inputs.2" or "inputs.2.columns.0". */
+function ruleOwner(base) {
+    let node = payload;
+    base.split(".").forEach((part) => {
+        node = node ? node[/^\d+$/.test(part) ? Number(part) : part] : null;
+    });
+    return node;
+}
+
+/** The rule list to write to, created on first use so rendering never changes the draft. */
+function writableRules(base) {
+    const owner = ruleOwner(base);
+    if (!owner) return null;
+    if (!Array.isArray(owner.validators)) owner.validators = [];
+    return owner.validators;
+}
+
+function rulesOf(base) {
+    const owner = ruleOwner(base);
+    return (owner && Array.isArray(owner.validators)) ? owner.validators : [];
+}
+
+function rulesOpen(base, rules) {
+    return state.rulesOpen[base] ?? rules.length > 0;
+}
+
+/** Validation rules for a text input, a list input, or a table column, with presets and a live test box. */
+function rulesEditor(base, help) {
+    const rules = rulesOf(base);
+    const open = rulesOpen(base, rules);
+    const count = rules.length ? ` · ${rules.length} rule${rules.length === 1 ? "" : "s"}` : "";
+    return h("div", { class: `nwe-rules${open ? " open" : ""}`, "data-rules-box": base }, [
+        h("button", { type: "button", class: "nwe-rules-head", "data-action": "toggle-rules", "data-rules": base, "aria-expanded": open ? "true" : "false" }, [
+            icon("regex"),
+            h("b", { text: `Validation${count}` }),
+            h("span", { class: "nwe-rules-sub", text: open ? help : "Patterns the value must match" }),
+            icon(open ? "chevron-up" : "chevron-down", "ms-auto"),
+        ]),
+        open ? h("div", { class: "nwe-rules-body" }, [
+            ...rules.map((rule, ruleIndex) => ruleCard(base, rule, ruleIndex)),
+            config.read_only ? null : h("div", { class: "nwe-rules-add" }, [
+                h("button", { type: "button", class: "nwe-link", "data-action": "add-rule", "data-rules": base }, [icon("plus"), "Add rule"]),
+                h("select", { class: "form-select form-select-sm nwe-rules-preset", "data-preset": base, "aria-label": "Insert preset" }, [
+                    h("option", { value: "", text: "Insert preset…" }),
+                    ...(config.validator_presets || []).map((preset) => h("option", { value: preset.id, text: preset.label })),
+                ]),
+            ]),
+            rules.length ? h("div", { class: "nwe-rules-try" }, [
+                h("label", { class: "form-label", text: "Try a value" }),
+                h("input", { class: "form-control form-control-sm", "data-rule-sample": base, value: state.ruleSamples[base] || "", placeholder: "Type what someone might enter", "aria-label": "Try a value" }),
+                h("div", { class: "nwe-rules-result", "data-rule-result": base }, sampleView(base)),
+            ]) : null,
+        ]) : null,
+    ]);
+}
+
+function ruleCard(base, rule, ruleIndex) {
+    const flags = new Set(rule.flags || []);
+    const extra = (rule.flags || []).filter((flag) => !RULE_FLAGS.some(([name]) => name === flag));
+    const problem = rule.regex ? regexProblem(rule) : "";
+    const id = `${base}.${ruleIndex}`.replace(/\./g, "-");
+    return h("div", { class: "nwe-rule" }, [
+        h("div", { class: "nwe-rule-top" }, [
+            h("span", { class: "nwe-rule-num", text: String(ruleIndex + 1) }),
+            h("div", { class: "nwe-rule-fields" }, [
+                h("div", {}, [
+                    h("label", { class: "form-label", for: `rule-${id}-regex`, text: "Pattern" }),
+                    h("input", { id: `rule-${id}-regex`, class: `form-control font-monospace${problem || !rule.regex ? " is-invalid" : ""}`, "data-rule": `${base}|${ruleIndex}|regex`, value: rule.regex || "", placeholder: "^[A-Za-z0-9-]+$", spellcheck: "false", autocomplete: "off", disabled: config.read_only }),
+                    h("div", { class: "invalid-feedback", "data-rule-problem": `${base}|${ruleIndex}`, text: problem ? `Browsers can’t read this pattern: ${problem}` : "Enter a pattern." }),
+                ]),
+                h("div", {}, [
+                    h("label", { class: "form-label", for: `rule-${id}-message`, text: "Error text" }),
+                    h("input", { id: `rule-${id}-message`, class: "form-control", "data-rule": `${base}|${ruleIndex}|message`, value: rule.message || "", placeholder: "Shown when the value doesn’t match", disabled: config.read_only }),
+                ]),
+            ]),
+            config.read_only ? null : h("button", { type: "button", class: "nwe-iconbtn danger", "data-action": "remove-rule", "data-rules": base, "data-rule-index": String(ruleIndex), title: "Remove rule", "aria-label": `Remove rule ${ruleIndex + 1}` }, [icon("close")]),
+        ]),
+        h("div", { class: "nwe-rule-flags" }, [
+            ...RULE_FLAGS.map(([flag, label]) => h("label", { class: "form-check form-check-inline mb-0" }, [
+                h("input", { class: "form-check-input", type: "checkbox", "data-rule-flag": `${base}|${ruleIndex}`, value: flag, checked: flags.has(flag), disabled: config.read_only }),
+                h("span", { class: "form-check-label", text: label }),
+            ])),
+            ...extra.map((flag) => h("span", { class: "nwe-tag amber", title: "Kept from the YAML. The launch page in the browser ignores it; the server still applies it.", text: `${flag} (server only)` })),
+        ]),
+    ]);
+}
+
+function sampleView(base) {
+    const rules = rulesOf(base);
+    const text = state.ruleSamples[base] || "";
+    if (!text) return [h("span", { class: "nwe-rules-idle", text: "Type a value to see which rules pass." })];
+    const result = trySample(rules, text);
+    return [
+        result.message
+            ? h("span", { class: "nwe-tag red", "data-rule-verdict": "fail" }, [icon("close-circle-outline"), `Rejected: ${result.message}`])
+            : h("span", { class: "nwe-tag green", "data-rule-verdict": "pass" }, [icon("check-circle-outline"), "Accepted"]),
+        h("span", { class: "nwe-rules-each" }, result.rules.map((item, ruleIndex) => h("span", {
+            class: `nwe-tag ${item.ok === true ? "green" : item.ok === false ? "red" : "amber"}`,
+            title: item.problem || "",
+            text: `Rule ${ruleIndex + 1} ${item.ok === true ? "passes" : item.ok === false ? "fails" : "not checked"}`,
+        }))),
+    ];
+}
+
+/** Repaint a rule's problem text and the test box in place, so the field being typed in keeps focus. */
+function paintRules(base, ruleIndex) {
+    if (ruleIndex != null) {
+        const rule = rulesOf(base)[ruleIndex] || {};
+        const problem = rule.regex ? regexProblem(rule) : "";
+        const field = app.querySelector(`[data-rule="${base}|${ruleIndex}|regex"]`);
+        if (field) field.classList.toggle("is-invalid", Boolean(problem) || !rule.regex);
+        const note = app.querySelector(`[data-rule-problem="${base}|${ruleIndex}"]`);
+        if (note) note.textContent = problem ? `Browsers can’t read this pattern: ${problem}` : "Enter a pattern.";
+    }
+    const result = app.querySelector(`[data-rule-result="${base}"]`);
+    if (result) result.replaceChildren(...sampleView(base));
+}
+
+function insertPreset(base, id) {
+    const preset = (config.validator_presets || []).find((item) => item.id === id);
+    const rules = writableRules(base);
+    if (!preset || !rules) return;
+    const rule = { regex: preset.regex, message: preset.message, flags: [...(preset.flags || [])] };
+    const blank = rules.findIndex((item) => !item.regex && !item.message);
+    if (blank >= 0) rules[blank] = rule;
+    else rules.push(rule);
+    state.rulesOpen[base] = true;
+}
+
 function tableEditor(input, index) {
     input.columns = input.columns || [];
     return h("div", { class: "mb-3" }, [
@@ -1230,6 +1387,9 @@ function tableEditor(input, index) {
                 h("div", { class: "col" }, [h("input", { class: "form-control", type: "number", placeholder: "Max", "data-bind": `inputs.${index}.columns.${columnIndex}.max_value`, value: column.max_value ?? "" })]),
                 h("div", { class: "col-auto" }, [h("button", { type: "button", class: "btn nwe-btn-ghost", "data-action": "remove-column", "data-index": String(index), "data-column": String(columnIndex) }, [icon("trash-can-outline"), "Remove column"])]),
             ]),
+            (column.type || "string") === "string" || (column.validators || []).length
+                ? rulesEditor(`inputs.${index}.columns.${columnIndex}`, "Every cell in this column must match every rule.")
+                : null,
         ])),
         h("button", { type: "button", class: "nwe-link", "data-action": "add-column", "data-index": String(index) }, [icon("plus"), "Add column"]),
         h("div", { class: "row mt-2" }, [
@@ -2656,6 +2816,20 @@ app.addEventListener("input", (event) => {
         state.note = target.value;
         return;
     }
+    if (target.dataset.rule) {
+        const [base, ruleIndex, part] = target.dataset.rule.split("|");
+        const rule = rulesOf(base)[Number(ruleIndex)];
+        if (!rule) return;
+        rule[part] = target.value;
+        paintRules(base, Number(ruleIndex));
+        touch();
+        return;
+    }
+    if (target.dataset.ruleSample != null) {
+        state.ruleSamples[target.dataset.ruleSample] = target.value;
+        paintRules(target.dataset.ruleSample);
+        return;
+    }
     if (!target.dataset.bind) return;
     assign(target.dataset.bind, valueOf(target));
     touch();
@@ -2744,6 +2918,25 @@ app.addEventListener("change", (event) => {
         }
         renderEditor();
         touch();
+        return;
+    }
+    if (target.dataset.rule || target.dataset.ruleSample != null) return;
+    if (target.dataset.ruleFlag) {
+        const [base, ruleIndex] = target.dataset.ruleFlag.split("|");
+        const rule = rulesOf(base)[Number(ruleIndex)];
+        if (!rule) return;
+        const kept = (rule.flags || []).filter((flag) => flag !== target.value);
+        rule.flags = target.checked ? [...kept, target.value] : kept;
+        paintRules(base, Number(ruleIndex));
+        touch();
+        return;
+    }
+    if (target.dataset.preset) {
+        if (target.value) {
+            insertPreset(target.dataset.preset, target.value);
+            renderAll();
+            touch();
+        }
         return;
     }
     if (target.dataset.action === "enable-on-publish") {
@@ -2867,6 +3060,22 @@ app.addEventListener("click", (event) => {
         const input = payload.inputs[Number(node.dataset.index)];
         input.filter_mode = input.filter_mode === "jinja" ? "visual" : "jinja";
         renderAll();
+    } else if (action === "toggle-rules") {
+        const base = node.dataset.rules;
+        state.rulesOpen[base] = !rulesOpen(base, rulesOf(base));
+        renderAll();
+    } else if (action === "add-rule") {
+        const rules = writableRules(node.dataset.rules);
+        if (rules) rules.push({ regex: "", message: "", flags: [] });
+        state.rulesOpen[node.dataset.rules] = true;
+        renderAll();
+        touch();
+        const fields = app.querySelectorAll(`[data-rule^="${node.dataset.rules}|"][data-rule$="|regex"]`);
+        if (fields.length) fields[fields.length - 1].focus();
+    } else if (action === "remove-rule") {
+        rulesOf(node.dataset.rules).splice(Number(node.dataset.ruleIndex), 1);
+        renderAll();
+        touch();
     } else if (action === "add-column") {
         payload.inputs[Number(node.dataset.index)].columns.push({ key: "", label: "", type: "string" });
         renderAll();

@@ -65,6 +65,7 @@ from .schema.policy import (
     lookup_allowed,
     script_path_allowed,
 )
+from .schema.presets import builder_presets
 from .script_params import script_parameters
 from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
 from .services import (
@@ -1915,6 +1916,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "scripts": scripts,
         "content_types": content_types,
         "timezones": timezone_choices(),
+        "validator_presets": builder_presets(),
         "snow_states": [
             "New",
             "Assess",
