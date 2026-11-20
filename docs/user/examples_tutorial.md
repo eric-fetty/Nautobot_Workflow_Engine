@@ -47,7 +47,9 @@ Workflow: [`02-reserve-vlan-id`](https://github.com/eric-fetty/Nautobot-Demo-Wor
 
 ![Launch form for 02. Reserve a VLAN ID](../assets/images/examples/launch-02-reserve-vlan-id.png)
 
-This example adds a whole-number input with a minimum and a maximum, help text, a placeholder, and a regex rule on the VLAN name (with an optional `IGNORECASE` flag). Try an ID outside 1–4094 or a name with spaces and watch the form reject it before you submit.
+This example adds a whole-number input with a minimum and a maximum, help text, a placeholder, and [validation rules](inputs.md#validation-rules). The VLAN name has two rules: the builder's **VLAN name** preset, then a stricter site convention that allows only lowercase letters, numbers, and dashes. The form shows the message of the first rule a value fails, so `users floor 2` gets the preset's message and `Users_Floor_2` gets the convention's. The optional **Change ticket** uses the **ServiceNow change number** preset with the `IGNORECASE` flag. An empty value is not checked.
+
+Try an ID outside 1–4094, one of those names, or the ticket `CHG12`, and watch the form reject them before you submit. The server checks the same rules again when the form is sent.
 
 ![The VLAN ID and name rejected on the launch form](../assets/images/examples/launch-02-validation-errors.png)
 
@@ -92,6 +94,8 @@ Workflow: [`06-add-vlans`](https://github.com/eric-fetty/Nautobot-Demo-Workflows
 ![Launch form for 06. Add VLANs](../assets/images/examples/launch-06-add-vlans.png)
 
 This example introduces a table input (`listdict`) with typed columns, unique VLAN IDs, and row limits, plus a list of extra trunk ports, a pick-many tags field, and a several-objects picker for switches. On the launch form the table is an editable grid.
+
+Validation rules work per cell and per line. Every **Name** cell must pass the **VLAN name** preset and the lowercase convention, and the error names the row, for example *Row 1: Name: Use lowercase letters, numbers, and dashes.* Every line of **Extra trunk ports** must pass the **Interface name** preset and an Ethernet-or-Port-Channel rule, so `Vlan10` is rejected with *Line 2: Trunk ports must be Ethernet or Port-Channel interfaces.*
 
 ![The VLANs table with Add row, Download template and Import CSV](../assets/images/examples/launch-06-table-input.png)
 
