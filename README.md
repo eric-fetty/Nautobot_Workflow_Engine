@@ -25,7 +25,7 @@ The Workflow Engine is primarily the Orchestration block of the
 It also provides Presentation and Intent features, and it delegates network
 writes to executors rather than talking to devices itself.
 
-![Where the Workflow Engine fits in the Network Automation Framework](https://raw.githubusercontent.com/eric-fetty/Nautobot_Workflow_Engine/main/docs/assets/images/naf-mapping.png)
+![Where the Workflow Engine fits in the Network Automation Framework](https://raw.githubusercontent.com/eric-fetty/Nautobot_Workflow_Engine/develop/docs/assets/images/naf-mapping.png)
 
 <details>
 <summary>Mermaid source</summary>
