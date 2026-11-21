@@ -52,6 +52,11 @@ class DefinitionRequestSerializer(serializers.Serializer):
     enable = serializers.BooleanField(required=False, allow_null=True)
     commit_summary = serializers.CharField(required=False, allow_blank=True)
     approval_confirm = serializers.BooleanField(required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Nautobot tag names or IDs. Kept in Nautobot, never written to the YAML.",
+    )
 
 
 class ValidateResponseSerializer(serializers.Serializer):
@@ -101,6 +106,14 @@ class RevisionSerializer(serializers.Serializer):
     superseded_reason = serializers.CharField(required=False, allow_blank=True)
 
 
+class WorkflowTagSerializer(serializers.Serializer):
+    """A Nautobot tag on a workflow. Tags are not part of the YAML."""
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    color = serializers.CharField(allow_blank=True)
+
+
 class WorkflowSummarySerializer(serializers.Serializer):
     """List row."""
 
@@ -114,6 +127,7 @@ class WorkflowSummarySerializer(serializers.Serializer):
     published_revision = serializers.IntegerField(allow_null=True)
     draft_revision = serializers.IntegerField(allow_null=True)
     updated = serializers.DateTimeField(allow_null=True)
+    tags = WorkflowTagSerializer(many=True)
 
 
 class BaseSerializer(serializers.Serializer):

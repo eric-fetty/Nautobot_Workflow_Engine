@@ -8,7 +8,7 @@ from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
-from nautobot.apps.forms import BootstrapMixin, StaticSelect2Multiple
+from nautobot.apps.forms import BootstrapMixin, BulkEditForm, StaticSelect2Multiple, TagsBulkEditFormMixin
 from nautobot.extras.models import ExternalIntegration
 
 from .models import Workflow, WorkflowInput
@@ -71,6 +71,22 @@ def _spreadsheet_formula(value, column_type):
     if text[0] in "=+-@":
         return text[0]
     return ""
+
+
+class WorkflowBulkEditForm(TagsBulkEditFormMixin, BootstrapMixin, BulkEditForm):
+    """Bulk edit for workflows: add or remove Nautobot tags, nothing else.
+
+    Category and the Enabled switch stay out on purpose. Category is part of the YAML
+    definition (a change makes a new revision), and turning a workflow on goes through
+    Publish. Nautobot's Bulk Edit job finds this form by name (``<Model>BulkEditForm``).
+    """
+
+    pk = forms.ModelMultipleChoiceField(queryset=Workflow.objects.all(), widget=forms.MultipleHiddenInput())
+
+    class Meta:
+        """Nothing can be cleared; tags are added or removed."""
+
+        nullable_fields = []
 
 
 class DependentChoiceField(forms.ChoiceField):

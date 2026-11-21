@@ -10,6 +10,20 @@ Every workflow is on one list. Each row shows its status, category, how often it
 
 The cards above the list count workflows, runs in the last 30 days, time saved, and the success rate. The filters are **All**, **Published**, **Unpublished changes**, and **Draft**. People without edit rights only see published workflows. To find a workflow by name, key, category or description, use the search box at the top of the page: on this list it shows **in: Workflows**, like **in: Devices** on the Devices list, and filters the list when you press Enter.
 
+### Tags on the list
+
+Each workflow's [tags](#tags) show as coloured chips under its name. Click a chip, or pick a tag from **All tags** beside **All categories**, to see only the workflows with that tag. The address then ends in `?tags=<name>`, the same as on Nautobot's own lists, so you can bookmark it.
+
+![Workflows list with tag chips, the tag filter, and rows selected for bulk edit](../assets/images/builder/21-workflows-list-tags.png)
+
+### Bulk edit tags
+
+People who can edit workflows see a checkbox on each row they're allowed to change, and a select-all box in the header. Select some rows, then choose **Bulk edit tags**. Nautobot's standard bulk edit page opens with two fields, **Add tags** and **Remove tags**, exactly like bulk edit on devices or locations. Choose **Apply**: Nautobot runs its *Bulk Edit Objects* job and shows the job result, which says how many workflows were updated.
+
+![Nautobot's bulk edit page for workflows, with Add tags and Remove tags](../assets/images/builder/22-bulk-edit-tags.png)
+
+Bulk edit changes tags and nothing else. Category is part of the YAML, so changing it makes a new version, and turning a workflow on goes through **Publish**. Workflows you can see but aren't allowed to change are left out, and every change is recorded in Nautobot's change log.
+
 ## Layout
 
 ![Builder on the Details step, with the stepper on the left and the Launch form preview on the right](../assets/images/builder/02-details.png)
@@ -55,9 +69,24 @@ The builder checks the draft after every change: typing, picking from a list, to
 | **Name** | Shown on the Workflows list and at the top of the launch page. Start with a verb. |
 | **Description** | Shown at the top of the launch form. |
 | **Category** | Groups related workflows on the list. Optional. |
+| **Tags** | Nautobot tags, kept in Nautobot and never in the YAML. Optional. See [Tags](#tags). |
 | **Manual effort per run (minutes)** | How long this job takes by hand. The dashboard uses it to count time saved. See [Dashboard and time saved](app_reporting.md). |
 | **Repository** | The Git repository the published workflow is written to. If the repository isn't ready for publishing, the reason shows here in plain words. See [Publishing and versions](publishing.md#getting-a-repository-ready). |
 | **Advanced · workflow ID** | The short ID used in the address of the launch page. It is made from the name and can't change after the first publish. |
+
+## Tags
+
+Workflows carry the same colour-coded Nautobot tags as devices, locations and everything else. In **Details**, type in **Tags** to search, then pick a tag from the list. Each tag shows as a chip; the **×** on a chip removes it. Backspace in the empty search box removes the last one. Tags are saved with the draft like any other change, but they apply to the workflow straight away: they aren't part of a version and don't need publishing.
+
+![The Tags picker on the Details step](../assets/images/builder/20-details-tags.png)
+
+A tag only appears in the picker once it allows workflows. Open **Organization → Tags**, edit the tag (or add one), and add **nautobot_workflow_engine | workflow** to **Content types**. If no tag allows workflows yet, the picker says so and links to the Tags page.
+
+![A Nautobot tag with Workflow allowed under Content types](../assets/images/builder/23-tag-content-types.png)
+
+Tags stay out of the YAML on purpose. They are Nautobot data, like the Enabled switch, so a Git sync never removes them and editing a file in the repository can't change them. See [Why aren't tags in my YAML?](faq.md#why-arent-tags-in-my-yaml).
+
+The builder API (`/api/plugins/workflow-engine/workflows/`) returns each workflow's tags as `{"id", "name", "color"}`. To set them, send `"tags"` with tag names or IDs when you create, save, or publish a draft. An unknown tag, or one that doesn't allow workflows, is a 400 that names it, and nothing is saved. Tags you aren't allowed to see are left on the workflow.
 
 ## Visual and YAML
 
