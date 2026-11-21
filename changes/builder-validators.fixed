@@ -1,1 +1,0 @@
-The server now checks every line of a list input against its validation rules, as the launch page already did. A pattern Python can't compile is now a `regex_invalid` validation error when a workflow is saved, published, or synced from Git, instead of an error on the launch form.

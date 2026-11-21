@@ -1,1 +1,0 @@
-Added a Validation panel to the workflow builder for text, list, and table-column inputs: add, edit, and remove pattern rules with their error text and flags, insert ready-made presets (hostname, IPv4 address, IPv4 network, MAC address, interface name, VLAN name, ServiceNow change number), and try a sample value against the rules as you type.
