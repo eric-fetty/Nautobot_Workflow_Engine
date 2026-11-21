@@ -4,7 +4,7 @@ import uuid
 
 import django_filters
 from django.contrib.contenttypes.models import ContentType
-from nautobot.apps.filters import BaseFilterSet, NautobotFilterSet, SearchFilter
+from nautobot.apps.filters import BaseFilterSet, NautobotFilterSet, SearchFilter, TagFilter
 
 from .models import Workflow, WorkflowRun, WorkflowRunObjectReference
 
@@ -20,13 +20,14 @@ class WorkflowFilterSet(NautobotFilterSet):
             "category": "icontains",
         },
     )
+    # Nautobot tags, by name or ID. Several tags match workflows that carry all of them.
+    tags = TagFilter()
 
     class Meta:
         """Meta class for WorkflowFilterSet."""
 
         model = Workflow
-        fields = ["git_status", "managed_by", "enabled", "archived", "category"]
-        exclude = ["tags"]
+        fields = ["git_status", "managed_by", "enabled", "archived", "category", "tags"]
 
 
 def content_type_for_label(label):

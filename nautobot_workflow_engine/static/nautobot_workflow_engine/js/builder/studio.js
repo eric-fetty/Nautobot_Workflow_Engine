@@ -1,6 +1,6 @@
 /**Workflow builder: one shared draft, five steps, live preview. */
 
-import { blankAction, blankInput, referencesTo, setPath, slugify } from "./store.js";
+import { blankAction, blankInput, draftBody, referencesTo, setPath, slugify, tagOptions, tagTextColor, toggleTag } from "./store.js";
 import { createField } from "../shared/fields.js";
 import { parseWhen, STEP_TESTS, writeWhen as writeCondition } from "../shared/conditions.js";
 import { draftSnapshot, mergeIssues, validationGate } from "../shared/issues.js";
@@ -12,6 +12,7 @@ const configNode = document.getElementById("workflow-builder-config");
 const config = configNode ? JSON.parse(configNode.textContent) : {};
 const payload = config.payload || { inputs: [], actions: { pre: [], main: [], post: [] }, schedule: {} };
 payload.inputs = payload.inputs || [];
+payload.tags = Array.isArray(payload.tags) ? payload.tags : [];
 payload.actions = payload.actions || { pre: [], main: [], post: [] };
 payload.schedule = payload.schedule || { enabled: false, allowed_states: [], start_fields: [], end_fields: [] };
 payload.inputs.forEach((input) => {
@@ -434,13 +435,7 @@ async function saveDraft() {
     const ticket = gate.send(draftSnapshot(payload));
     state.save = "saving";
     paintSave();
-    const body = {
-        payload,
-        strict: false,
-        base_revision: config.base_revision,
-        base_git_commit: config.base_git_commit || "",
-        base_content_hash: config.base_content_hash || "",
-    };
+    const body = draftBody(payload, config);
     let result;
     if (!config.key) {
         result = await api(config.create_api_url, body);
@@ -811,6 +806,161 @@ function gridField(label, control, help, wide) {
     ]);
 }
 
+/**
+ * Nautobot tags on this workflow: coloured chips plus a searchable list of the tags
+ * that allow workflows. Saved with the draft, stored in Nautobot, never in the YAML.
+ */
+function tagPicker() {
+    const choices = config.tag_choices || [];
+    const colors = new Map(choices.map((tag) => [tag.name, tag.color]));
+    const listId = "nwe-tag-list";
+    let open = false;
+    let active = 0;
+    let rows = [];
+    const wrap = h("div", { class: "nwe-tags", id: "nwe-tags" });
+    const chips = h("div", { class: "nwe-tag-chips", "aria-live": "polite" });
+    const input = h("input", {
+        class: "form-control nwe-tag-input",
+        id: "nwe-tag-search",
+        role: "combobox",
+        autocomplete: "off",
+        spellcheck: "false",
+        placeholder: choices.length ? "Add a tag…" : "No tags allow workflows yet",
+        "aria-label": "Add a tag",
+        "aria-autocomplete": "list",
+        "aria-expanded": "false",
+        "aria-controls": listId,
+        disabled: config.read_only || !choices.length,
+    });
+    const list = h("div", { class: "nwe-pop nwe-ac nwe-tag-list", id: listId, role: "listbox", hidden: "hidden" });
+
+    function chip(name) {
+        const color = colors.get(name) || "";
+        const style = color ? `background-color:#${color};color:${tagTextColor(color)};border-color:#${color}` : "";
+        return h("span", { class: "nwe-chip nwe-tag-chip", style, "data-tag": name }, [
+            h("span", { text: name }),
+            config.read_only ? null : h("button", { type: "button", title: `Remove ${name}`, "aria-label": `Remove tag ${name}`, "data-tag-remove": name }, [icon("close")]),
+        ]);
+    }
+
+    function paintChips() {
+        const tags = payload.tags || [];
+        chips.replaceChildren(...(tags.length ? tags.map(chip) : [h("span", { class: "nwe-muted small", text: "No tags" })]));
+    }
+
+    function paint() {
+        rows = tagOptions(choices, payload.tags, input.value);
+        active = Math.min(active, Math.max(rows.length - 1, 0));
+        const nodes = rows.slice(0, 200).map((tag, index) => h("button", {
+            type: "button",
+            tabindex: "-1",
+            role: "option",
+            id: `nwe-tag-opt-${index}`,
+            class: `nwe-pop-item${index === active ? " hl" : ""}`,
+            "aria-selected": index === active ? "true" : "false",
+            "data-tag-add": tag.name,
+        }, [
+            h("span", { class: "nwe-tag-dot", style: tag.color ? `background-color:#${tag.color}` : "", "aria-hidden": "true" }),
+            h("span", { text: tag.name }),
+        ]));
+        if (!nodes.length) nodes.push(h("div", { class: "nwe-tz-empty", text: input.value.trim() ? `No tag matches “${input.value.trim()}”.` : "Every tag is already on this workflow." }));
+        list.replaceChildren(...nodes);
+        input.setAttribute("aria-activedescendant", rows.length ? `nwe-tag-opt-${active}` : "");
+    }
+
+    function show() {
+        open = true;
+        list.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+        paint();
+    }
+
+    function hide() {
+        open = false;
+        list.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+    }
+
+    function change(name) {
+        payload.tags = toggleTag(payload.tags, name);
+        paintChips();
+        touch();
+    }
+
+    input.addEventListener("focus", show);
+    input.addEventListener("click", () => {
+        if (!open) show();
+    });
+    input.addEventListener("input", () => {
+        active = 0;
+        if (!open) show();
+        else paint();
+    });
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (!open) return show();
+            const count = Math.min(rows.length, 200);
+            if (!count) return;
+            active = (active + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+            paint();
+        } else if (event.key === "Enter") {
+            if (!open) return;
+            event.preventDefault();
+            const tag = rows[active];
+            if (tag) {
+                change(tag.name);
+                input.value = "";
+                paint();
+            }
+        } else if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            hide();
+        } else if (event.key === "Backspace" && !input.value && (payload.tags || []).length) {
+            change(payload.tags[payload.tags.length - 1]);
+            if (open) paint();
+        }
+    });
+    input.addEventListener("blur", () => {
+        window.setTimeout(() => {
+            if (!wrap.contains(document.activeElement)) hide();
+        }, 120);
+    });
+    list.addEventListener("mousedown", (event) => event.preventDefault());
+    list.addEventListener("click", (event) => {
+        const item = event.target.closest("[data-tag-add]");
+        if (!item) return;
+        change(item.dataset.tagAdd);
+        input.value = "";
+        paint();
+        input.focus();
+    });
+    chips.addEventListener("click", (event) => {
+        const remove = event.target.closest("[data-tag-remove]");
+        if (!remove) return;
+        event.preventDefault();
+        event.stopPropagation();
+        change(remove.dataset.tagRemove);
+        if (open) paint();
+    });
+
+    paintChips();
+    const parts = [chips];
+    if (!config.read_only) parts.push(h("div", { class: "nwe-tag-box" }, [input, list]));
+    if (!choices.length && !config.read_only) {
+        const link = config.tag_add_url || config.tag_list_url;
+        parts.push(h("div", { class: "form-text" }, [
+            "To use a tag here, add Workflow to its content types",
+            link ? ": " : ".",
+            link ? h("a", { href: link, target: "_blank", rel: "noopener", text: config.tag_add_url ? "Add a tag" : "Open Tags" }) : null,
+        ]));
+    }
+    wrap.append(...parts);
+    return wrap;
+}
+
 function detailsView() {
     const manual = Number(payload.manual_duration_minutes || 0);
     const hours = manual ? Math.round((48 * Math.max(0, manual - 4)) / 60) : 0;
@@ -823,6 +973,7 @@ function detailsView() {
                 gridField("Name", h("input", { class: "form-control", "data-bind": "name", value: payload.name || "" }), "Start with a verb. Shown on the Workflows list and the launch form.", true),
                 gridField("Description", h("textarea", { class: "form-control", rows: "3", "data-bind": "description", value: payload.description || "" }), "Shown at the top of the launch form.", true),
                 gridField("Category · optional", h("input", { class: "form-control", "data-bind": "category", value: payload.category || "" }), "Groups related workflows on the list."),
+                gridField("Tags · optional", tagPicker(), "Kept in Nautobot, not in the YAML. Filter and bulk edit them on the Workflows list."),
                 gridField(
                     "Manual effort per run (minutes) · optional",
                     h("div", { class: "input-group" }, [

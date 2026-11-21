@@ -94,3 +94,25 @@
 
 /* The Run slot is only a hook for the Enabled switch; it must not change the row layout. */
 .nwe-run-slot { display: contents; }
+
+/* ---------- Nautobot tags and bulk edit on the list ---------- */
+.nwe-wf-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.nwe-wf-tags .badge {
+    font-weight: 500;
+}
+
+.nwe-catalog-table .nwe-select {
+    width: 2rem;
+}
+
+.nwe-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}

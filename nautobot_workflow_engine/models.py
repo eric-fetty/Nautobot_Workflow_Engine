@@ -4,8 +4,7 @@ from django.conf import settings as dj_settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from nautobot.apps.models import BaseModel, ChangeLoggedModel
-from taggit.managers import TaggableManager
+from nautobot.apps.models import BaseModel, ChangeLoggedModel, TagsField
 
 from nautobot_workflow_engine.schema import action_type_choices, input_type_choices, phase_choices
 
@@ -42,6 +41,10 @@ class Workflow(ChangeLoggedModel, BaseModel):
     ``managed_by`` records who owns the definition. Git sync updates and disables
     only Git-managed workflows. Nautobot-managed workflows stay as saved in the UI
     until two-way sync lands.
+
+    ``tags`` are Nautobot tags (``extras.Tag``); using ``TagsField`` is what lets a Tag
+    list Workflow under its content types. Tags are Nautobot metadata, so they are
+    never written to the workflow YAML and a Git sync leaves them alone.
     """
 
     key = models.SlugField(unique=True)
@@ -59,8 +62,9 @@ class Workflow(ChangeLoggedModel, BaseModel):
             "workflow and immediate launches use a near-term ScheduledJob so they enter the approval pipeline."
         ),
     )
-    tags = TaggableManager(blank=True)
-    raw_definition = models.JSONField()
+    tags = TagsField()
+    # Blank until the first publish: unpublished drafts keep their definition on the revision.
+    raw_definition = models.JSONField(blank=True)
     source_repo = models.ForeignKey("extras.GitRepository", null=True, blank=True, on_delete=models.SET_NULL)
     managed_by = models.CharField(
         max_length=16,
