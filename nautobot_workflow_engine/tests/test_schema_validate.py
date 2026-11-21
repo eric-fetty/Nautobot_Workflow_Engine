@@ -148,6 +148,9 @@ class FieldErrorCodeTestCase(TestCase):
             _definition(actions=[{"type": "nautobot", "name": "run", "script": "filters/run.py"}]),
             enforce_policy=True,
         )
+        produced |= self._codes(
+            _definition(inputs=[{"key": "host", "type": "string", "validators": [{"regex": "^(unclosed$"}]}])
+        )
 
         missing = set(FIELD_ERROR_CODES) - produced
         self.assertEqual(missing, set(), msg=sorted(missing))

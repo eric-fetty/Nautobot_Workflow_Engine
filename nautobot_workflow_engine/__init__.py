@@ -41,6 +41,7 @@ _CONSTANCE_FIELD_TYPES = {
     "show_add_new_item": "optional_json_field",
     "builder_model_allowlist": "optional_json_field",
     "git_push_retry_backoff_minutes": "optional_json_field",
+    "run_history_object_types": "optional_json_field",
 }
 
 
@@ -69,16 +70,21 @@ class WorkflowEngineConfig(NautobotAppConfig):
     caching_config = {}
     config_view_name = "plugins:nautobot_workflow_engine:config"
     docs_view_name = "plugins:nautobot_workflow_engine:docs"
-    searchable_models = ["workflow"]
+    searchable_models = ["workflow", "workflowrun"]
 
     def ready(self):
         """Connect database-ready handlers after the app is fully loaded."""
         super().ready()
-        from django.db.models.signals import post_migrate
+        from django.db.models.signals import post_init, post_migrate, post_save
         from nautobot.apps import nautobot_database_ready
 
         from .default_permissions import ensure_default_permissions
+        from .models import WorkflowRun
+        from .run_index import reindex_on_save, remember_inputs
         from .signals import enable_required_jobs
+
+        post_init.connect(remember_inputs, sender=WorkflowRun, dispatch_uid="nwe_run_index_remember")
+        post_save.connect(reindex_on_save, sender=WorkflowRun, dispatch_uid="nwe_run_index_save")
 
         nautobot_database_ready.connect(enable_required_jobs, sender=self)
         nautobot_database_ready.connect(ensure_default_permissions, sender=self)

@@ -78,16 +78,16 @@
     <div class="card">
         <div class="card-body">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                <input id="nwe-catalog-search" class="form-control" style="max-width: 18rem" placeholder="Search workflows" type="search">
                 <div class="nwe-seg" role="group" aria-label="Status">
-                    <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
-                    <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
-                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
-                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
+                    <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
+                    <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
+                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
+                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
                 </div>
                 {% if categories %}
                     <form method="get" class="ms-auto">
                         {% if selected_status != "all" %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+                        {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
                         <select class="form-select" name="category" aria-label="Category" onchange="this.form.submit()">
                             <option value="">All categories</option>
                             {% for category in categories %}
@@ -113,7 +113,7 @@
                     </thead>
                     <tbody>
                         {% for wf in catalog %}
-                            <tr data-search="{{ wf.name }} {{ wf.description }} {{ wf.category }}">
+                            <tr>
                                 <td>
                                     <div>
                                         <a class="nwe-wf-name" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}">{{ wf.name }}</a>

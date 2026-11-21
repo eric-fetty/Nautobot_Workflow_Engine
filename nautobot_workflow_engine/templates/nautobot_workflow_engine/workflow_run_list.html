@@ -61,6 +61,21 @@
                 {% if selected_end %}
                     <input type="hidden" name="end" value="{{ selected_end }}">
                 {% endif %}
+                {% if referenced_object_param %}
+                    <input type="hidden" name="referenced_object" value="{{ referenced_object_param }}">
+                    {% if referenced_object_type_param %}
+                        <input type="hidden" name="referenced_object_type" value="{{ referenced_object_type_param }}">
+                    {% endif %}
+                {% endif %}
+                {% if search_query %}
+                    <input type="hidden" name="q" value="{{ search_query }}">
+                {% endif %}
+                {% if referenced_object_param %}
+                    <div class="mb-3" id="nwe-referenced-object-filter">
+                        <i class="mdi mdi-link-variant"></i> Showing runs that used {{ referenced_object_label }}.
+                        <a href="?{% if search_query %}q={{ search_query|urlencode }}&{% endif %}reset=1" class="ms-1">Show all runs</a>
+                    </div>
+                {% endif %}
                 <div class="row">
                     <div class="col-md-3">
                         <label class="control-label">Workflow</label>
@@ -147,6 +162,9 @@
                 {% if selected_time_range %}<input type="hidden" name="time_range" value="{{ selected_time_range }}">{% endif %}
                 {% if selected_start %}<input type="hidden" name="start" value="{{ selected_start }}">{% endif %}
                 {% if selected_end %}<input type="hidden" name="end" value="{{ selected_end }}">{% endif %}
+                {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+                {% if referenced_object_param %}<input type="hidden" name="referenced_object" value="{{ referenced_object_param }}">{% endif %}
+                {% if referenced_object_type_param %}<input type="hidden" name="referenced_object_type" value="{{ referenced_object_type_param }}">{% endif %}
 
                 <label for="per-page-select" class="mb-0"><small>Items per page</small></label>
                 <select id="per-page-select" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">

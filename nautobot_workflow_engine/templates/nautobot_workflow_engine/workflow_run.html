@@ -2,11 +2,13 @@
 {% load helpers %}
 {% load static %}
 {% load workflow_extras %}
+{% load buttons %}
 
 {% block title %}Workflow Run {{ object.pk|truncatechars:8 }}{% endblock title %}
 
 {% block extra_styles %}
     <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/status_badges.css' %}">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/object_pills.css' %}">
     {# Inline fallback so theme/static caching cannot leave the badge unreadable #}
     <style>
         html body .badge.nwe-status-pending-approval {
@@ -213,12 +215,18 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for key, value in object.inputs.items %}
+                                    {% for row in input_rows %}
                                         <tr>
-                                            <td><strong>{{ key }}</strong></td>
+                                            <td><strong>{{ row.key }}</strong></td>
                                             <td>
-                                                {% if value %}
-                                                    <code>{{ value }}</code>
+                                                {% if row.is_object and row.objects %}
+                                                    <div class="nwe-object-pills">
+                                                        {% for item in row.objects %}
+                                                            {% include "nautobot_workflow_engine/inc/object_pill.html" with item=item %}
+                                                        {% endfor %}
+                                                    </div>
+                                                {% elif row.value %}
+                                                    <code>{{ row.value }}</code>
                                                 {% else %}
                                                     <span class="text-muted">-</span>
                                                 {% endif %}
@@ -302,10 +310,11 @@
         <!-- User-friendly Print Output -->
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header">
+                <div class="card-header d-flex align-items-center">
                     <h5 class="mb-0">
                         <i class="mdi mdi-account-voice"></i> User Log
                     </h5>
+                    {% copy_button target="#run-user-log" label="Copy user log" %}
                 </div>
                 <div class="card-body">
                     {% if object.user_log %}
@@ -320,10 +329,11 @@
         <!-- Execution Log -->
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header">
+                <div class="card-header d-flex align-items-center">
                     <h5 class="mb-0">
                         <i class="mdi mdi-text-box-outline"></i> Debug Log
                     </h5>
+                    {% copy_button target="#run-debug-log" label="Copy debug log" %}
                 </div>
                 <div class="card-body">
                     {% if object.log %}

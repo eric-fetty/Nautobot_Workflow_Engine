@@ -8,7 +8,7 @@ The builder is where workflows are made and changed. Open **Workflows** in the N
 
 Every workflow is on one list. Each row shows its status, category, how often it ran in the last 30 days, its last run, and the **Enabled** switch. **Run** opens the launch page. **Edit** opens the builder. The **⋯** menu on a row has **Versions**, **Duplicate**, **Run history**, **Download YAML**, and **Delete…**.
 
-The cards above the list count workflows, runs in the last 30 days, time saved, and the success rate. The filters are **All**, **Published**, **Unpublished changes**, and **Draft**. People without edit rights only see published workflows.
+The cards above the list count workflows, runs in the last 30 days, time saved, and the success rate. The filters are **All**, **Published**, **Unpublished changes**, and **Draft**. People without edit rights only see published workflows. To find a workflow by name, key, category or description, use the search box at the top of the page: on this list it shows **in: Workflows**, like **in: Devices** on the Devices list, and filters the list when you press Enter.
 
 ## Layout
 
@@ -66,6 +66,14 @@ The builder checks the draft after every change: typing, picking from a list, to
 ## Enabled
 
 **Enabled** turns a workflow on or off for people running it. It applies immediately once the workflow has been published, and it doesn't make a new version. Turning it off keeps all run history.
+
+## Validation rules
+
+Text, list-of-text, and table inputs can check what people type before the workflow runs. Open an input, open **Validation**, then choose **Add rule** for your own pattern or **Insert preset** for a ready-made one: hostname, IPv4 address, IPv4 network (CIDR), MAC address, interface name, VLAN name, or ServiceNow change number. **Try a value** shows straight away whether a sample would be accepted and which message people would see.
+
+![A text input with a hostname preset and a custom rule, rejecting rtr1 in Try a value](../assets/images/builder/20-validation-rules.png)
+
+A pattern that can't be read is flagged on its field and blocks publishing. See [Validation rules](inputs.md#validation-rules) for details.
 
 ## Next
 

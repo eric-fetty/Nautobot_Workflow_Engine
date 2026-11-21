@@ -15,7 +15,7 @@ workflow_items = (
     ),
     NavMenuItem(
         link="plugins:nautobot_workflow_engine:workflow_run_list",
-        name="Run history",
+        name="Run History",
         permissions=["nautobot_workflow_engine.view_workflowrun"],
     ),
 )

@@ -42,6 +42,7 @@ FIELD_ERROR_CODES = (
     "change_input_missing",
     "timezone_invalid",
     "reserved_key",
+    "regex_invalid",
     "yaml",
 )
 
@@ -225,6 +226,7 @@ def _semantic(definition, errors, *, repo, enforce_policy, check_scripts):
                 )
             )
     _references(inputs, errors)
+    _validators(inputs, errors)
     _actions(definition, errors, repo=repo, check_scripts=check_scripts)
     _templates(definition, errors)
     _schedule(definition, errors)
@@ -294,6 +296,52 @@ def _references(inputs, errors):
 
     for key in keyset:
         walk(key, [])
+
+
+_REGEX_FLAGS = {"IGNORECASE": re.IGNORECASE, "MULTILINE": re.MULTILINE, "DOTALL": re.DOTALL, "VERBOSE": re.VERBOSE}
+
+
+def _validators(inputs, errors):
+    """Every validation pattern on an input or a table column must compile with Python ``re``."""
+    for index, item in enumerate(inputs):
+        if not isinstance(item, dict):
+            continue
+        who = item.get("label") or item.get("key") or ""
+        _check_rules(item.get("validators"), f"/inputs/{index}", who, "", errors)
+        for column_index, column in enumerate(item.get("columns") or []):
+            if isinstance(column, dict):
+                column_name = column.get("label") or column.get("key") or f"Column {column_index + 1}"
+                _check_rules(
+                    column.get("validators"),
+                    f"/inputs/{index}/columns/{column_index}",
+                    who,
+                    f"{column_name}: ",
+                    errors,
+                )
+
+
+def _check_rules(rules, base, who, prefix, errors):
+    if not isinstance(rules, list):
+        return
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict) or not isinstance(rule.get("regex"), str) or not rule.get("regex"):
+            continue
+        flags = 0
+        for name in rule.get("flags") or []:
+            flags |= _REGEX_FLAGS.get(str(name).upper(), 0)
+        try:
+            re.compile(rule["regex"], flags)
+        except re.error as error:
+            errors.append(
+                FieldError(
+                    f"{base}/validators/{rule_index}/regex",
+                    "regex_invalid",
+                    f"{prefix}Validation rule {rule_index + 1} has a pattern Python can't read: {error}.",
+                    section="inputs",
+                    item=who,
+                    field_label="Pattern",
+                )
+            )
 
 
 _STEP_REF = re.compile(r"results(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*[\"']([^\"']+)[\"']\s*\])")

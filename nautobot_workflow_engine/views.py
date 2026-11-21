@@ -40,10 +40,11 @@ from .approvals import (
     pending_approval_count,
 )
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
-from .filters import WorkflowFilterSet
+from .filters import WorkflowFilterSet, WorkflowRunFilterSet, content_type_for_label
 from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
+from .run_inputs import run_input_rows
 from .run_permissions import can_cancel, can_run
 from .scheduling import create_approval_gated_immediate_schedule
 from .schema.builder_payload import (
@@ -64,6 +65,7 @@ from .schema.policy import (
     lookup_allowed,
     script_path_allowed,
 )
+from .schema.presets import builder_presets
 from .script_params import script_parameters
 from .servicenow import ServiceNowValidationError, get_change_window, integration_name_for_workflow
 from .services import (
@@ -76,7 +78,7 @@ from .services import (
     update_draft,
 )
 from .settings_helpers import apply_git_sync_interval, constance_key, content_type_matches, get_setting
-from .tables import WorkflowTable
+from .tables import WorkflowRunTable, WorkflowTable
 from .timezones import timezone_choices
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,9 @@ RUN_HISTORY_PAGE_SIZE_OPTIONS = (10, 25, 50, 100)
 RUN_HISTORY_DEFAULT_PAGE_SIZE = 50
 RUN_HISTORY_SESSION_KEY = "nautobot_workflow_engine_run_history_filters"
 RUN_HISTORY_PERSISTED_KEYS = ("workflow", "status", "user", "category", "time_range", "start", "end", "per_page")
+# Header search (scoped to Run History), global search and "View all" links from object pages;
+# carried in the URL, not remembered.
+RUN_HISTORY_SEARCH_KEYS = ("q", "referenced_object", "referenced_object_type")
 
 
 def _format_duration_seconds(total_seconds):
@@ -335,6 +340,10 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         git_status = self.request.GET.get("git_status")
         if git_status:
             qs = qs.filter(git_status=git_status)
+        # The header search, scoped "in: Workflows", submits ?q= here (Nautobot's list-page pattern).
+        search = (self.request.GET.get("q") or "").strip()
+        if search:
+            qs = WorkflowFilterSet({"q": search}, queryset=qs).qs
 
         latest_workflow_run = WorkflowRun.objects.filter(workflow_id=OuterRef("pk")).order_by("-started", "-id")
         qs = qs.annotate(
@@ -445,6 +454,9 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         context["catalog"] = catalog
         context["status_counts"] = counts
         context["selected_status"] = selected_status
+        context["search_query"] = (self.request.GET.get("q") or "").strip()
+        # Lets Nautobot's header search show the "in: Workflows" scope, as on core list pages.
+        context["content_type"] = ContentType.objects.get_for_model(Workflow)
         context["unsynced"] = [
             workflow for workflow in workflows if workflow.git_status in ("not_synced", "git_invalid")
         ]
@@ -1052,6 +1064,7 @@ class WorkflowRunDetailView(ObjectView):
         # Show workflow info in run view even if workflow is now disabled
         context["workflow_available"] = instance.workflow.enabled if instance.workflow else False
         context["can_cancel_run"] = can_cancel(request.user, instance)
+        context["input_rows"] = run_input_rows(instance, request.user)
         return context
 
 
@@ -1133,10 +1146,55 @@ class WorkflowRunProgressView(View):
         return JsonResponse(_serialize_workflow_run_progress(workflow_run))
 
 
+def _referenced_object_label(user, object_id, type_label):
+    """Return a friendly name for the object a run-history filter is narrowed to.
+
+    Uses the object's current name when the person may view it, otherwise the name recorded
+    on one of the runs they may view, otherwise a neutral phrase.
+    """
+    if not object_id:
+        return ""
+    from .models import WorkflowRunObjectReference
+
+    try:
+        object_uuid = uuid.UUID(str(object_id))
+    except (TypeError, ValueError):
+        return "the selected object"
+    content_type = content_type_for_label(type_label) if type_label else None
+    model = content_type.model_class() if content_type else None
+    if model is not None:
+        manager = model._default_manager
+        objects = manager.restrict(user, "view") if hasattr(manager, "restrict") else manager.none()
+        obj = objects.filter(pk=object_uuid).first()
+        if obj is not None:
+            return f"{model._meta.verbose_name} {obj}"
+    refs = WorkflowRunObjectReference.objects.filter(
+        object_id=object_uuid,
+        workflow_run__in=WorkflowRun.objects.restrict(user, "view"),
+    ).exclude(object_display="")
+    if content_type is not None:
+        refs = refs.filter(content_type=content_type)
+    ref = refs.first()
+    return ref.object_display if ref else "the selected object"
+
+
 class WorkflowRunListView(TemplateView):
     """List workflow execution history with filtering and pagination."""
 
     template_name = "nautobot_workflow_engine/workflow_run_list.html"
+    # Nautobot's global search reads these three from the list view registered for the model.
+    queryset = WorkflowRun.objects.select_related("workflow", "requested_by")
+    filterset = WorkflowRunFilterSet
+    table = WorkflowRunTable
+
+    def _search_params(self):
+        """Return the one-off search parameters (not remembered between visits)."""
+        params = {}
+        for key in RUN_HISTORY_SEARCH_KEYS:
+            value = (self.request.GET.get(key) or "").strip()
+            if value:
+                params[key] = value
+        return params
 
     def _get_filter_state(self):
         """Return persisted filter/page-size state, updated from current query parameters."""
@@ -1153,6 +1211,14 @@ class WorkflowRunListView(TemplateView):
         if self.request.GET.get("reset") in {"1", "true", "yes"}:
             session_state = {}
             changed = True
+        elif self._search_params() and not any(
+            key in self.request.GET for key in RUN_HISTORY_PERSISTED_KEYS if key != "per_page"
+        ):
+            # Arriving from global search or an object's "View all" link: start from a clean
+            # slate so remembered filters don't hide matches the link promised.
+            if any(session_state.get(key) for key in RUN_HISTORY_PERSISTED_KEYS if key != "per_page"):
+                session_state = {key: value for key, value in session_state.items() if key == "per_page"}
+                changed = True
 
         for key in RUN_HISTORY_PERSISTED_KEYS:
             if key in self.request.GET:
@@ -1183,11 +1249,10 @@ class WorkflowRunListView(TemplateView):
 
     def get_queryset(self):
         """Get workflow runs queryset with filtering."""
-        qs = WorkflowRun.objects.select_related("workflow", "requested_by").order_by("-started")
-        permitted_run_ids = [
-            wf.id for wf in qs if self.request.user.has_perm("nautobot_workflow_engine.view_workflowrun", wf)
-        ]
-        qs = qs.filter(id__in=permitted_run_ids)
+        qs = self.queryset.restrict(self.request.user, "view").order_by("-started")
+        search = self._search_params()
+        if search:
+            qs = WorkflowRunFilterSet(search, queryset=qs).qs
         # Filter by workflow if specified
         workflow_key = self._get_filter_value("workflow", "")
         if workflow_key:
@@ -1275,7 +1340,18 @@ class WorkflowRunListView(TemplateView):
             "start": self._get_filter_value("start", ""),
             "end": self._get_filter_value("end", ""),
         }
+        search = self._search_params()
+        query_params.update(search)
         context["querystring_without_page"] = urlencode({k: v for k, v in query_params.items() if v not in (None, "")})
+        context["search_query"] = search.get("q", "")
+        # Core's header search shows the "in: <nav item>" scope when a list page provides its
+        # content type, and then submits ?q= to this list, just like Devices.
+        context["content_type"] = ContentType.objects.get_for_model(WorkflowRun)
+        context["referenced_object_param"] = search.get("referenced_object", "")
+        context["referenced_object_type_param"] = search.get("referenced_object_type", "")
+        context["referenced_object_label"] = _referenced_object_label(
+            self.request.user, search.get("referenced_object"), search.get("referenced_object_type")
+        )
 
         # Add filter options
         context["workflows"] = _get_workflow_queryset().order_by("name")
@@ -1840,6 +1916,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "scripts": scripts,
         "content_types": content_types,
         "timezones": timezone_choices(),
+        "validator_presets": builder_presets(),
         "snow_states": [
             "New",
             "Assess",

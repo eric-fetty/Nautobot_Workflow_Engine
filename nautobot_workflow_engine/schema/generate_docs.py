@@ -5,9 +5,11 @@ in CI so the page cannot drift from the schema.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 from nautobot_workflow_engine.schema import SCHEMA_PATH, load_schema
+from nautobot_workflow_engine.schema.presets import validator_presets
 
 DOCS_PATH = Path(__file__).resolve().parents[2] / "docs" / "user" / "workflow_schema.md"
 
@@ -41,6 +43,7 @@ def render_markdown(schema=None):
             lines.append("")
         lines.append(_properties_table(definition.get("properties") or {}))
         lines.append("")
+    lines.extend(_presets_section())
     lines.append("## Phase aliases")
     lines.append("")
     lines.append("| Canonical key | Aliases |")
@@ -51,6 +54,31 @@ def render_markdown(schema=None):
             lines.append(f"| `{key}` | {', '.join(f'`{alias}`' for alias in aliases)} |")
     lines.append("")
     return "\n".join(lines)
+
+
+def _presets_section():
+    """The builder's Insert preset menu, from ``validator_presets.json``."""
+    presets = validator_presets()
+    lines = [
+        "## Validation presets",
+        "",
+        "The builder's **Insert preset** menu adds one of these rules. The pattern and message stay editable.",
+        "Each pattern reads the same in Python and in browsers, and the tests check every example in both.",
+        "",
+        "| Preset | Accepts, for example | Rejects, for example |",
+        "| --- | --- | --- |",
+    ]
+    for preset in presets:
+        accepts = ", ".join(f"`{value}`" for value in preset["valid"][:3])
+        rejects = ", ".join(f"`{value}`" for value in [item for item in preset["invalid"] if item][:3])
+        lines.append(f"| {preset['label']} | {accepts} | {rejects} |")
+    lines.extend(["", "The rules each preset inserts:", "", "```yaml"])
+    for preset in presets:
+        lines.append(f"# {preset['label']}")
+        lines.append(f"- regex: {json.dumps(preset['regex'])}")
+        lines.append(f"  message: {json.dumps(preset['message'])}")
+    lines.extend(["```", ""])
+    return lines
 
 
 def _properties_table(properties):

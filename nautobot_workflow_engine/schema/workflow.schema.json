@@ -703,6 +703,7 @@
     },
     "validator": {
       "type": "object",
+      "description": "One validation rule on a `string` or `list` input, or on a table column. The value must match `regex` (Python `re.search` on the server, JavaScript `RegExp.test` in the browser). Anchor with `^` and `$` to match the whole value. On a `list` input every line is checked, and on a table column every cell. A pattern that Python can't compile is a validation error (`regex_invalid`). The builder's **Insert preset** menu fills in one of the rules listed under [Validation presets](#validation-presets).",
       "additionalProperties": true,
       "properties": {
         "regex": {
@@ -743,7 +744,7 @@
           "title": "Flags",
           "x-ui": {
             "label": "Flags",
-            "help": "Regex flags. Case-insensitive ignores letter case. Multi-line, dot matches newline, and verbose are the other options. YAML key: flags.",
+            "help": "Regex flags. Case-insensitive ignores letter case. Multi-line makes ^ and $ match at each line. Dot matches newline lets . match a line break. Verbose is Python-only: the browser can't apply it, so only the server enforces a verbose rule correctly. YAML key: flags.",
             "widget": "checkboxes",
             "group": "inputs",
             "advanced": true,

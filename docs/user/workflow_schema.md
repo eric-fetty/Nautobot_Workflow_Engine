@@ -71,11 +71,13 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 
 ## validator
 
+One validation rule on a `string` or `list` input, or on a table column. The value must match `regex` (Python `re.search` on the server, JavaScript `RegExp.test` in the browser). Anchor with `^` and `$` to match the whole value. On a `list` input every line is checked, and on a table column every cell. A pattern that Python can't compile is a validation error (`regex_invalid`). The builder's **Insert preset** menu fills in one of the rules listed under [Validation presets](#validation-presets).
+
 | Field | Type | Label | Code | Description |
 | --- | --- | --- | --- | --- |
 | `regex` | string | Pattern |  | Regular expression the value must match. YAML key: regex. |
 | `message` | string | Message |  | Error shown when the value does not match. YAML key: message. |
-| `flags` | array | Flags |  | Regex flags. Case-insensitive ignores letter case. Multi-line, dot matches newline, and verbose are the other options. YAML key: flags. |
+| `flags` | array | Flags |  | Regex flags. Case-insensitive ignores letter case. Multi-line makes ^ and $ match at each line. Dot matches newline lets . match a line break. Verbose is Python-only: the browser can't apply it, so only the server enforces a verbose rule correctly. YAML key: flags. |
 
 ## action
 
@@ -109,6 +111,47 @@ Unknown keys are kept. `enabled` is operational state and is not part of the Git
 | `end_fields` | array | End fields |  | ServiceNow fields to read the window end from, tried in order. YAML key: end_fields. |
 | `ticket_regex` | string | Ticket pattern |  | Pattern the ticket number must match, for example CHG\d{7}. YAML key: ticket_regex. |
 | `require_approved` | boolean | Require approved |  | Only accept changes that are already approved. YAML key: require_approved. |
+
+## Validation presets
+
+The builder's **Insert preset** menu adds one of these rules. The pattern and message stay editable.
+Each pattern reads the same in Python and in browsers, and the tests check every example in both.
+
+| Preset | Accepts, for example | Rejects, for example |
+| --- | --- | --- |
+| Hostname | `core-sw01`, `rtr1.dc1.example.com`, `LEAF-101` | `-leaf1`, `leaf1-`, `sw 01` |
+| IPv4 address | `10.0.0.1`, `192.168.1.254`, `0.0.0.0` | `256.1.1.1`, `10.0.0`, `10.0.0.1/24` |
+| IPv4 network (CIDR) | `10.20.0.0/24`, `192.168.0.0/16`, `0.0.0.0/0` | `10.20.0.0`, `10.20.0.0/33`, `10.20.0.0/` |
+| MAC address | `00:1A:2B:3C:4D:5E`, `00-1a-2b-3c-4d-5e`, `001a.2b3c.4d5e` | `00:1A:2B:3C:4D`, `00:1A-2B:3C:4D:5E`, `001A2B3C4D5E` |
+| Interface name | `GigabitEthernet1/0/1`, `Gi1/0/24`, `Ethernet1/1.100` | `1/0/1`, `Gi 1/0/1`, `Gi1//1` |
+| VLAN name | `USERS`, `voice_vlan`, `mgmt-10` | `users vlan`, `-users`, `_users` |
+| ServiceNow change number | `CHG0012345`, `CHG9999999` | `CHG12345`, `chg0012345`, `INC0012345` |
+
+The rules each preset inserts:
+
+```yaml
+# Hostname
+- regex: "^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+  message: "Enter a hostname: letters, numbers, and hyphens, with dots between parts (for example core-sw01.lab.example.com)."
+# IPv4 address
+- regex: "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$"
+  message: "Enter an IPv4 address, like 10.0.0.1."
+# IPv4 network (CIDR)
+- regex: "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(?:3[0-2]|[12]?[0-9])$"
+  message: "Enter an IPv4 network with its prefix length, like 10.20.0.0/24."
+# MAC address
+- regex: "^(?:[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\\1){4}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4})$"
+  message: "Enter a MAC address, like 00:1A:2B:3C:4D:5E, 00-1a-2b-3c-4d-5e, or 001a.2b3c.4d5e."
+# Interface name
+- regex: "^[A-Za-z][A-Za-z-]*[0-9]+(?:[/:][0-9]+)*(?:\\.[0-9]+)?$"
+  message: "Enter an interface name, like GigabitEthernet1/0/1, Ethernet1/1.100, xe-0/0/0, or Port-channel10."
+# VLAN name
+- regex: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$"
+  message: "Use 1 to 32 letters, numbers, hyphens, underscores, or dots, starting with a letter or number."
+# ServiceNow change number
+- regex: "^CHG[0-9]{7}$"
+  message: "Enter a ServiceNow change number, like CHG0012345."
+```
 
 ## Phase aliases
 

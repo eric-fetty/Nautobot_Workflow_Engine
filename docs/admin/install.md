@@ -115,9 +115,28 @@ Groups; they are not app settings.
 | Retry a waiting publish after (minutes) | `git_push_retry_backoff_minutes` | `1, 5, 15, 60` | Wait before each automatic retry of a failed push. The last value repeats. |
 | AWX connection | `awx_external_integration_name` | `AWX` | Nautobot External Integration used for AWX actions. |
 | Check AWX jobs every (seconds) | `awx_poll_seconds` | `5` | Polling interval for AWX job monitoring. |
+| Show “Workflow runs” on | `run_history_object_types` | Devices, Virtual machines | Object types whose detail pages list the workflow runs that used the object. See below. |
 
 The create-new-item choice passes `__create__` to the workflow. Its action code must
 handle that value; choosing it does not create an object automatically.
+
+### Workflow runs panel on object pages
+
+Device and virtual machine detail pages show a **Workflow runs** panel listing the runs whose form picked that object. Pick which object types show it with **Show “Workflow runs” on**, in the **Run history** group of the Settings page. The choices are Nautobot's object types that have their own detail page, from core and from installed apps. Changes apply on the next page load, with no restart.
+
+Runs record every object an object or multi-object input picks, whatever its type, so a newly added type lists its older runs straight away.
+
+Like every setting, `run_history_object_types` can be pinned in `nautobot_config.py` instead, which locks it on the page:
+
+```python
+PLUGINS_CONFIG = {
+    "nautobot_workflow_engine": {
+        "run_history_object_types": ["dcim.device", "virtualization.virtualmachine", "ipam.prefix"],
+    },
+}
+```
+
+An object type from an app installed after Nautobot last started appears in the list after the next restart, because Nautobot attaches detail-page panels when it starts.
 
 ## Configure Workflow Content
 
