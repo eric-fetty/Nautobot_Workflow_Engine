@@ -14,13 +14,13 @@ The cards above the list count workflows, runs in the last 30 days, time saved, 
 
 Each workflow's [tags](#tags) show as coloured chips under its name. Click a chip, or pick a tag from **All tags** beside **All categories**, to see only the workflows with that tag. The address then ends in `?tags=<name>`, the same as on Nautobot's own lists, so you can bookmark it.
 
-![Workflows list with tag chips, the tag filter, and rows selected for bulk edit](../assets/images/builder/21-workflows-list-tags.png)
+![Workflows list with tag chips, the tag filter, and rows selected for bulk edit](../assets/images/builder/23-workflows-list-tags.png)
 
 ### Bulk edit tags
 
 People who can edit workflows see a checkbox on each row they're allowed to change, and a select-all box in the header. Select some rows, then choose **Bulk edit tags**. Nautobot's standard bulk edit page opens with two fields, **Add tags** and **Remove tags**, exactly like bulk edit on devices or locations. Choose **Apply**: Nautobot runs its *Bulk Edit Objects* job and shows the job result, which says how many workflows were updated.
 
-![Nautobot's bulk edit page for workflows, with Add tags and Remove tags](../assets/images/builder/22-bulk-edit-tags.png)
+![Nautobot's bulk edit page for workflows, with Add tags and Remove tags](../assets/images/builder/24-bulk-edit-tags.png)
 
 Bulk edit changes tags and nothing else. Category is part of the YAML, so changing it makes a new version, and turning a workflow on goes through **Publish**. Workflows you can see but aren't allowed to change are left out, and every change is recorded in Nautobot's change log.
 
@@ -78,11 +78,11 @@ The builder checks the draft after every change: typing, picking from a list, to
 
 Workflows carry the same colour-coded Nautobot tags as devices, locations and everything else. In **Details**, type in **Tags** to search, then pick a tag from the list. Each tag shows as a chip; the **×** on a chip removes it. Backspace in the empty search box removes the last one. Tags are saved with the draft like any other change, but they apply to the workflow straight away: they aren't part of a version and don't need publishing.
 
-![The Tags picker on the Details step](../assets/images/builder/20-details-tags.png)
+![The Tags picker on the Details step](../assets/images/builder/22-details-tags.png)
 
 A tag only appears in the picker once it allows workflows. Open **Organization → Tags**, edit the tag (or add one), and add **Workflow Engine | workflow** to **Content Type(s)**. If no tag allows workflows yet, the picker says so and links to the Tags page.
 
-![A Nautobot tag with Workflow allowed under Content types](../assets/images/builder/23-tag-content-types.png)
+![A Nautobot tag with Workflow allowed under Content types](../assets/images/builder/25-tag-content-types.png)
 
 Tags stay out of the YAML on purpose. They are Nautobot data, like the Enabled switch, so a Git sync never removes them and editing a file in the repository can't change them. See [Why aren't tags in my YAML?](faq.md#why-arent-tags-in-my-yaml).
 
