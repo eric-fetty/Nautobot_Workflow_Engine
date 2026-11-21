@@ -383,6 +383,8 @@ class DynamicWorkflowForm(forms.Form):
                 value = cleaned_data.get(wi.key)
                 if isinstance(value, str):
                     self._apply_pattern_validators(wi.key, value, wi.validators)
+                elif wi.input_type == "list" and isinstance(value, list):
+                    self._apply_line_validators(wi.key, value, wi.validators)
             else:
                 cleaned_data[wi.key] = None  # Hide field if not visible
 
@@ -499,6 +501,26 @@ class DynamicWorkflowForm(forms.Form):
                     field_name,
                     validator.get("message") or "This value does not match the required pattern.",
                 )
+
+    def _apply_line_validators(self, field_name, lines, validators):
+        """Check each line of a list input, like the launch page does, and report the first bad line."""
+        if not isinstance(validators, list) or not validators:
+            return
+        for line_number, line in enumerate(lines, start=1):
+            if not isinstance(line, str) or not line:
+                continue
+            for validator in validators:
+                if not isinstance(validator, dict) or not validator.get("regex"):
+                    continue
+                try:
+                    regex = re.compile(validator["regex"], flags=self._resolve_regex_flags(validator.get("flags")))
+                except re.error:
+                    self.add_error(field_name, "This field has an invalid pattern.")
+                    return
+                if regex.search(line) is None:
+                    message = validator.get("message") or "This value does not match the required pattern."
+                    self.add_error(field_name, f"Line {line_number}: {message}")
+                    return
 
     def _resolve_regex_flags(self, flag_names):
         """Translate serialized regex flags into Python re flags."""
