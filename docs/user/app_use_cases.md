@@ -494,6 +494,14 @@ actions:
       hostname: "{{ results.prepare_hostname.return_value.hostname }}"
 ```
 
+Because main actions keep running after a failure, a later action can recover from it,
+for example `when: "{{ results.verify is defined and results.verify.status == 'failed' }}"`.
+The run still ends `failed` when any main action failed, even if the recovery succeeds.
+To treat an outcome as normal, return it as a value and branch on it instead, for example
+`results.postcheck.return_value.drift == 0`. Examples 11–13 in the
+[Examples tutorial](examples_tutorial.md#branching-on-earlier-steps) show rollback, fallback, and
+value-based branching.
+
 Conditions on earlier steps written by the builder guard with `is defined`, so a step
 that never ran counts as not matching. A condition can only refer to steps that run
 before it; one that refers to itself or a later step is rejected. See
