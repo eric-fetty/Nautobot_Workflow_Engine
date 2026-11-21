@@ -78,4 +78,30 @@ import { onEnableChange } from "./shared/run_control.js";
             });
         });
     });
+
+    // Bulk edit: row checkboxes feed Nautobot's standard bulk edit page (add or remove tags).
+    var bulkButton = document.getElementById("nwe-bulk-edit");
+    var selectAll = document.getElementById("nwe-select-all");
+    var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-nwe-select]"));
+    function paintBulk() {
+        var picked = boxes.filter(function (box) { return box.checked; }).length;
+        if (bulkButton) {
+            bulkButton.disabled = picked === 0;
+            var count = bulkButton.querySelector("[data-nwe-bulk-count]");
+            if (count) count.textContent = picked ? String(picked) : "";
+        }
+        if (selectAll) {
+            selectAll.checked = boxes.length > 0 && picked === boxes.length;
+            selectAll.indeterminate = picked > 0 && picked < boxes.length;
+            selectAll.disabled = boxes.length === 0;
+        }
+    }
+    boxes.forEach(function (box) { box.addEventListener("change", paintBulk); });
+    if (selectAll) {
+        selectAll.addEventListener("change", function () {
+            boxes.forEach(function (box) { box.checked = selectAll.checked; });
+            paintBulk();
+        });
+    }
+    paintBulk();
 })();

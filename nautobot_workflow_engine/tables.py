@@ -2,7 +2,7 @@
 
 import django_tables2 as tables
 from django.utils.html import format_html
-from nautobot.apps.tables import BaseTable
+from nautobot.apps.tables import BaseTable, TagColumn
 
 from .models import Workflow, WorkflowRun
 
@@ -33,12 +33,13 @@ class WorkflowTable(BaseTable):
     category = tables.Column()
     description = tables.Column()
     git_status = tables.Column(verbose_name="Git")
+    tags = TagColumn(url_name="plugins:nautobot_workflow_engine:workflows_list")
 
     class Meta(BaseTable.Meta):
         """Meta class for WorkflowTable."""
 
         model = Workflow
-        fields = ("pk", "name", "category", "description", "git_status")
+        fields = ("pk", "name", "category", "description", "git_status", "tags")
         default_columns = ("name", "category", "description", "git_status")
 
 

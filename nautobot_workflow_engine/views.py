@@ -41,7 +41,7 @@ from .approvals import (
 )
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet, WorkflowRunFilterSet, content_type_for_label
-from .forms import DynamicWorkflowForm, WorkflowEngineSettingsForm
+from .forms import DynamicWorkflowForm, WorkflowBulkEditForm, WorkflowEngineSettingsForm
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .run_inputs import run_input_rows
@@ -263,9 +263,17 @@ class WorkflowUIViewSet(NautobotUIViewSet):
     queryset = Workflow.objects.all()
     filterset_class = WorkflowFilterSet
     table_class = WorkflowTable
+    # Bulk edit adds or removes tags only. The router already provides the workflow_bulk_edit route.
+    bulk_update_form_class = WorkflowBulkEditForm
 
     def get_queryset(self):
-        """Respect the show_disabled setting when listing workflows."""
+        """Respect the show_disabled setting when listing workflows.
+
+        Bulk edit works on every workflow, including disabled ones, because editors see
+        those on the Workflows list. Nautobot still limits it to workflows the user can change.
+        """
+        if getattr(self, "action", None) == "bulk_update":
+            return Workflow.objects.all()
         return _get_workflow_queryset()
 
 
@@ -340,6 +348,12 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         git_status = self.request.GET.get("git_status")
         if git_status:
             qs = qs.filter(git_status=git_status)
+        tags = [name for name in self.request.GET.getlist("tags") if name]
+        if tags:
+            filterset = WorkflowFilterSet({"tags": tags}, queryset=qs)
+            # An unknown tag name matches nothing rather than being ignored.
+            qs = filterset.qs if filterset.is_valid() else qs.none()
+        qs = qs.prefetch_related("tags")
         # The header search, scoped "in: Workflows", submits ?q= here (Nautobot's list-page pattern).
         search = (self.request.GET.get("q") or "").strip()
         if search:
@@ -402,6 +416,14 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         )
         context["categories"] = list(all_categories)
         context["selected_category"] = selected_category
+        selected_tags = [name for name in self.request.GET.getlist("tags") if name]
+        context["selected_tags"] = selected_tags
+        context["selected_tag"] = selected_tags[0] if selected_tags else ""
+        context["tag_query"] = urlencode([("tags", name) for name in selected_tags])
+        context["tag_choices"] = _tag_choices(self.request.user)
+        # Row checkboxes and the Bulk edit button: tags only, the same as other Nautobot objects.
+        context["can_bulk_edit"] = can_change_workflows
+        context["return_url"] = self.request.get_full_path()
         context["manage"] = False
         drafts = {
             revision.workflow_id: revision
@@ -435,6 +457,9 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
             workflow.needs_approval = bool(workflow.approval_required)
             workflow.uses_snow = bool(snow.get("enabled") or snow.get("integration_name"))
             workflow.can_publish = self.request.user.has_perm("nautobot_workflow_engine.publish_workflow", workflow)
+            workflow.can_change = can_change_workflows and self.request.user.has_perm(
+                "nautobot_workflow_engine.change_workflow", workflow
+            )
             workflow.can_delete = self.request.user.has_perm("nautobot_workflow_engine.delete_workflow", workflow)
             counts["all"] += 1
             if kind == "new":
@@ -1793,14 +1818,21 @@ def _repository_for_payload(payload, definition, user=None):
 
 
 def _tag_choices(user):
-    """Tag names this user can attach. Tags stay in the database, not the YAML."""
+    """Nautobot tags this user can see that are allowed on workflows. Tags stay in the database, not the YAML."""
     from nautobot.extras.models import Tag
 
-    queryset = Tag.objects.all()
-    restrict = getattr(queryset, "restrict", None)
-    if callable(restrict):
-        queryset = restrict(user, "view")
-    return list(queryset.order_by("name").values_list("name", flat=True)[:200])
+    queryset = Tag.objects.get_for_model(Workflow).restrict(user, "view").order_by("name")
+    return [{"id": str(tag.pk), "name": tag.name, "color": tag.color or ""} for tag in queryset[:500]]
+
+
+def _tag_urls(user):
+    """Links the builder's Tags picker offers when no tag allows workflows yet."""
+    urls = {"tag_list_url": "", "tag_add_url": ""}
+    if user.has_perm("extras.view_tag"):
+        urls["tag_list_url"] = reverse("extras:tag_list")
+    if user.has_perm("extras.add_tag"):
+        urls["tag_add_url"] = reverse("extras:tag_add")
+    return urls
 
 
 def _script_label(path):
@@ -1888,8 +1920,9 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         can_author_code = can_build(user, target)
         can_publish = user.has_perm("nautobot_workflow_engine.publish_workflow", target)
     if isinstance(payload, dict):
-        if workflow is not None and not payload.get("tags"):
-            payload["tags"] = list(workflow.tags.values_list("name", flat=True))
+        # Tags live in Nautobot, not in the definition, so the database is always the source.
+        if workflow is not None:
+            payload["tags"] = list(workflow.tags.order_by("name").values_list("name", flat=True))
         payload.setdefault("tags", [])
     stages = approval_stage_summary(workflow) if workflow is not None else []
     draft = workflow.draft_revision if workflow is not None else None
@@ -1941,6 +1974,7 @@ def _builder_config(request, payload, workflow=None, is_edit=False):
         "render_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-render"),
         "yaml_apply_url": reverse("plugins-api:nautobot_workflow_engine-api:builder-yaml-apply"),
         "tag_choices": _tag_choices(user),
+        **_tag_urls(user),
         "csrf_token": get_token(request),
         "create_api_url": reverse("plugins-api:nautobot_workflow_engine-api:workflow-list"),
         "draft_url": (
