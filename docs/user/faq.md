@@ -47,5 +47,5 @@ Workflows list. See [Tags](builder.md#tags).
 ## Why doesn't a tag show up in the builder's Tags picker?
 
 The tag doesn't allow workflows yet. Open **Organization → Tags**, edit the tag, and add
-**nautobot_workflow_engine | workflow** to **Content types**.
+**Workflow Engine | workflow** to **Content Type(s)**.
 

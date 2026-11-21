@@ -80,7 +80,7 @@ Workflows carry the same colour-coded Nautobot tags as devices, locations and ev
 
 ![The Tags picker on the Details step](../assets/images/builder/20-details-tags.png)
 
-A tag only appears in the picker once it allows workflows. Open **Organization → Tags**, edit the tag (or add one), and add **nautobot_workflow_engine | workflow** to **Content types**. If no tag allows workflows yet, the picker says so and links to the Tags page.
+A tag only appears in the picker once it allows workflows. Open **Organization → Tags**, edit the tag (or add one), and add **Workflow Engine | workflow** to **Content Type(s)**. If no tag allows workflows yet, the picker says so and links to the Tags page.
 
 ![A Nautobot tag with Workflow allowed under Content types](../assets/images/builder/23-tag-content-types.png)
 
