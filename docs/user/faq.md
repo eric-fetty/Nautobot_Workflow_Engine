@@ -49,3 +49,17 @@ Workflows list. See [Tags](builder.md#tags).
 The tag doesn't allow workflows yet. Open **Organization → Tags**, edit the tag, and add
 **Workflow Engine | workflow** to **Content Type(s)**.
 
+## Why was my run "Blocked by freeze"?
+
+It came due during a [change freeze](../admin/change_freezes.md) that covers the workflow,
+so nothing in it ran. The run page names the freeze. It isn't retried: run it again after the
+freeze, or ask someone with **Override change freezes** to run it with a reason. A run booked
+with an override is also blocked if the person who booked it lost that permission before it
+fired.
+
+## Why can't I remove a tag or change a category?
+
+The change would take the workflow out of an active or upcoming change freeze, which is the
+same as overriding it, so it needs **Override change freezes**. The message names the freeze.
+Bulk edit skips those workflows and says so, and a Git sync leaves them unchanged and logs
+`E-NWE-302`.
