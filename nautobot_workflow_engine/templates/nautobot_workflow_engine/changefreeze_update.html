@@ -1,0 +1,68 @@
+{% extends "generic/object_create.html" %}
+{% load static %}
+{% load form_helpers %}
+
+{% block form %}
+<div class="row nwe-freeze-form" data-nwe-freeze-form>
+    <div class="col-lg-7">
+        <div class="card mb-3">
+            <div class="card-header"><strong>Change freeze</strong></div>
+            <div class="card-body">
+                {% render_field form.name %}
+                {% render_field form.message %}
+                {% render_field form.enabled %}
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header"><strong>Schedule</strong></div>
+            <div class="card-body">
+                {% render_field form.timezone %}
+                {% render_field form.kind %}
+                <div data-nwe-kind="one_time">
+                    {% render_field form.starts_at %}
+                    {% render_field form.ends_at %}
+                    <div class="small text-secondary mb-3">Times are in the freeze's time zone.</div>
+                </div>
+                <div data-nwe-kind="recurring">
+                    {% render_field form.preset %}
+                    {% render_field form.recur_start_date %}
+                    {% render_field form.recur_start_time %}
+                    {% render_field form.duration_minutes %}
+                    {% render_field form.rrule %}
+                    {% render_field form.recur_until %}
+                </div>
+                {% render_field form.warning_lead_minutes %}
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header"><strong>What it covers</strong></div>
+            <div class="card-body">
+                {% render_field form.applies_to_all %}
+                {% render_field form.categories %}
+                {% render_field form.match_tags %}
+                {% render_field form.workflows %}
+                {% render_field form.excluded_workflows %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card mb-3 nwe-freeze-preview" id="nwe-freeze-preview" aria-live="polite">
+            <div class="card-header"><strong>Preview</strong></div>
+            <div class="card-body">
+                <div class="fw-semibold" data-nwe-preview-summary>Fill in the schedule to see the next windows.</div>
+                <ol class="small mt-2 mb-2" data-nwe-preview-windows></ol>
+                <div class="mb-1" data-nwe-preview-affects></div>
+                <div class="small text-warning-emphasis" data-nwe-preview-runs></div>
+                <div class="small text-danger" data-nwe-preview-errors></div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ freeze_presets|json_script:"nwe-freeze-presets" }}
+<div hidden data-nwe-preview-url="{{ freeze_preview_url }}"></div>
+{% endblock form %}
+
+{% block javascript %}
+    {{ block.super }}
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/freezes/freeze_form.js' %}?v1"></script>
+{% endblock javascript %}

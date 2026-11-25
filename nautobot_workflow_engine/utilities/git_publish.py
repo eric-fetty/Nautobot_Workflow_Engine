@@ -12,6 +12,7 @@ from nautobot.core.utils.git import BranchDoesNotExist
 from nautobot.extras.choices import SecretsGroupAccessTypeChoices, SecretsGroupSecretTypeChoices
 from nautobot.extras.secrets.exceptions import SecretError
 
+from nautobot_workflow_engine.freezes import FreezeScopeEscape
 from nautobot_workflow_engine.models import (
     GIT_STATUS_DISABLED_REPO,
     GIT_STATUS_IN_SYNC,
@@ -667,7 +668,18 @@ def _diverged(helper, repository, workflow, path, desired, current, touch, revis
             log.error(workflow.git_error)
             return None
         reason = f"newer Git change {touch['sha']} by {touch['author']}"
-        apply_git_version(repository, workflow, parsed, current, relative, log, reason)
+        try:
+            apply_git_version(repository, workflow, parsed, current, relative, log, reason)
+        except FreezeScopeEscape as exc:
+            workflow.git_status = GIT_STATUS_NOT_SYNCED
+            workflow.git_error = (
+                f"Couldn't push to {repository.name}: someone changed {relative} in Git after this was published, "
+                f"and their category change would take it out of a change freeze. {exc} "
+                "Nautobot kept the published version."
+            )
+            workflow.save(update_fields=["git_status", "git_error", "last_updated"])
+            log.error(workflow.git_error)
+            return None
         log.info("E-NWE-207 Applied newer Git change %s and superseded the unpushed save.", touch["sha"])
         return None
     _write_bytes(path, desired)

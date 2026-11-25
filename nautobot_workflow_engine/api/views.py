@@ -872,6 +872,16 @@ def _resolve_tags(workflow, user, data):
     return list(unique.values())
 
 
+def _freeze_tags(workflow, user, tags):
+    """The full tag set ``_apply_tags`` would leave, for the change freeze check (None: unchanged)."""
+    if tags is None or workflow is None:
+        return None
+    from nautobot.extras.models import Tag
+
+    hidden = workflow.tags.exclude(pk__in=Tag.objects.restrict(user, "view").values("pk"))
+    return [*tags, *hidden]
+
+
 def _apply_tags(workflow, user, tags):
     """Set the workflow's Nautobot tags. Tags are not part of the YAML.
 
@@ -1090,6 +1100,7 @@ class WorkflowViewSet(ViewSet):
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
                 strict=strict,
+                freeze_tags=_freeze_tags(workflow, request.user, tags),
             )
             _apply_tags(workflow, request.user, tags)
         except ServiceError as exc:
@@ -1138,6 +1149,7 @@ class WorkflowViewSet(ViewSet):
                 base_content_hash=data.get("base_content_hash"),
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
+                freeze_tags=_freeze_tags(workflow, request.user, tags),
             )
             _apply_tags(saved, request.user, tags)
         except ServiceError as exc:

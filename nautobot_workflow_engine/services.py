@@ -34,6 +34,39 @@ class ServiceError(Exception):
         super().__init__(payload.get("detail") or payload.get("message") or status)
 
 
+def require_freeze_scope(user, workflow, definition, freeze_tags=None):
+    """Refuse a tag or category change that takes ``workflow`` out of an active or upcoming freeze.
+
+    People with Override change freezes may make it. Raises a 400 naming the freeze.
+    """
+    if workflow is None or getattr(workflow, "pk", None) is None:
+        return
+    from .freezes import FreezeScopeEscape, check_scope_escape
+
+    category = (definition or {}).get("category") or ""
+    same_category = category.strip().casefold() == (workflow.category or "").strip().casefold()
+    proposed_category = None if same_category else category
+    if proposed_category is None and freeze_tags is None:
+        return
+    try:
+        check_scope_escape(workflow, proposed_tags=freeze_tags, proposed_category=proposed_category, user=user)
+    except FreezeScopeEscape as exc:
+        path = "category" if exc.field_name == "category" else "tags"
+        raise ServiceError(
+            400,
+            detail=str(exc),
+            errors=[
+                {
+                    "pointer": f"/{path}",
+                    "path": path,
+                    "code": "change_freeze",
+                    "message": str(exc),
+                    "section": "details",
+                }
+            ],
+        ) from exc
+
+
 def stale_revision_detail(author, when_text):
     """Message for a save that started from an older Nautobot revision."""
     return f"Updated in Nautobot by {author} at {when_text}; reload to continue."
@@ -260,8 +293,13 @@ def update_draft(
     require_base=True,
     source=WorkflowRevision.SOURCE_BUILDER,
     strict=True,
+    freeze_tags=None,
 ):
-    """Replace the shared draft. The published definition and the rows stay as they are."""
+    """Replace the shared draft. The published definition and the rows stay as they are.
+
+    ``freeze_tags`` is the full tag list the caller is about to set (None when tags don't
+    change), so a tag and category change are checked together against change freezes.
+    """
     if not user.has_perm("nautobot_workflow_engine.change_workflow", workflow):
         raise ServiceError(404, detail="Not found.")
     conflict = check_stale(
@@ -276,6 +314,7 @@ def update_draft(
         raise ServiceError(409, **conflict)
     draft_errors = _draft_errors(definition, workflow.source_repo, strict=strict)
     _require_author(user, workflow, _author_base(workflow), definition)
+    require_freeze_scope(user, workflow, definition, freeze_tags)
     with transaction.atomic():
         current = workflow.draft_revision
         if current is not None:
@@ -311,8 +350,12 @@ def publish(
     base_content_hash=None,
     require_base=True,
     source=WorkflowRevision.SOURCE_BUILDER,
+    freeze_tags=None,
 ):
-    """Make ``definition`` the live revision and write runtime rows."""
+    """Make ``definition`` the live revision and write runtime rows.
+
+    ``freeze_tags`` works as in :func:`update_draft`.
+    """
     if workflow is not None:
         outdated = _outdated_git(workflow)
         if outdated is not None:
@@ -347,6 +390,7 @@ def publish(
     _raise_validation(definition, repo)
     _require_author(user, workflow, author_base, definition)
     _require_publish(user, workflow, definition, enable=enable, approval_confirm=approval_confirm)
+    require_freeze_scope(user, workflow, definition, freeze_tags)
     created = workflow is None
     prior_enabled = bool(workflow.enabled) if workflow is not None else False
     prior_approval = bool(workflow.approval_required) if workflow is not None else False
@@ -507,6 +551,8 @@ def duplicate_workflow(*, user, source, key, name):
             comment=f"Duplicated from {source.key}.",
             base=None,
         )
+        # Tags are Nautobot metadata, not YAML, so copy them across too.
+        workflow.tags.set(source.tags.all())
         _assert_scope(user, workflow, "add")
     return workflow, revision
 

@@ -3,6 +3,7 @@
 import { h, icon, plural } from "../shared/dom.js";
 import { createField } from "../shared/fields.js";
 import { fieldError, isEmpty } from "../shared/validate.js";
+import { freezeHint, hintText } from "../freezes/hints.js";
 
 const config = JSON.parse(document.getElementById("nwe-launch-config").textContent || "{}");
 const form = document.getElementById("workflow-launch-form");
@@ -184,6 +185,25 @@ function localStamp(date) {
 const when = h("input", { type: "datetime-local", class: "form-control nwe-when", id: "nwe-when", value: execution.scheduled || localStamp(new Date(Date.now() + 10 * 60000)) });
 when.min = localStamp(new Date(Date.now() + 5 * 60000));
 const timingError = h("div", { class: "nwe-f-error", hidden: true });
+const freeze = config.freeze || { windows: [], can_override: false, frozen_now: false };
+const freezeNote = h("div", { class: "nwe-f-help nwe-freeze-hint", hidden: true, "data-nwe-freeze-hint": "1" });
+const overrideBox = document.getElementById("nwe-freeze-reason");
+
+function currentFreezeHint() {
+    const whenMs = executionValue === "scheduled" && when.value ? new Date(when.value).getTime() : executionValue === "immediate" ? Date.now() : null;
+    return freezeHint(freeze.windows, whenMs, Date.now());
+}
+
+function paintFreezeHint() {
+    const hint = currentFreezeHint();
+    const text = executionValue === "immediate" && hint.kind === "now" ? "" : hintText(hint);
+    freezeNote.replaceChildren(...(text ? [icon(hint.kind === "soon" ? "clock-alert-outline" : "lock-outline"), h("span", { text })] : []));
+    freezeNote.hidden = !text;
+    freezeNote.classList.toggle("is-frozen", hint.kind === "inside" || hint.kind === "now");
+    if (overrideBox) overrideBox.required = Boolean(freeze.can_override && (hint.kind === "inside" || hint.kind === "now"));
+}
+when.addEventListener("input", paintFreezeHint);
+when.addEventListener("change", paintFreezeHint);
 
 function paintTiming() {
     if (!timingHost) return;
@@ -208,12 +228,14 @@ function paintTiming() {
             h("label", { class: "nwe-f-label", for: "nwe-when" }, ["Date and time", h("span", { class: "nwe-req", text: "*" })]),
             when,
             h("div", { class: "nwe-f-help", text: tz ? `In your time zone, ${tz}.` : "In your local time." }),
+            freezeNote,
         ]));
     }
     if (executionValue === "servicenow") {
         extra.push(h("div", { class: "nwe-f-help nwe-when-row", text: "Nautobot checks the change in ServiceNow when you submit, then schedules the run for the start of its window." }));
     }
     timingHost.replaceChildren(cards, ...extra, timingError);
+    paintFreezeHint();
 }
 
 if ((config.errors || {}).scheduled_datetime || (config.errors || {}).execution_type) {
@@ -241,6 +263,16 @@ form.addEventListener("submit", (event) => {
         timingError.replaceChildren(...(message ? [icon("alert-circle-outline"), h("span", { text: message })] : []));
         timingError.hidden = !message;
         timingBad = Boolean(message);
+    }
+    const hint = currentFreezeHint();
+    if (!timingBad && (hint.kind === "inside" || hint.kind === "now") && executionValue !== "servicenow") {
+        const reason = overrideBox ? overrideBox.value.trim() : "";
+        if (!freeze.can_override || !reason) {
+            const message = freeze.can_override ? `${hintText(hint)} To override it, type a reason.` : hintText(hint) || "A change freeze is in effect.";
+            timingError.replaceChildren(icon("lock-outline"), h("span", { text: message }));
+            timingError.hidden = false;
+            timingBad = true;
+        }
     }
     if (bad.length || timingBad) {
         event.preventDefault();

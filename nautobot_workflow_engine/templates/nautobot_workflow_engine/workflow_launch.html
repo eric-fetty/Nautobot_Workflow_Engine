@@ -4,7 +4,7 @@
 {% block extra_styles %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v33">
-  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/launch.css' %}?v33">
+  <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/launch.css' %}?v34">
 {% endblock extra_styles %}
 {% block breadcrumbs %}
   <li class="breadcrumb-item"><a href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}">Workflows</a></li>
@@ -14,6 +14,7 @@
 {% block page_title %}{% endblock page_title %}
 {% block content %}
 <div class="nwe-ui nwe-launch">
+  {% include "nautobot_workflow_engine/inc/freeze_banner.html" %}
   <header class="nwe-launch-head">
     <span class="nwe-tile t-nautobot" aria-hidden="true"><i class="mdi mdi-transit-connection-variant"></i></span>
     <div class="nwe-launch-title">
@@ -29,6 +30,12 @@
     <form method="post" id="workflow-launch-form" class="nwe-launch-card" novalidate>
       {% csrf_token %}
       <div class="nwe-launch-body">
+        {% if freeze.blocked %}
+          <div class="nwe-launch-alert nwe-freeze-alert" role="alert">
+            <i class="mdi mdi-lock-outline" aria-hidden="true"></i>
+            <div>{{ freeze.message }} Runs can't start or be scheduled until it ends.</div>
+          </div>
+        {% endif %}
         {% if non_field_errors %}
           <div class="nwe-launch-alert" role="alert">
             <i class="mdi mdi-alert-circle-outline" aria-hidden="true"></i>
@@ -45,6 +52,14 @@
         <div id="nwe-launch-timing"></div>
       </section>
 
+      {% if freeze.show_reason %}
+        <section class="nwe-launch-section nwe-freeze-override" aria-labelledby="nwe-override-title" data-nwe-freeze-override>
+          <h2 id="nwe-override-title"><i class="mdi mdi-lock-open-outline" aria-hidden="true"></i> Override reason{% if freeze.reason_required %} <span class="nwe-req">*</span>{% endif %}</h2>
+          <p>{% if freeze.frozen %}A change freeze is in effect. You can override it: the reason is saved on the run and its log.{% else %}Needed only if this run starts or is scheduled inside a change freeze. The reason is saved on the run and its log.{% endif %}</p>
+          <textarea class="form-control" name="freeze_override_reason" id="nwe-freeze-reason" rows="2" maxlength="1000" {% if freeze.reason_required %}required{% endif %} placeholder="Why this has to run during the freeze">{{ freeze.reason }}</textarea>
+        </section>
+      {% endif %}
+
       <div id="nwe-launch-values" hidden></div>
 
       <footer class="nwe-launch-foot">
@@ -56,7 +71,11 @@
           {% endif %}
         </span>
         <a class="btn nwe-btn" href="{% url 'plugins:nautobot_workflow_engine:workflows_list' %}">Cancel</a>
-        <button class="btn nwe-btn-accent nwe-run" type="submit"><i class="mdi mdi-play" aria-hidden="true"></i> Run workflow</button>
+        {% if freeze.blocked %}
+          <span title="{{ freeze.message }}"><button class="btn nwe-btn-accent nwe-run" type="submit" disabled><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Frozen</button></span>
+        {% else %}
+          <button class="btn nwe-btn-accent nwe-run" type="submit">{% if freeze.frozen %}<i class="mdi mdi-lock-open-outline" aria-hidden="true"></i> Override and run{% else %}<i class="mdi mdi-play" aria-hidden="true"></i> Run workflow{% endif %}</button>
+        {% endif %}
       </footer>
     </form>
 
@@ -97,5 +116,5 @@
 {% endblock content %}
 {% block javascript %}
   {{ block.super }}
-  <script type="module" src="{% static 'nautobot_workflow_engine/js/launch/launch.js' %}?v33"></script>
+  <script type="module" src="{% static 'nautobot_workflow_engine/js/launch/launch.js' %}?v34"></script>
 {% endblock javascript %}

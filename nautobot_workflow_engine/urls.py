@@ -5,13 +5,14 @@ from django.urls import include, path
 from django.views.generic import RedirectView
 from nautobot.apps.urls import NautobotUIViewSetRouter
 
-from . import views
+from . import freeze_views, views
 
 app_name = "nautobot_workflow_engine"
 
 # Create router and register WorkflowUIViewSet
 router = NautobotUIViewSetRouter()
 router.register("workflow", views.WorkflowUIViewSet)
+router.register("change-freezes", freeze_views.ChangeFreezeUIViewSet)
 
 urlpatterns = [
     # Old address of the Settings page, kept so bookmarks still work.

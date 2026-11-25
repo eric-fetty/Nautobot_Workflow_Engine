@@ -1,6 +1,6 @@
 """Navigation menu configuration for the workflow engine plugin."""
 
-from nautobot.apps.ui import NavMenuGroup, NavMenuItem, NavMenuTab
+from nautobot.apps.ui import NavMenuAddButton, NavMenuGroup, NavMenuItem, NavMenuTab
 
 workflow_items = (
     NavMenuItem(
@@ -17,6 +17,17 @@ workflow_items = (
         link="plugins:nautobot_workflow_engine:workflow_run_list",
         name="Run History",
         permissions=["nautobot_workflow_engine.view_workflowrun"],
+    ),
+    NavMenuItem(
+        link="plugins:nautobot_workflow_engine:changefreeze_list",
+        name="Change Freezes",
+        permissions=["nautobot_workflow_engine.view_changefreeze"],
+        buttons=(
+            NavMenuAddButton(
+                link="plugins:nautobot_workflow_engine:changefreeze_add",
+                permissions=["nautobot_workflow_engine.add_changefreeze"],
+            ),
+        ),
     ),
 )
 

@@ -390,6 +390,7 @@ class WorkflowRun(BaseModel):
         ("failed", "Failed"),
         ("canceled", "Canceled"),
         ("partial", "Partial"),
+        ("blocked", "Blocked by freeze"),
     ]
 
     workflow = models.ForeignKey(Workflow, related_name="runs", on_delete=models.PROTECT)
@@ -437,6 +438,25 @@ class WorkflowRun(BaseModel):
         editable=False,
         help_text="Input values and the names of picked objects, kept for run history search.",
     )
+    # Change freezes: the freeze that blocked this run, or that an override was used against.
+    freeze = models.ForeignKey(
+        "nautobot_workflow_engine.ChangeFreeze",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="runs",
+        help_text="The change freeze that blocked this run, or that was overridden to start it.",
+    )
+    freeze_name = models.CharField(max_length=100, blank=True, help_text="Kept if the freeze is deleted.")
+    freeze_override_by = models.ForeignKey(
+        dj_settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who overrode a change freeze to start or schedule this run.",
+    )
+    freeze_override_reason = models.TextField(blank=True, help_text="The reason typed when overriding a freeze.")
 
     def get_absolute_url(self, **kwargs):
         """Return URL to this workflow run detail."""
@@ -551,3 +571,84 @@ class WorkflowFilterModule(BaseModel):
     def __str__(self):
         """Return string representation of the WorkflowFilterModule."""
         return f"{self.source_repo.name}:{self.file_path}"
+
+
+FREEZE_KIND_ONE_TIME = "one_time"
+FREEZE_KIND_RECURRING = "recurring"
+FREEZE_KIND_CHOICES = (
+    (FREEZE_KIND_ONE_TIME, "One time"),
+    (FREEZE_KIND_RECURRING, "Recurring"),
+)
+
+
+class ChangeFreeze(ChangeLoggedModel, BaseModel):
+    """A window when some or all workflows can't start, such as a holiday freeze.
+
+    One-time freezes store absolute start and end instants. Recurring freezes store a
+    local wall-clock start (date + time in ``timezone``), an RFC 5545 RRULE and a length,
+    so a Friday 17:00 freeze stays at 17:00 across daylight saving changes.
+
+    Scope: every workflow (``applies_to_all``), or any workflow whose category, tags or
+    key match, minus ``excluded_workflows``. There is no per-workflow exempt flag.
+    The schedule math and enforcement live in ``freezes.py``.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    message = models.TextField(
+        max_length=500,
+        blank=True,
+        help_text="Shown on banners, the launch page and blocked runs.",
+    )
+    enabled = models.BooleanField(default=True)
+    timezone = models.CharField(max_length=64, default="UTC", help_text="The freeze's own time zone.")
+    kind = models.CharField(max_length=16, choices=FREEZE_KIND_CHOICES, default=FREEZE_KIND_ONE_TIME)
+    # One time: absolute instants.
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    # Recurring: a local wall-clock start, the rule and the length of each window.
+    recur_start_date = models.DateField(null=True, blank=True, help_text="First day the rule may start on.")
+    recur_start_time = models.TimeField(null=True, blank=True, help_text="Local start time of each window.")
+    rrule = models.CharField(max_length=500, blank=True, help_text="RFC 5545 rule, for example FREQ=WEEKLY;BYDAY=FR")
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    recur_until = models.DateField(null=True, blank=True, help_text="Last day a window may start on.")
+    warning_lead_minutes = models.PositiveIntegerField(
+        default=120,
+        help_text="Show a “freeze starts soon” warning this many minutes before it starts. 0 turns it off.",
+    )
+    # Scope.
+    applies_to_all = models.BooleanField(default=False)
+    categories = models.JSONField(default=list, blank=True, help_text="Workflow categories this freeze covers.")
+    match_tags = models.ManyToManyField("extras.Tag", blank=True, related_name="+")
+    workflows = models.ManyToManyField(Workflow, blank=True, related_name="change_freezes")
+    excluded_workflows = models.ManyToManyField(Workflow, blank=True, related_name="change_freeze_exclusions")
+    created_by = models.ForeignKey(
+        dj_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        """Freezes sort by name."""
+
+        ordering = ("name",)
+
+    def __str__(self):
+        """Return the freeze name."""
+        return self.name
+
+    def get_absolute_url(self, api=False):
+        """Return the freeze detail page."""
+        from django.urls import reverse
+
+        if api:
+            return reverse("plugins-api:nautobot_workflow_engine-api:changefreeze-detail", kwargs={"pk": self.pk})
+        return reverse("plugins:nautobot_workflow_engine:changefreeze", kwargs={"pk": self.pk})
+
+    def clean(self):
+        """Check the schedule, time zone and warning lead time."""
+        super().clean()
+        from nautobot_workflow_engine.freezes import schedule_errors
+
+        errors = schedule_errors(self)
+        if errors:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(errors)

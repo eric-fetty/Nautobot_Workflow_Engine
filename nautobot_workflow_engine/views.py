@@ -42,6 +42,19 @@ from .approvals import (
 from .executors import WEB_RENDER_LIMIT, _get_workflow_queryset, _render, run_workflow
 from .filters import WorkflowFilterSet, WorkflowRunFilterSet, content_type_for_label
 from .forms import DynamicWorkflowForm, WorkflowBulkEditForm, WorkflowEngineSettingsForm
+from .freezes import (
+    FreezeBlocked,
+    FreezeScopeEscape,
+    banner_rows,
+    can_override_freeze,
+    check_launch,
+    check_scope_escape,
+    enabled_freezes,
+    in_scope,
+    stamp_override,
+    starting_soon_for,
+    window_at,
+)
 from .launch_ui import launch_context, option_meta, related_for_meta
 from .models import GIT_STATUS_CHOICES, Workflow, WorkflowHelper, WorkflowInput, WorkflowRevision, WorkflowRun
 from .run_inputs import run_input_rows
@@ -83,7 +96,9 @@ from .timezones import timezone_choices
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_WORKFLOW_STATUSES = {"success", "failed", "partial", "canceled"}
+TERMINAL_WORKFLOW_STATUSES = {"success", "failed", "partial", "canceled", "blocked"}
+# Runs that never started: left out of success-rate denominators.
+NOT_STARTED_STATUSES = ("blocked",)
 STATUS_BADGE_MAP = {
     "success": {"label": "Success", "class": "bg-success", "icon": "mdi-check"},
     "failed": {"label": "Failed", "class": "bg-danger", "icon": "mdi-close"},
@@ -98,6 +113,7 @@ STATUS_BADGE_MAP = {
     "scheduled": {"label": "Scheduled", "class": "bg-info text-dark", "icon": "mdi-calendar-clock"},
     "canceled": {"label": "Canceled", "class": "bg-secondary", "icon": "mdi-cancel"},
     "partial": {"label": "Partial", "class": "bg-warning text-dark", "icon": "mdi-alert"},
+    "blocked": {"label": "Blocked by freeze", "class": "bg-dark", "icon": "mdi-lock-outline"},
 }
 
 TERMINAL_AWX_STATUSES = {"successful", "failed", "error", "canceled"}
@@ -276,6 +292,61 @@ class WorkflowUIViewSet(NautobotUIViewSet):
             return Workflow.objects.all()
         return _get_workflow_queryset()
 
+    def perform_bulk_update(self, request, **kwargs):
+        """Before the Bulk Edit job runs, say which rows it will skip.
+
+        The job itself enforces both rules: rows outside the person's change permission are not
+        edited, and a tag removal that would take a workflow out of a change freeze is skipped
+        unless they hold Override change freezes (``WorkflowBulkEditForm.post_save``).
+        """
+        if "_apply" in request.POST and not request.POST.get("_all"):
+            _bulk_edit_skip_messages(request)
+        return super().perform_bulk_update(request, **kwargs)
+
+
+def _bulk_edit_skip_messages(request):
+    """Messages for the Bulk Edit result: updated, skipped for permission, skipped for a freeze."""
+    from nautobot.extras.models import Tag
+
+    pks = [pk for pk in request.POST.getlist("pk") if pk]
+    try:
+        rows = list(Workflow.objects.filter(pk__in=pks).prefetch_related("tags"))
+        removing = set(
+            Tag.objects.filter(pk__in=[pk for pk in request.POST.getlist("remove_tags") if pk]).values_list(
+                "pk", flat=True
+            )
+        )
+        adding = set(
+            Tag.objects.filter(pk__in=[pk for pk in request.POST.getlist("add_tags") if pk]).values_list(
+                "pk", flat=True
+            )
+        )
+    except (ValidationError, ValueError):
+        return
+    editable = {
+        row.pk for row in Workflow.objects.filter(pk__in=[row.pk for row in rows]).restrict(request.user, "change")
+    }
+    frozen = []
+    if removing:
+        for row in rows:
+            if row.pk not in editable:
+                continue
+            proposed = ({tag.pk for tag in row.tags.all()} | adding) - removing
+            try:
+                check_scope_escape(row, proposed_tags=proposed, user=request.user)
+            except FreezeScopeEscape:
+                frozen.append(row)
+    no_permission = len(rows) - len(editable)
+    updated = len(editable) - len(frozen)
+    parts = [f"{updated} workflow{'s' if updated != 1 else ''} will be updated"]
+    if no_permission:
+        parts.append(f"{no_permission} skipped because you can't edit them")
+    if frozen:
+        names = ", ".join(row.name for row in frozen[:5]) + (", …" if len(frozen) > 5 else "")
+        parts.append(f"{len(frozen)} skipped because removing the tag would take them out of a change freeze ({names})")
+    if no_permission or frozen:
+        messages.warning(request, "; ".join(parts) + ".")
+
 
 def _relative_time(moment):
     """Short age for the draft subtitle on the workflows list."""
@@ -298,7 +369,7 @@ def _catalog_stats():
     """Runs, success rate, and time saved for the last 30 days."""
     since = timezone.now() - timedelta(days=30)
     recent = WorkflowRun.objects.filter(started__gte=since)
-    total = recent.count()
+    total = recent.exclude(status__in=NOT_STARTED_STATUSES).count()
     success = recent.filter(status="success").count()
     saved_minutes = 0
     for run in recent.filter(status="success").select_related("workflow"):
@@ -313,6 +384,22 @@ def _catalog_stats():
         "success_rate": round(100 * success / total) if total else None,
         "time_saved_hours": floor(saved_minutes / 60),
     }
+
+
+def _mark_freeze_lock(user, workflow, active_freezes):
+    """Set the lock badge attributes for one row of the Workflows list."""
+    tag_ids = {tag.pk for tag in workflow.tags.all()}
+    hits = [(freeze, window) for freeze, window in active_freezes if in_scope(freeze, workflow, tag_ids=tag_ids)]
+    workflow.freeze_locked = bool(hits)
+    workflow.freeze_name = ""
+    workflow.freeze_message = ""
+    workflow.freeze_can_override = False
+    if hits:
+        freeze, window = max(hits, key=lambda item: item[1].end)
+        workflow.freeze_name = freeze.name
+        text = f"Change freeze \u201c{freeze.name}\u201d until {window.end.strftime('%Y-%m-%d %H:%M')} UTC."
+        workflow.freeze_message = f"{text} {freeze.message}".strip()
+        workflow.freeze_can_override = can_override_freeze(user, workflow)
 
 
 class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
@@ -433,6 +520,13 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
         }
         since = timezone.now() - timedelta(days=30)
         workflows = workflows.annotate(runs_30d=Count("runs", filter=Q(runs__started__gte=since)))
+        # Change freezes: banner and lock badges show to anyone who can see the workflow.
+        freeze_now = timezone.now()
+        freezes = enabled_freezes()
+        active_freezes = [
+            (freeze, window) for freeze in freezes if (window := window_at(freeze, freeze_now)) is not None
+        ]
+        context["freeze_banner"] = banner_rows(workflows, now=freeze_now, freezes=freezes)
         catalog = []
         counts = {"all": 0, "live": 0, "draft": 0, "new": 0}
         for workflow in workflows:
@@ -461,6 +555,7 @@ class WorkflowListView(ObjectPermissionRequiredMixin, TemplateView):
                 "nautobot_workflow_engine.change_workflow", workflow
             )
             workflow.can_delete = self.request.user.has_perm("nautobot_workflow_engine.delete_workflow", workflow)
+            _mark_freeze_lock(self.request.user, workflow, active_freezes)
             counts["all"] += 1
             if kind == "new":
                 counts["new"] += 1
@@ -669,6 +764,20 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
             elif execution_type == "scheduled":
                 schedule_source = "manual"
 
+            # Change freeze: nothing starts or is scheduled during a freeze. A schedule is checked now
+            # too, because its pre-actions run now. Override holders must type a reason.
+            override_reason = (request.POST.get("freeze_override_reason") or "").strip()
+            launch_now = timezone.now()
+            check_times = [launch_now] if execution_type != "scheduled" else [launch_now, scheduled_datetime]
+            decision = check_launch(wf, request.user, override_reason=override_reason, times=check_times)
+            if decision.blocked:
+                form.add_error(None, _freeze_refusal(decision, launch_now, execution_type))
+                return render(
+                    request,
+                    "nautobot_workflow_engine/workflow_launch.html",
+                    launch_context(request, wf, form),
+                )
+
             # Capture actual form-fill duration from client (in seconds)
             try:
                 form_duration_seconds = max(int(request.POST.get("form_duration_seconds", "0") or "0"), 0)
@@ -697,6 +806,9 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                 schedule_sync_error=schedule_sync_error,
                 form_duration_seconds=form_duration_seconds,
             )
+            if decision.overridden:
+                stamp_override(run, decision, request.user)
+            _warn_freeze_soon(request, wf, scheduled_datetime if execution_type == "scheduled" else launch_now)
 
             if execution_type == "immediate":
                 if wf.approval_required and nautobot_supports_approval_workflows():
@@ -734,7 +846,10 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                 # Set status to running immediately to avoid race condition with UI polling
                 run.status = "running"
                 run.save(update_fields=["status"])
-                run_workflow(wf, request.user, form.cleaned_data, run)
+                try:
+                    run_workflow(wf, request.user, form.cleaned_data, run)
+                except FreezeBlocked as exc:
+                    messages.error(request, str(exc))
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
 
             elif execution_type == "scheduled":
@@ -765,6 +880,35 @@ class WorkflowRunCreateView(ObjectPermissionRequiredMixin, TemplateView):
                 return redirect("plugins:nautobot_workflow_engine:workflow_run", pk=run.pk)
 
         return render(request, "nautobot_workflow_engine/workflow_launch.html", launch_context(request, wf, form))
+
+
+def _freeze_refusal(decision, now, execution_type):
+    """Why a launch is refused, naming the freeze and what would have run inside it."""
+    hit = decision.hits[0]
+    if hit.window.contains(now) and execution_type == "scheduled":
+        text = (
+            f"{decision.message} Scheduling now would run this workflow's pre-actions during the freeze, "
+            "so it can't be scheduled until the freeze ends."
+        )
+    elif hit.window.contains(now):
+        text = decision.message
+    else:
+        text = f"{decision.message} The time you picked is inside it. Pick a time outside the freeze."
+    if decision.can_override:
+        text = f"{text} You can override it: type a reason in Override reason."
+    return text
+
+
+def _warn_freeze_soon(request, workflow, start):
+    """Warn when a run starts within a freeze's warning lead time (it may still be going when the freeze begins)."""
+    if start is None:
+        return
+    for hit in starting_soon_for(workflow, now=start):
+        messages.warning(
+            request,
+            f"Change freeze \u201c{hit.freeze.name}\u201d starts {hit.start.strftime('%Y-%m-%d %H:%M')} UTC, "
+            "soon after this run starts. A run still going then keeps running.",
+        )
 
 
 class InputOptionsView(View):
@@ -1468,6 +1612,10 @@ class WorkflowReportView(TemplateView):
         # Status summary (filtered scope)
         status_summary = base_qs.values("status").annotate(count=Count("id")).order_by("status")
         context["status_summary"] = status_summary
+        # Change freeze banner, for anyone who can see an affected workflow.
+        context["freeze_banner"] = banner_rows(
+            Workflow.objects.filter(archived=False).restrict(self.request.user, "view").prefetch_related("tags")
+        )
 
         # Workflow popularity (filtered scope)
         workflow_summary = (
@@ -1491,7 +1639,7 @@ class WorkflowReportView(TemplateView):
         workflows_with_stats = []
         for workflow in _get_workflow_queryset():
             wf_runs = base_qs.filter(workflow=workflow)
-            total_runs = wf_runs.count()
+            total_runs = wf_runs.exclude(status__in=NOT_STARTED_STATUSES).count()
             successful_runs = wf_runs.filter(status="success").count()
             success_rate = (successful_runs / total_runs * 100.0) if total_runs else 0.0
             workflows_with_stats.append(
@@ -1527,12 +1675,13 @@ class WorkflowReportView(TemplateView):
                     "scheduled": 0,
                     "canceled": 0,
                     "partial": 0,
+                    "blocked": 0,
                 },
             )
             success_by_category[cat][row["status"]] = row["count"]
         success_by_category_list = []
         for cat, counts in success_by_category.items():
-            total = sum(counts.values())
+            total = sum(count for status, count in counts.items() if status not in NOT_STARTED_STATUSES)
             success_rate = (counts.get("success", 0) / total * 100.0) if total else 0.0
             success_by_category_list.append(
                 {"category": cat, "counts": counts, "total": total, "success_rate": success_rate}

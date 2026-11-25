@@ -3,6 +3,7 @@
 from django.urls import path
 from nautobot.apps.api import OrderedDefaultRouter
 
+from .freezes import ChangeFreezePreviewView, ChangeFreezeStatusView, ChangeFreezeViewSet
 from .views import (
     BuilderContextView,
     BuilderDryRunView,
@@ -22,6 +23,7 @@ from .webhooks import GitWebhookView
 
 router = OrderedDefaultRouter()
 router.register("workflows", WorkflowViewSet, basename="workflow")
+router.register("change-freezes", ChangeFreezeViewSet)
 
 workflow_draft = WorkflowViewSet.as_view({"put": "draft", "delete": "draft"})
 workflow_publish = WorkflowViewSet.as_view({"post": "publish_revision"})
@@ -42,6 +44,9 @@ workflow_archive = WorkflowViewSet.as_view({"post": "archive"})
 workflow_unarchive = WorkflowViewSet.as_view({"post": "unarchive"})
 
 urlpatterns = [
+    # Before the router, so "status" and "preview" aren't read as a freeze ID.
+    path("change-freezes/status/", ChangeFreezeStatusView.as_view(), name="changefreeze-status"),
+    path("change-freezes/preview/", ChangeFreezePreviewView.as_view(), name="changefreeze-preview"),
     path("git/webhook/<uuid:repository_id>/", GitWebhookView.as_view(), name="git-webhook"),
     path("builder/schema/", BuilderSchemaView.as_view(), name="builder-schema"),
     path("builder/context/", BuilderContextView.as_view(), name="builder-context"),

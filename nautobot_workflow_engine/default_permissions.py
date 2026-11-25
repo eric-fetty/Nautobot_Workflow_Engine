@@ -49,6 +49,26 @@ DEFAULT_PERMISSIONS = (
         [(APP, "workflow")],
         ["write_script"],
     ),
+    (
+        "Workflow Engine: View change freezes",
+        "See the Change Freezes page, each freeze's schedule and scope, and which workflows are frozen now.",
+        [(APP, "changefreeze")],
+        ["view"],
+    ),
+    (
+        "Workflow Engine: Manage change freezes",
+        "Create, edit, turn off and delete change freezes, and cancel scheduled runs that fall inside one.",
+        [(APP, "changefreeze")],
+        ["view", "add", "change", "delete"],
+    ),
+    (
+        "Workflow Engine: Override change freezes",
+        "Run or schedule a workflow during a change freeze with a reason saved on the run, or make an edit that "
+        "takes it out of a freeze (a tag or category change). Add a constraint, for example "
+        '{"category": "Networking"}, to limit which workflows.',
+        [(APP, "workflow")],
+        ["override_freeze"],
+    ),
 )
 
 

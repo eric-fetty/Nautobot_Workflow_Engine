@@ -62,9 +62,7 @@ def consider_nautobot_file(repository, workflow, raw_bytes, parsed, job_result, 
     known = getattr(workflow, "git_content_hash", "") or ""
     if status in {GIT_STATUS_NOT_CONFIGURED, GIT_STATUS_DISABLED_REPO} and not known:
         job_result.log(
-            message=(
-                f"Leaving Nautobot-managed workflow '{workflow.key}' unchanged. " "It has not been published to Git."
-            )
+            message=(f"Leaving Nautobot-managed workflow '{workflow.key}' unchanged. It has not been published to Git.")
         )
         return True
     if known and digest == known:
@@ -159,8 +157,11 @@ def _mark_invalid(workflow, errors, touch, job_result):
 
 def _apply(repository, workflow, parsed, raw_bytes, touch, relative_path, job_result, supersede, reason=""):
     from nautobot_workflow_engine.datasources import apply_definition
+    from nautobot_workflow_engine.freezes import check_sync_category
 
     canonical = normalize(parsed)
+    # A category change that would take the workflow out of a change freeze is refused (raises).
+    check_sync_category(workflow, canonical)
     # enabled is Nautobot-only after the first import. A later file does not flip the switch.
     enabled = workflow.enabled
     saved = apply_definition(

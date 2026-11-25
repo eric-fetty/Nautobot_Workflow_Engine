@@ -1,0 +1,48 @@
+{% comment %}
+Change freeze banner. Context: freeze_banner = {"active": [...], "soon": [...]} from freezes.banner_rows.
+Shown to anyone who can see an affected workflow; not gated by View change freezes.
+{% endcomment %}
+{% if freeze_banner.active or freeze_banner.soon %}
+<div class="nwe-freeze-banners" data-nwe-freeze-banner>
+    {% for row in freeze_banner.active %}
+        <div class="alert alert-warning d-flex gap-3 align-items-start nwe-freeze-banner" role="status">
+            <i class="mdi mdi-lock-outline fs-4" aria-hidden="true"></i>
+            <div>
+                <div class="fw-semibold">Change freeze in effect: {{ row.name }}</div>
+                {% if row.message %}<div>{{ row.message }}</div>{% endif %}
+                <div class="small">
+                    Until <time datetime="{{ row.end.isoformat }}" data-nwe-local-time>{{ row.end_label }}</time>
+                    <span class="text-secondary">({{ row.end_label }})</span>.
+                    {% if row.count > 1 %}Covers {{ row.count }} workflows you can see.{% elif row.count == 1 %}Covers 1 workflow you can see.{% endif %}
+                    Runs can't start or be scheduled until it ends.
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+    {% for row in freeze_banner.soon %}
+        <div class="alert alert-info d-flex gap-3 align-items-start nwe-freeze-banner nwe-freeze-soon" role="status">
+            <i class="mdi mdi-clock-alert-outline fs-4" aria-hidden="true"></i>
+            <div>
+                <div class="fw-semibold">Change freeze starts soon: {{ row.name }}</div>
+                {% if row.message %}<div>{{ row.message }}</div>{% endif %}
+                <div class="small">
+                    From <time datetime="{{ row.start.isoformat }}" data-nwe-local-time>{{ row.start_label }}</time>
+                    until <time datetime="{{ row.end.isoformat }}" data-nwe-local-time>{{ row.end_label }}</time>
+                    <span class="text-secondary">({{ row.start_label }} – {{ row.end_label }})</span>.
+                    A run still going when it starts keeps running.
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+<script>
+(function () {
+    document.querySelectorAll("time[data-nwe-local-time]").forEach(function (node) {
+        var when = new Date(node.getAttribute("datetime"));
+        if (isNaN(when.getTime())) return;
+        var zone = (Intl.DateTimeFormat().resolvedOptions().timeZone || "your time");
+        node.textContent = when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) + " " + zone;
+    });
+})();
+</script>
+{% endif %}
