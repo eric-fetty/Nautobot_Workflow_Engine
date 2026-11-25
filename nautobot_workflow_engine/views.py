@@ -113,7 +113,7 @@ STATUS_BADGE_MAP = {
     "scheduled": {"label": "Scheduled", "class": "bg-info text-dark", "icon": "mdi-calendar-clock"},
     "canceled": {"label": "Canceled", "class": "bg-secondary", "icon": "mdi-cancel"},
     "partial": {"label": "Partial", "class": "bg-warning text-dark", "icon": "mdi-alert"},
-    "blocked": {"label": "Blocked by freeze", "class": "bg-dark", "icon": "mdi-lock-outline"},
+    "blocked": {"label": "Blocked by freeze", "class": "text-bg-dark", "icon": "mdi-lock-outline"},
 }
 
 TERMINAL_AWX_STATUSES = {"successful", "failed", "error", "canceled"}

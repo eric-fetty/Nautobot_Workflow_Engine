@@ -17,7 +17,7 @@ RUN_STATUS_BADGES = {
     "scheduled": ("bg-info text-dark", "mdi-calendar-clock"),
     "canceled": ("bg-secondary", "mdi-cancel"),
     "partial": ("bg-warning text-dark", "mdi-alert"),
-    "blocked": ("bg-dark", "mdi-lock-outline"),
+    "blocked": ("text-bg-dark", "mdi-lock-outline"),
 }
 
 
@@ -70,7 +70,7 @@ FREEZE_STATE_PILLS = {
     freeze_rules.STATE_ACTIVE: "bg-danger",
     freeze_rules.STATE_UPCOMING: "bg-warning text-dark",
     freeze_rules.STATE_EXPIRED: "bg-secondary",
-    freeze_rules.STATE_DISABLED: "bg-light text-dark border",
+    freeze_rules.STATE_DISABLED: "bg-white text-secondary border border-secondary",
 }
 
 

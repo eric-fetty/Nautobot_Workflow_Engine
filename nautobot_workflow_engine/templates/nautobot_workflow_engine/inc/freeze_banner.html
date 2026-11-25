@@ -11,8 +11,7 @@ Shown to anyone who can see an affected workflow; not gated by View change freez
                 <div class="fw-semibold">Change freeze in effect: {{ row.name }}</div>
                 {% if row.message %}<div>{{ row.message }}</div>{% endif %}
                 <div class="small">
-                    Until <time datetime="{{ row.end.isoformat }}" data-nwe-local-time>{{ row.end_label }}</time>
-                    <span class="text-secondary">({{ row.end_label }})</span>.
+                    Until <time datetime="{{ row.end.isoformat }}" title="{{ row.end_label }}" data-nwe-local-time>{{ row.end_label }}</time>.
                     {% if row.count > 1 %}Covers {{ row.count }} workflows you can see.{% elif row.count == 1 %}Covers 1 workflow you can see.{% endif %}
                     Runs can't start or be scheduled until it ends.
                 </div>
@@ -26,9 +25,8 @@ Shown to anyone who can see an affected workflow; not gated by View change freez
                 <div class="fw-semibold">Change freeze starts soon: {{ row.name }}</div>
                 {% if row.message %}<div>{{ row.message }}</div>{% endif %}
                 <div class="small">
-                    From <time datetime="{{ row.start.isoformat }}" data-nwe-local-time>{{ row.start_label }}</time>
-                    until <time datetime="{{ row.end.isoformat }}" data-nwe-local-time>{{ row.end_label }}</time>
-                    <span class="text-secondary">({{ row.start_label }} – {{ row.end_label }})</span>.
+                    From <time datetime="{{ row.start.isoformat }}" title="{{ row.start_label }}" data-nwe-local-time>{{ row.start_label }}</time>
+                    until <time datetime="{{ row.end.isoformat }}" title="{{ row.end_label }}" data-nwe-local-time>{{ row.end_label }}</time>.
                     A run still going when it starts keeps running.
                 </div>
             </div>

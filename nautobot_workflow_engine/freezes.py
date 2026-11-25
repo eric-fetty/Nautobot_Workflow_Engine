@@ -185,6 +185,14 @@ def format_instant(moment, freeze=None, zone_name=None):
     return f"{local:%Y-%m-%d %H:%M} {name}"
 
 
+def format_short(moment, freeze=None):
+    """``Fri 2026-11-27 17:00`` in the freeze's zone, for lists where the zone is shown once."""
+    if moment is None:
+        return ""
+    local = moment.astimezone(zone_for(getattr(freeze, "timezone", "") or DEFAULT_TIMEZONE))
+    return f"{local:%a %Y-%m-%d %H:%M}"
+
+
 def _clean_rule_text(text):
     text = (text or "").strip()
     if text.upper().startswith("RRULE:"):

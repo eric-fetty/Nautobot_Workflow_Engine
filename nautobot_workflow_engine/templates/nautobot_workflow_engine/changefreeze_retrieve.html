@@ -18,7 +18,7 @@
     </table>
 </div>
 <div class="card mb-3">
-    <div class="card-header"><strong>Next {{ freeze_windows|length }} window{{ freeze_windows|length|pluralize }}</strong></div>
+    <div class="card-header"><strong>Next {{ freeze_windows|length }} window{{ freeze_windows|length|pluralize }}</strong> <span class="text-secondary small">{{ object.timezone }}</span></div>
     {% if freeze_windows %}
         <table class="table table-sm mb-0">
             <thead><tr><th>Starts</th><th>Ends</th><th></th></tr></thead>

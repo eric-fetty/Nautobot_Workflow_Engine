@@ -113,8 +113,8 @@ class ChangeFreezeUIViewSet(  # pylint: disable=abstract-method
                 "freeze_scope": freeze_scope_summary(instance),
                 "freeze_windows": [
                     {
-                        "start": freeze_rules.format_instant(window.start, instance),
-                        "end": freeze_rules.format_instant(window.end, instance),
+                        "start": freeze_rules.format_short(window.start, instance),
+                        "end": freeze_rules.format_short(window.end, instance),
                         "active": window.contains(now),
                     }
                     for window in upcoming

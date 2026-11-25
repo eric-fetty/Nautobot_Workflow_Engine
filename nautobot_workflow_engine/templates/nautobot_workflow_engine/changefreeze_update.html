@@ -17,7 +17,18 @@
             <div class="card-header"><strong>Schedule</strong></div>
             <div class="card-body">
                 {% render_field form.timezone %}
-                {% render_field form.kind %}
+                <div id="id_kind-container" class="mb-10 d-md-flex justify-content-center{% if form.kind.errors %} has-error{% endif %}">
+                    <span class="col-md-3 col-form-label nb-required" id="id_kind_label">{{ form.kind.label }}</span>
+                    <div class="col-md-9 pt-2" role="radiogroup" aria-labelledby="id_kind_label">
+                        {% for radio in form.kind %}
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" id="{{ radio.id_for_label }}"{% if radio.data.selected %} checked{% endif %}>
+                                <label class="form-check-label" for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>
+                            </div>
+                        {% endfor %}
+                        {% for error in form.kind.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
                 <div data-nwe-kind="one_time">
                     {% render_field form.starts_at %}
                     {% render_field form.ends_at %}

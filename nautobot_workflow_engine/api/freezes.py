@@ -114,8 +114,8 @@ def _window_row(window, freeze):
     return {
         "start": window.start.isoformat(),
         "end": window.end.isoformat(),
-        "start_label": freeze_rules.format_instant(window.start, freeze),
-        "end_label": freeze_rules.format_instant(window.end, freeze),
+        "start_label": freeze_rules.format_short(window.start, freeze),
+        "end_label": freeze_rules.format_short(window.end, freeze),
     }
 
 
@@ -322,7 +322,7 @@ class ChangeFreezePreviewView(APIView):
                 "windows": [_window_row(window, draft) for window in windows],
                 "has_scope": bool(has_scope),
                 "affected_count": len(affected),
-                "affected": [workflow.name for workflow in affected[:20]],
+                "affected": [workflow.name for workflow in affected[:8]],
                 "runs_count": len(runs),
                 "runs": [
                     {
