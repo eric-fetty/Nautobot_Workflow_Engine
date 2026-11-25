@@ -25,7 +25,7 @@ Filter the list by state or whether it is enabled, or search by name and message
 
 ## Adding a freeze
 
-![Change freeze form with a weekly preset, the preview and Affects 3 workflows](../assets/images/admin/06-change-freeze-form.png)
+![Change freeze form with the weekend preset, the preview and Affects 12 workflows](../assets/images/admin/06-change-freeze-form.png)
 
 - **Name** and **Message**. The message is shown on banners, on the launch page and on
   runs the freeze blocks, so say why and who to ask.
