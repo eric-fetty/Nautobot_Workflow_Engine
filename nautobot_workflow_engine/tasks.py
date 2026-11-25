@@ -96,6 +96,11 @@ def prepare_scheduled_workflow_task(self, workflow_run_id):
         if not workflow_run.scheduled_for:
             raise RuntimeError("Scheduled execution requested, but no scheduled_for timestamp was set.")
 
+        # Change freeze: a freeze may have been created since the launch page checked.
+        # Check now (pre-actions would run now) and the scheduled time, before any pre-action.
+        if _blocked_by_freeze(workflow_run, times=[timezone.now(), workflow_run.scheduled_for]):
+            return
+
         workflow_run.log = (
             f"{workflow_run.log}\nPreparing scheduled workflow: executing pre-actions...".strip()
             if workflow_run.log
@@ -107,6 +112,8 @@ def prepare_scheduled_workflow_task(self, workflow_run_id):
         workflow_run.refresh_from_db()
 
         if workflow_run.status == "canceled":
+            return
+        if _blocked_by_freeze(workflow_run, times=[timezone.now(), workflow_run.scheduled_for]):
             return
         create_scheduled_job_for_run(workflow_run)
         workflow_run.refresh_from_db(fields=["scheduled_job", "status"])
@@ -132,3 +139,19 @@ def prepare_scheduled_workflow_task(self, workflow_run_id):
         except Exception:  # noqa: S110
             pass
         raise
+
+
+def _blocked_by_freeze(workflow_run, times):
+    """Mark the run Blocked by freeze and return True when a freeze covers any of ``times``."""
+    from .freezes import block_run, check_launch
+
+    decision = check_launch(
+        workflow_run.workflow,
+        workflow_run.requested_by,
+        override_reason=workflow_run.freeze_override_reason or "",
+        times=times,
+    )
+    if not decision.blocked:
+        return False
+    block_run(workflow_run, decision, when="while it was being scheduled, before pre-actions")
+    return True

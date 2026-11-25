@@ -249,3 +249,10 @@
 .nwe-launch-title {
     min-width: 0;
 }
+
+/* Change freezes: date picker hint, the override reason box and the frozen alert. */
+.nwe-launch .nwe-freeze-hint { display: flex; gap: 6px; align-items: flex-start; color: #8a4b00; }
+.nwe-launch .nwe-freeze-hint.is-frozen { color: var(--bs-danger, #b02a37); font-weight: 600; }
+.nwe-launch .nwe-freeze-override textarea { max-width: 640px; }
+.nwe-launch .nwe-freeze-override h2 { display: flex; gap: 6px; align-items: center; }
+.nwe-launch .nwe-freeze-alert { margin-bottom: 12px; }

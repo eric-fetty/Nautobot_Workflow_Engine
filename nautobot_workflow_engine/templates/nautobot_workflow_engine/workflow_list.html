@@ -7,7 +7,7 @@
 {% block extra_styles %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/nwe.css' %}?v33">
-    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v34">
+    <link rel="stylesheet" href="{% static 'nautobot_workflow_engine/css/workflow_catalog.css' %}?v36">
 {% endblock extra_styles %}
 
 {% block header %}{% endblock header %}
@@ -30,6 +30,8 @@
             {% endif %}
         </div>
     {% endif %}
+
+    {% include "nautobot_workflow_engine/inc/freeze_banner.html" %}
 
     <div class="d-flex align-items-end gap-3 mb-3 flex-wrap">
         <div>
@@ -79,21 +81,40 @@
         <div class="card-body">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                 <div class="nwe-seg" role="group" aria-label="Status">
-                    <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
-                    <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
-                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
-                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
+                    <a class="{% if selected_status == 'all' %}on{% endif %}" href="?status=all{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if tag_query %}&amp;{{ tag_query }}{% endif %}">All <span class="n">{{ status_counts.all }}</span></a>
+                    <a class="{% if selected_status == 'live' %}on{% endif %}" href="?status=live{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if tag_query %}&amp;{{ tag_query }}{% endif %}">Published <span class="n">{{ status_counts.live }}</span></a>
+                    <a class="{% if selected_status == 'draft' %}on{% endif %}" href="?status=draft{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if tag_query %}&amp;{{ tag_query }}{% endif %}">Unpublished changes <span class="n">{{ status_counts.draft }}</span></a>
+                    <a class="{% if selected_status == 'new' %}on{% endif %}" href="?status=new{% if selected_category %}&amp;category={{ selected_category|urlencode }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if tag_query %}&amp;{{ tag_query }}{% endif %}">Draft <span class="n">{{ status_counts.new }}</span></a>
                 </div>
-                {% if categories %}
-                    <form method="get" class="ms-auto">
+                {% if can_bulk_edit %}
+                    <form method="post" id="nwe-bulk-form" class="nwe-bulk-bar" action="{% url 'plugins:nautobot_workflow_engine:workflow_bulk_edit' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="return_url" value="{{ return_url }}">
+                        <button type="submit" class="btn btn-sm nwe-btn" id="nwe-bulk-edit" disabled title="Add or remove Nautobot tags on the selected workflows">
+                            <i class="mdi mdi-tag-multiple-outline"></i> Bulk edit tags <span class="n" data-nwe-bulk-count></span>
+                        </button>
+                    </form>
+                {% endif %}
+                {% if categories or tag_choices %}
+                    <form method="get" class="ms-auto d-flex gap-2" id="nwe-catalog-filters">
                         {% if selected_status != "all" %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
                         {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
-                        <select class="form-select" name="category" aria-label="Category" onchange="this.form.submit()">
-                            <option value="">All categories</option>
-                            {% for category in categories %}
-                                <option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>
-                            {% endfor %}
-                        </select>
+                        {% if categories %}
+                            <select class="form-select" name="category" aria-label="Category" onchange="this.form.submit()">
+                                <option value="">All categories</option>
+                                {% for category in categories %}
+                                    <option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>
+                                {% endfor %}
+                            </select>
+                        {% endif %}
+                        {% if tag_choices or selected_tag %}
+                            <select class="form-select" name="tags" aria-label="Tag" onchange="this.form.submit()">
+                                <option value="">All tags</option>
+                                {% for tag in tag_choices %}
+                                    <option value="{{ tag.name }}" {% if selected_tag == tag.name %}selected{% endif %}>{{ tag.name }}</option>
+                                {% endfor %}
+                            </select>
+                        {% endif %}
                     </form>
                 {% endif %}
             </div>
@@ -102,6 +123,9 @@
                 <table class="table nwe-catalog-table mb-0" id="nwe-catalog-table">
                     <thead>
                         <tr>
+                            {% if can_bulk_edit %}
+                                <th class="nwe-select"><input type="checkbox" class="form-check-input" id="nwe-select-all" aria-label="Select all workflows you can edit"></th>
+                            {% endif %}
                             <th>Workflow</th>
                             <th>Category</th>
                             <th>Status</th>
@@ -114,12 +138,29 @@
                     <tbody>
                         {% for wf in catalog %}
                             <tr>
+                                {% if can_bulk_edit %}
+                                    <td class="nwe-select">
+                                        {% if wf.can_change %}
+                                            <input type="checkbox" class="form-check-input" name="pk" value="{{ wf.pk }}" form="nwe-bulk-form" data-nwe-select aria-label="Select {{ wf.name }}">
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
                                 <td>
                                     <div>
                                         <a class="nwe-wf-name" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}">{{ wf.name }}</a>
                                         {% if wf.needs_approval %}<i class="mdi mdi-account-check-outline nwe-wf-flag" title="Needs approval before it runs"></i>{% endif %}
                                         {% if wf.uses_snow %}<i class="mdi mdi-calendar-clock nwe-wf-flag" title="Runs only in a ServiceNow change window"></i>{% endif %}
+                                        {% if wf.freeze_locked %}<span class="nwe-freeze-lock" title="{{ wf.freeze_message }}" data-nwe-freeze-lock><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Frozen</span>{% endif %}
                                         {% if wf.description %}<div class="nwe-wf-desc">{{ wf.description }}</div>{% endif %}
+                                        {% with wf_tags=wf.tags.all %}
+                                            {% if wf_tags %}
+                                                <div class="nwe-wf-tags">
+                                                    {% for tag in wf_tags %}
+                                                        {% include "utilities/templatetags/tag.html" with url_name="plugins:nautobot_workflow_engine:workflows_list" %}
+                                                    {% endfor %}
+                                                </div>
+                                            {% endif %}
+                                        {% endwith %}
                                     </div>
                                 </td>
                                 <td>{% if wf.category %}{{ wf.category }}{% else %}<span class="text-secondary">—</span>{% endif %}</td>
@@ -153,7 +194,7 @@
                                 </td>
                                 <td>
                                     <div class="nwe-row-acts">
-                                        <span class="nwe-run-slot" data-nwe-run-slot data-published="{% if wf.published_revision_id %}1{% else %}0{% endif %}" data-launch="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}">{% if wf.published_revision_id and wf.enabled %}<a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>{% else %}<span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}"><button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button></span>{% endif %}</span>
+                                        {% if wf.freeze_locked and not wf.freeze_can_override %}<span class="nwe-run-slot" title="{{ wf.freeze_message }}"><button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled aria-label="Run is off during change freeze {{ wf.freeze_name }}"><i class="mdi mdi-lock-outline"></i> Run</button></span>{% else %}<span class="nwe-run-slot" data-nwe-run-slot data-published="{% if wf.published_revision_id %}1{% else %}0{% endif %}" data-launch="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}">{% if wf.published_revision_id and wf.enabled %}<a class="btn btn-sm nwe-btn-outline-accent" href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=wf.key %}"><i class="mdi mdi-play"></i> Run</a>{% else %}<span title="{% if not wf.published_revision_id %}Publish it first{% else %}It's turned off. Turn on Enabled first.{% endif %}"><button type="button" class="btn btn-sm nwe-btn-outline-accent" disabled><i class="mdi mdi-play"></i> Run</button></span>{% endif %}</span>{% endif %}
                                         {% if can_change_workflows %}
                                             <a class="btn btn-sm nwe-btn" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}"><i class="mdi mdi-pencil-outline"></i> Edit</a>
                                         {% endif %}
@@ -180,7 +221,7 @@
                                 </td>
                             </tr>
                         {% empty %}
-                            <tr><td colspan="7" class="text-secondary text-center py-4">No workflows match.</td></tr>
+                            <tr><td colspan="{% if can_bulk_edit %}8{% else %}7{% endif %}" class="text-secondary text-center py-4">No workflows match.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -196,5 +237,5 @@
 {% block drawer %}{% endblock drawer %}
 
 {% block javascript %}
-    <script type="module" src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}?v4"></script>
+    <script type="module" src="{% static 'nautobot_workflow_engine/js/workflow_catalog.js' %}?v5"></script>
 {% endblock javascript %}

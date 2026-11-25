@@ -1552,6 +1552,51 @@ body.nwe-studio-body #header > .container-fluid {
     font-size: 0.82rem;
 }
 
+/* ---------- Nautobot tags on the Details step ---------- */
+.nwe-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.nwe-tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 1.5rem;
+    align-items: center;
+}
+
+.nwe-tag-chip button {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.nwe-tag-chip button:hover {
+    color: inherit;
+    opacity: 1;
+}
+
+.nwe-tag-box {
+    position: relative;
+}
+
+.nwe-tag-list {
+    width: 100%;
+    min-width: 0;
+    max-height: 16rem;
+    overflow-y: auto;
+}
+
+.nwe-tag-dot {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 0.7rem;
+    height: 0.7rem;
+    border: 1px solid var(--nwe-line);
+    border-radius: 50%;
+}
+
 /* ---------- step conditions on earlier steps ---------- */
 .nwe-cond > select[data-when="subject"] {
     flex: 2 1 11rem;

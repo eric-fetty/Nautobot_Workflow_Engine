@@ -862,6 +862,20 @@ def run_workflow(workflow, user, inputs: dict, workflow_run=None) -> WorkflowRun
     if not can_run(user, workflow):
         raise ValueError(f"User '{user}' does not have permission to this workflow.")
 
+    # Change freeze backstop: nothing starts inside a freeze unless the run carries an override
+    # that its requester may still use. Callers check first; this catches anything they miss.
+    from .freezes import FreezeBlocked, block_run, check_launch, check_run
+
+    if workflow_run is None:
+        decision = check_launch(workflow, user)
+        if decision.blocked:
+            raise FreezeBlocked(decision)
+    else:
+        decision = check_run(workflow_run)
+        if decision.blocked:
+            block_run(workflow_run, decision, when="when it was about to start")
+            raise FreezeBlocked(decision)
+
     # Use provided workflow_run or create a new one
     if workflow_run is None:
         workflow_run = WorkflowRun.objects.create(workflow=workflow, requested_by=user, inputs=inputs, status="running")

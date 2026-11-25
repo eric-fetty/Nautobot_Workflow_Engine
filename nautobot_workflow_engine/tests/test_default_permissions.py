@@ -24,6 +24,11 @@ NAMES = [row[0] for row in DEFAULT_PERMISSIONS]
 class DefaultPermissionsTestCase(TestCase):
     """The migrate hook has already run on the test database."""
 
+    def test_descriptions_fit_the_column(self):
+        max_length = ObjectPermission._meta.get_field("description").max_length
+        for row in DEFAULT_PERMISSIONS:
+            self.assertLessEqual(len(row[1]), max_length, row[0])
+
     def test_every_documented_permission_is_created(self):
         expected = {
             "Workflow Engine: Run workflows": ("workflow", ["view", "run", "cancel"]),
@@ -31,6 +36,9 @@ class DefaultPermissionsTestCase(TestCase):
             "Workflow Engine: Build workflows": ("workflow", ["view", "add", "change"]),
             "Workflow Engine: Publish workflows": ("workflow", ["publish"]),
             "Workflow Engine: Write scripts": ("workflow", ["write_script"]),
+            "Workflow Engine: View change freezes": ("changefreeze", ["view"]),
+            "Workflow Engine: Manage change freezes": ("changefreeze", ["view", "add", "change", "delete"]),
+            "Workflow Engine: Override change freezes": ("workflow", ["override_freeze"]),
         }
         self.assertEqual(set(NAMES), set(expected))
         for name, (model, actions) in expected.items():

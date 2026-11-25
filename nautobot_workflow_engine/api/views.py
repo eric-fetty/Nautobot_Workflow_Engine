@@ -221,7 +221,13 @@ def _summary(workflow):
         "published_revision": published.number if published is not None else None,
         "draft_revision": draft.number if draft is not None else None,
         "updated": getattr(workflow, "last_updated", None),
+        "tags": _tag_rows(workflow),
     }
+
+
+def _tag_rows(workflow):
+    """Nautobot tags on a workflow. They are not part of the YAML."""
+    return [{"id": str(tag.pk), "name": tag.name, "color": tag.color or ""} for tag in workflow.tags.all()]
 
 
 def _detail(workflow):
@@ -796,24 +802,98 @@ class BuilderYamlApplyView(APIView):
         )
 
 
-def _apply_tags(workflow, user, data):
-    """Store tag names on the workflow. Tags are not part of the YAML."""
+def _requested_tags(data):
+    """Return the tag list the body asks for, or None when it doesn't mention tags.
+
+    Tags may be sent at the top level or inside the builder ``payload``.
+    """
     if not isinstance(data, dict):
-        return
+        return None
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
     if "tags" in data:
-        names = data.get("tags")
-    elif "tags" in payload:
-        names = payload.get("tags")
-    else:
-        return
-    if not isinstance(names, list):
+        return data.get("tags")
+    if "tags" in payload:
+        return payload.get("tags")
+    return None
+
+
+def _tag_error(message):
+    return ServiceError(
+        400,
+        **_errors_payload([FieldError("/tags", "invalid_tag", message, section="details", path="tags")]),
+    )
+
+
+def _resolve_tags(workflow, user, data):
+    """Check the requested tags before anything is saved. Returns a list of Tags, or None to leave tags alone.
+
+    Each entry is a tag ID, a tag name, or ``{"id": ...}`` / ``{"name": ...}``. Only tags this
+    user can view and that allow workflows (Tag content types) are accepted; a tag already on
+    the workflow is accepted too, so a later content-type change can't block saving. Unknown
+    tags are a 400 instead of being dropped.
+    """
+    import uuid
+
+    from nautobot.extras.models import Tag
+
+    values = _requested_tags(data)
+    if values is None:
+        return None
+    if not isinstance(values, list):
+        raise _tag_error("Tags must be a list of tag names or IDs.")
+    visible = Tag.objects.restrict(user, "view")
+    allowed = visible.filter(pk__in=Tag.objects.get_for_model(Workflow).values("pk"))
+    if workflow is not None:
+        allowed = allowed | visible.filter(pk__in=workflow.tags.values("pk"))
+    wanted_ids, wanted_names = set(), set()
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("id") or value.get("name")
+        text = str(value or "").strip()
+        if not text:
+            continue
+        try:
+            wanted_ids.add(uuid.UUID(text))
+        except ValueError:
+            wanted_names.add(text)
+    found = list(allowed.filter(pk__in=wanted_ids).distinct()) + list(
+        allowed.filter(name__in=wanted_names).exclude(pk__in=wanted_ids).distinct()
+    )
+    missing = sorted(
+        {str(item) for item in wanted_ids if item not in {tag.pk for tag in found}}
+        | (wanted_names - {tag.name for tag in found})
+    )
+    if missing:
+        raise _tag_error(
+            f"Unknown tag, or not allowed on workflows: {', '.join(missing)}. "
+            "A tag must list Workflow under its content types."
+        )
+    unique = {tag.pk: tag for tag in found}
+    return list(unique.values())
+
+
+def _freeze_tags(workflow, user, tags):
+    """The full tag set ``_apply_tags`` would leave, for the change freeze check (None: unchanged)."""
+    if tags is None or workflow is None:
+        return None
+    from nautobot.extras.models import Tag
+
+    hidden = workflow.tags.exclude(pk__in=Tag.objects.restrict(user, "view").values("pk"))
+    return [*tags, *hidden]
+
+
+def _apply_tags(workflow, user, tags):
+    """Set the workflow's Nautobot tags. Tags are not part of the YAML.
+
+    ``tags`` comes from ``_resolve_tags``; None leaves them as they are. Tags the user
+    can't see are kept, because they could not have chosen to remove them.
+    """
+    if tags is None:
         return
     from nautobot.extras.models import Tag
 
-    wanted = [str(name).strip() for name in names if str(name).strip()]
-    tags = list(Tag.objects.restrict(user, "view").filter(name__in=wanted))
-    workflow.tags.set(tags)
+    hidden = workflow.tags.exclude(pk__in=Tag.objects.restrict(user, "view").values("pk"))
+    workflow.tags.set([*tags, *hidden])
 
 
 _WRITE = {
@@ -943,7 +1023,7 @@ class WorkflowViewSet(ViewSet):
     def list(self, request):
         """Return workflows this user can view."""
         _require(request.user, "nautobot_workflow_engine.view_workflow")
-        rows = Workflow.objects.restrict(request.user, "view").order_by("name")
+        rows = Workflow.objects.restrict(request.user, "view").prefetch_related("tags").order_by("name")
         return Response([_summary(workflow) for workflow in rows])
 
     @extend_schema(responses={201: WorkflowDetailSerializer, 400: ErrorListSerializer, 403: DetailSerializer})
@@ -955,6 +1035,7 @@ class WorkflowViewSet(ViewSet):
         try:
             strict = _wants_strict(data)
             definition = _definition_from_body(data, strict=strict)
+            tags = _resolve_tags(None, request.user, data)
             repo = _repository(request.user, data.get("repository") or (data.get("payload") or {}).get("source_repo"))
             workflow, _revision = create_draft(
                 user=request.user,
@@ -964,7 +1045,7 @@ class WorkflowViewSet(ViewSet):
                 source=WorkflowRevision.SOURCE_API,
                 strict=strict,
             )
-            _apply_tags(workflow, request.user, data)
+            _apply_tags(workflow, request.user, tags)
         except ServiceError as exc:
             return _service_response(exc)
         return Response(
@@ -1007,6 +1088,7 @@ class WorkflowViewSet(ViewSet):
         try:
             strict = _wants_strict(data)
             definition = _definition_from_body(data, strict=strict)
+            tags = _resolve_tags(workflow, request.user, data)
             revision = update_draft(
                 user=request.user,
                 workflow=workflow,
@@ -1018,8 +1100,9 @@ class WorkflowViewSet(ViewSet):
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
                 strict=strict,
+                freeze_tags=_freeze_tags(workflow, request.user, tags),
             )
-            _apply_tags(workflow, request.user, data)
+            _apply_tags(workflow, request.user, tags)
         except ServiceError as exc:
             return _service_response(exc)
         return Response(
@@ -1041,6 +1124,7 @@ class WorkflowViewSet(ViewSet):
             )
         try:
             definition = _definition_from_body(data)
+            tags = _resolve_tags(workflow, request.user, data)
             repo = _repository(request.user, data.get("repository"))
             if data.get("repository") not in (None, ""):
                 from nautobot_workflow_engine.utilities.git_publish import publish_blocker
@@ -1065,8 +1149,9 @@ class WorkflowViewSet(ViewSet):
                 base_content_hash=data.get("base_content_hash"),
                 require_base=True,
                 source=WorkflowRevision.SOURCE_API,
+                freeze_tags=_freeze_tags(workflow, request.user, tags),
             )
-            _apply_tags(saved, request.user, data)
+            _apply_tags(saved, request.user, tags)
         except ServiceError as exc:
             return _service_response(exc)
         saved.refresh_from_db()

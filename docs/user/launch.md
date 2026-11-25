@@ -25,6 +25,24 @@ If the workflow needs approval, the run waits as **Pending Approval** until some
 
 For a scheduled run, the **Before** steps run once when the run is booked. If one fails, the run isn't booked.
 
+## During a change freeze
+
+An administrator can set [change freezes](../admin/change_freezes.md): times when covered workflows don't run. Anyone who can see a workflow sees its freezes:
+
+- A banner on the **Workflows** list and the launch page while a freeze is in effect, with its name, message and end time, and a *Change freeze starts soon* banner shortly before one starts.
+- A lock badge on the workflow's row, and the **Run** button is off.
+- On the launch page, picking a time for **Schedule for later** shows whether it is inside a freeze or just before one.
+
+![Workflows list with a change freeze banner and locked rows](../assets/images/launch/09-freeze-banner.png)
+
+During a freeze you can't run the workflow now, or schedule it for any time: the **Before** steps of a scheduled run happen when it is booked. Outside a freeze you can't schedule a run into one. A run that was scheduled or approved earlier and comes due in a freeze is marked **Blocked by freeze** and doesn't run; nothing in it starts. A run that was already running keeps going.
+
+![A run marked Blocked by freeze](../assets/images/launch/11-run-blocked-by-freeze.png)
+
+If you have **Override change freezes**, the launch page shows **Override reason** and the button reads **Override and run**. The reason is required, and it is saved on the run and in its log. A scheduled override only counts if you still have the permission when the run fires.
+
+![Launch page during a freeze with the override reason box](../assets/images/launch/10-freeze-override.png)
+
 ## Tables and CSV
 
 A table input is an editable grid with **Add row**, **Download template** and **Import CSV**. See [Tables and CSV import](inputs.md#tables-and-csv-import).

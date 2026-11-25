@@ -4,9 +4,10 @@ import uuid
 
 import django_filters
 from django.contrib.contenttypes.models import ContentType
-from nautobot.apps.filters import BaseFilterSet, NautobotFilterSet, SearchFilter
+from nautobot.apps.filters import BaseFilterSet, NautobotFilterSet, SearchFilter, TagFilter
 
-from .models import Workflow, WorkflowRun, WorkflowRunObjectReference
+from .freezes import STATE_CHOICES, freeze_state
+from .models import ChangeFreeze, Workflow, WorkflowRun, WorkflowRunObjectReference
 
 
 class WorkflowFilterSet(NautobotFilterSet):
@@ -20,13 +21,14 @@ class WorkflowFilterSet(NautobotFilterSet):
             "category": "icontains",
         },
     )
+    # Nautobot tags, by name or ID. Several tags match workflows that carry all of them.
+    tags = TagFilter()
 
     class Meta:
         """Meta class for WorkflowFilterSet."""
 
         model = Workflow
-        fields = ["git_status", "managed_by", "enabled", "archived", "category"]
-        exclude = ["tags"]
+        fields = ["git_status", "managed_by", "enabled", "archived", "category", "tags"]
 
 
 def content_type_for_label(label):
@@ -102,3 +104,22 @@ class WorkflowRunFilterSet(BaseFilterSet):
 
 
 __all__ = ("WorkflowFilterSet", "WorkflowRunFilterSet", "content_type_for_label", "runs_referencing")
+
+
+class ChangeFreezeFilterSet(BaseFilterSet):
+    """Filter change freezes by text, state, kind and whether they are on."""
+
+    q = SearchFilter(filter_predicates={"name": "icontains", "message": "icontains"})
+    state = django_filters.MultipleChoiceFilter(method="filter_state", label="State", choices=STATE_CHOICES)
+
+    class Meta:
+        model = ChangeFreeze
+        fields = ["id", "name", "enabled", "kind", "applies_to_all", "timezone"]
+
+    def filter_state(self, queryset, name, value):  # pylint: disable=unused-argument
+        """State is computed from the schedule, so it is filtered in Python."""
+        if not value:
+            return queryset
+        wanted = set(value)
+        ids = [freeze.pk for freeze in queryset if freeze_state(freeze) in wanted]
+        return queryset.filter(pk__in=ids)

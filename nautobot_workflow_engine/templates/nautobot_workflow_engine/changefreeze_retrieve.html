@@ -1,0 +1,108 @@
+{% extends "generic/object_retrieve.html" %}
+{% load helpers %}
+
+{% block content_left_page %}
+<div class="card mb-3">
+    <div class="card-header"><strong>Change freeze</strong></div>
+    <table class="table table-hover card-body attr-table mb-0">
+        <tr><td>State</td><td>{{ freeze_state_pill }}</td></tr>
+        <tr><td>Schedule</td><td>{{ freeze_schedule }}</td></tr>
+        {% if object.kind == "recurring" %}
+            <tr><td>Rule</td><td><code>{{ object.rrule }}</code></td></tr>
+        {% endif %}
+        <tr><td>Time zone</td><td>{{ object.timezone }}</td></tr>
+        <tr><td>Warning lead time</td><td>{% if object.warning_lead_minutes %}{{ object.warning_lead_minutes }} minutes{% else %}Off{% endif %}</td></tr>
+        <tr><td>Message</td><td>{% if object.message %}{{ object.message }}{% else %}<span class="text-secondary">—</span>{% endif %}</td></tr>
+        <tr><td>Scope</td><td>{{ freeze_scope }}</td></tr>
+        <tr><td>Created by</td><td>{% if object.created_by %}{{ object.created_by }}{% else %}<span class="text-secondary">—</span>{% endif %}</td></tr>
+    </table>
+</div>
+<div class="card mb-3">
+    <div class="card-header"><strong>Next {{ freeze_windows|length }} window{{ freeze_windows|length|pluralize }}</strong> <span class="text-secondary small">{{ object.timezone }}</span></div>
+    {% if freeze_windows %}
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Starts</th><th>Ends</th><th></th></tr></thead>
+            <tbody>
+            {% for window in freeze_windows %}
+                <tr><td>{{ window.start }}</td><td>{{ window.end }}</td><td>{% if window.active %}<span class="badge bg-danger"><i class="mdi mdi-lock-outline"></i> Now</span>{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="card-body text-secondary">No windows ahead. {% if not object.enabled %}The freeze is turned off.{% endif %}</div>
+    {% endif %}
+</div>
+{% endblock content_left_page %}
+
+{% block content_right_page %}
+<div class="card mb-3" id="nwe-freeze-waiting">
+    <div class="card-header d-flex align-items-center">
+        <strong>{{ freeze_waiting_runs|length }} scheduled run{{ freeze_waiting_runs|length|pluralize }} fall in this window</strong>
+        {% if freeze_waiting_runs and freeze_can_cancel %}
+            <form method="post" action="{% url 'plugins:nautobot_workflow_engine:changefreeze_cancel_runs' pk=object.pk %}" class="ms-auto"
+                  onsubmit="return window.confirm('Cancel {{ freeze_waiting_runs|length }} scheduled run{{ freeze_waiting_runs|length|pluralize }}? Their schedules are removed.');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="mdi mdi-cancel"></i> Cancel them</button>
+            </form>
+        {% endif %}
+    </div>
+    {% if freeze_waiting_runs %}
+        <div class="card-body small text-secondary pb-0">If you leave them, each one is marked Blocked by freeze when it comes due, and nothing in it runs.</div>
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Workflow</th><th>Scheduled for</th><th>Started by</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for run in freeze_waiting_runs %}
+                <tr>
+                    <td><a href="{{ run.get_absolute_url }}">{{ run.workflow.name }}</a></td>
+                    <td>{{ run.scheduled_for|date:"Y-m-d H:i" }} UTC</td>
+                    <td>{{ run.requested_by }}</td>
+                    <td>{% include "nautobot_workflow_engine/inc/run_status_badge.html" %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="card-body text-secondary">None.</div>
+    {% endif %}
+</div>
+<div class="card mb-3">
+    <div class="card-header"><strong>Affects {{ freeze_affected|length }} workflow{{ freeze_affected|length|pluralize }}</strong></div>
+    {% if freeze_affected %}
+        <ul class="list-group list-group-flush">
+            {% for workflow in freeze_affected %}
+                <li class="list-group-item"><a href="{% url 'plugins:nautobot_workflow_engine:workflow_launch' key=workflow.key %}">{{ workflow.name }}</a>{% if workflow.category %} <span class="text-secondary small">{{ workflow.category }}</span>{% endif %}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="card-body text-secondary">No workflows match.</div>
+    {% endif %}
+</div>
+<div class="card mb-3">
+    <div class="card-header"><strong>Runs blocked by this freeze</strong></div>
+    {% if freeze_blocked_runs %}
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Workflow</th><th>Blocked</th><th>Started by</th></tr></thead>
+            <tbody>
+            {% for run in freeze_blocked_runs %}
+                <tr><td><a href="{{ run.get_absolute_url }}">{{ run.workflow.name }}</a></td><td>{{ run.finished|date:"Y-m-d H:i" }}</td><td>{{ run.requested_by }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="card-body text-secondary">None.</div>
+    {% endif %}
+</div>
+{% if freeze_override_runs %}
+<div class="card mb-3">
+    <div class="card-header"><strong>Overrides</strong></div>
+    <table class="table table-sm mb-0">
+        <thead><tr><th>Workflow</th><th>By</th><th>Reason</th></tr></thead>
+        <tbody>
+        {% for run in freeze_override_runs %}
+            <tr><td><a href="{{ run.get_absolute_url }}">{{ run.workflow.name }}</a></td><td>{{ run.freeze_override_by }}</td><td>{{ run.freeze_override_reason }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock content_right_page %}

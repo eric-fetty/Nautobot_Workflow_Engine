@@ -36,3 +36,10 @@ def can_cancel(user, workflow_run):
         return True
     workflow = getattr(workflow_run, "workflow", None)
     return workflow is not None and user.has_perm(CANCEL_WORKFLOW_RUNS, workflow)
+
+
+def can_override_freeze(user, workflow=None):
+    """True when ``user`` holds Override change freezes (``override_freeze`` on the workflow)."""
+    from .freezes import can_override_freeze as _can_override
+
+    return _can_override(user, workflow)

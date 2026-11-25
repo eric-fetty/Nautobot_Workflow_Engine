@@ -6,4 +6,5 @@
 {% elif run.status == "scheduled" %}<span class="badge bg-info text-dark"><i class="mdi mdi-calendar-clock"></i> Scheduled</span>
 {% elif run.status == "canceled" %}<span class="badge bg-secondary"><i class="mdi mdi-cancel"></i> Canceled</span>
 {% elif run.status == "partial" %}<span class="badge bg-warning text-dark"><i class="mdi mdi-alert"></i> Partial</span>
+{% elif run.status == "blocked" %}<span class="badge text-bg-dark"><i class="mdi mdi-lock-outline"></i> Blocked by freeze</span>
 {% else %}<span class="badge bg-secondary">{{ run.get_status_display }}</span>{% endif %}

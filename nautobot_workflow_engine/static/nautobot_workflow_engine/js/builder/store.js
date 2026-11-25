@@ -314,3 +314,45 @@ function preservedAction(item) {
 export function fingerprint(payload) {
     return JSON.stringify(payload);
 }
+
+/**
+ * Nautobot tags offered by the builder's Tags picker: the ones not chosen yet that
+ * match the search text. Tags live in Nautobot, never in the YAML.
+ */
+export function tagOptions(choices, selected, query) {
+    const chosen = new Set(selected || []);
+    const needle = String(query || "").trim().toLowerCase();
+    return (choices || []).filter((tag) => tag && tag.name && !chosen.has(tag.name) && (!needle || tag.name.toLowerCase().includes(needle)));
+}
+
+/** Add a tag name to the list, or remove it when it's already there. Returns a new list. */
+export function toggleTag(tags, name) {
+    const list = Array.isArray(tags) ? tags.slice() : [];
+    const index = list.indexOf(name);
+    if (index >= 0) list.splice(index, 1);
+    else if (name) list.push(name);
+    return list;
+}
+
+/** Black or white text, whichever reads better on a Nautobot tag colour ("rrggbb"). */
+export function tagTextColor(color) {
+    const hex = String(color || "").replace(/^#/, "");
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return "";
+    const [r, g, b] = [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16));
+    return (r * 299 + g * 587 + b * 114) / 1000 > 140 ? "#000000" : "#ffffff";
+}
+
+/**
+ * Body for a draft save. The builder payload carries the tag names, and the server
+ * stores them on the workflow in Nautobot rather than in the YAML.
+ */
+export function draftBody(payload, config) {
+    return {
+        payload,
+        tags: Array.isArray(payload && payload.tags) ? payload.tags.slice() : [],
+        strict: false,
+        base_revision: config.base_revision,
+        base_git_commit: config.base_git_commit || "",
+        base_content_hash: config.base_content_hash || "",
+    };
+}
