@@ -2,6 +2,9 @@
 
 from rest_framework import serializers
 
+# Nautobot finds a model's serializer by name in <app>.api.serializers.
+from nautobot_workflow_engine.api.freezes import ChangeFreezeSerializer  # noqa: F401
+
 
 class FieldErrorSerializer(serializers.Serializer):
     """One JSON Pointer error."""

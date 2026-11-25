@@ -12,6 +12,7 @@ from nautobot.extras.models import GitRepository
 
 from .approvals import ApprovalRemovalError, reconcile_approval_definition
 from .executors import clear_repo_script_cache, validate_repo_filter_modules
+from .freezes import FreezeScopeEscape, check_sync_category, sync_skip_message
 from .models import (
     MANAGED_BY_GIT,
     MANAGED_BY_NAUTOBOT,
@@ -656,6 +657,8 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
                 )
                 job_result.log(message=f"E-NWE-102 Skipping '{workflow_key}' from {filename}: {rendered}")
                 continue
+            if prior is not None:
+                check_sync_category(prior, canonical)
             with transaction.atomic():
                 saved = apply_definition(
                     canonical,
@@ -667,6 +670,10 @@ def sync_workflows_from_repo(repository_record: GitRepository, job_result, delet
                 _record_sync_revision(saved, canonical)
             synced_workflow_keys.add(workflow_key)
             _remember_git_file(saved, raw_bytes, relative_path, repository_record)
+        except FreezeScopeEscape as exc:
+            job_result.log(message=sync_skip_message(workflow_key, filename, exc))
+            synced_workflow_keys.add(workflow_key)
+            continue
         except ApprovalRemovalError as exc:
             job_result.log(
                 message=(

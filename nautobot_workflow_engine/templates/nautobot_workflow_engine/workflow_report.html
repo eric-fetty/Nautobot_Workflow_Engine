@@ -27,6 +27,7 @@
 {% endblock header %}
 
 {% block content %}
+    {% include "nautobot_workflow_engine/inc/freeze_banner.html" %}
 
     <!-- Filters: moved to content to avoid header layout constraints -->
     <form method="get" class="filter-form" style="margin-bottom: 15px;">
@@ -239,6 +240,12 @@
                                             </div>
                                             <div class="h4 mb-1">{{ status.count }}</div>
                                             <small class="text-muted">Partial</small>
+                                        {% elif status.status == "blocked" %}
+                                            <div class="h3 text-dark mb-1">
+                                                <i class="mdi mdi-lock"></i>
+                                            </div>
+                                            <div class="h4 mb-1">{{ status.count }}</div>
+                                            <small class="text-muted">Blocked by freeze</small>
                                         {% else %}
                                             <div class="h3 text-secondary mb-1">
                                                 <i class="mdi mdi-help-circle"></i>

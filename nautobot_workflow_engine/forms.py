@@ -8,10 +8,20 @@ from datetime import timezone as dt_timezone
 
 from django import forms
 from django.utils import timezone
-from nautobot.apps.forms import BootstrapMixin, BulkEditForm, StaticSelect2Multiple, TagsBulkEditFormMixin
-from nautobot.extras.models import ExternalIntegration
+from nautobot.apps.forms import (
+    BootstrapMixin,
+    BulkEditForm,
+    DatePicker,
+    DateTimePicker,
+    StaticSelect2,
+    StaticSelect2Multiple,
+    TagsBulkEditFormMixin,
+    TimePicker,
+)
+from nautobot.extras.models import ExternalIntegration, Tag
 
-from .models import Workflow, WorkflowInput
+from .freezes import PRESETS, FreezeScopeEscape, check_scope_escape, localize, zone_for
+from .models import FREEZE_KIND_CHOICES, ChangeFreeze, Workflow, WorkflowInput
 from .servicenow import normalize_change_ticket
 from .settings_helpers import (
     DEFAULTS,
@@ -24,6 +34,8 @@ from .settings_helpers import (
     normalize_object_type_labels,
     run_history_eligible_models,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _depends_on_attr(value):
@@ -87,6 +99,193 @@ class WorkflowBulkEditForm(TagsBulkEditFormMixin, BootstrapMixin, BulkEditForm):
         """Nothing can be cleared; tags are added or removed."""
 
         nullable_fields = []
+
+    def __init__(self, *args, **kwargs):
+        """Track rows skipped because removing tags would take them out of a change freeze."""
+        super().__init__(*args, **kwargs)
+        self.freeze_skipped = []
+
+    def post_save(self, obj):
+        """Add and remove tags, unless removing them would take the workflow out of a freeze.
+
+        Nautobot's Bulk Edit job calls this for each row. Such a row keeps its tags unless the
+        person running the job holds Override change freezes for it.
+        """
+        removing = list(self.cleaned_data.get("remove_tags") or [])
+        if removing:
+            adding = {tag.pk for tag in self.cleaned_data.get("add_tags") or []}
+            proposed = ({tag.pk for tag in obj.tags.all()} | adding) - {tag.pk for tag in removing}
+            try:
+                check_scope_escape(obj, proposed_tags=proposed, user=acting_user())
+            except FreezeScopeEscape as exc:
+                self.freeze_skipped.append(obj.pk)
+                logger.warning("Bulk edit left the tags on workflow %s unchanged: %s", obj.key, exc)
+                return
+        super().post_save(obj)
+
+
+def acting_user():
+    """The user behind the current request or job (Nautobot's change-logging context), or None."""
+    from nautobot.extras.signals import change_context_state
+
+    context = change_context_state.get()
+    if context is None:
+        return None
+    user = getattr(context, "user", None)
+    if user is None and getattr(context, "request", None) is not None:
+        user = getattr(context.request, "user", None)
+    return user if getattr(user, "is_authenticated", False) else None
+
+
+def _category_choices(extra=()):
+    names = set(Workflow.objects.exclude(category="").exclude(category__isnull=True).values_list("category", flat=True))
+    names.update(item for item in extra if item)
+    return [(name, name) for name in sorted(names, key=str.casefold)]
+
+
+class ChangeFreezeForm(BootstrapMixin, forms.ModelForm):
+    """Create or edit a change freeze.
+
+    One-time start and end are typed as wall-clock times in the freeze's time zone and saved
+    as instants. Recurring freezes keep a local start date and time, the RRULE and a length.
+    """
+
+    preset = forms.ChoiceField(
+        required=False,
+        label="Preset",
+        choices=[("", "Custom rule")] + [(key, row["label"]) for key, row in PRESETS.items()],
+        help_text="Fills in the rule, start time and length. Edit them after if you need to.",
+        widget=StaticSelect2(),
+    )
+    timezone = forms.ChoiceField(label="Time zone", widget=StaticSelect2())
+    kind = forms.ChoiceField(choices=FREEZE_KIND_CHOICES, widget=forms.RadioSelect, label="Schedule")
+    starts_at = forms.DateTimeField(required=False, widget=DateTimePicker(), label="Starts")
+    ends_at = forms.DateTimeField(required=False, widget=DateTimePicker(), label="Ends")
+    recur_start_date = forms.DateField(required=False, widget=DatePicker(), label="First day")
+    recur_start_time = forms.TimeField(required=False, widget=TimePicker(), label="Start time")
+    recur_until = forms.DateField(required=False, widget=DatePicker(), label="Last day")
+    categories = forms.MultipleChoiceField(
+        required=False, widget=StaticSelect2Multiple(), help_text="Workflows in any of these categories."
+    )
+    match_tags = forms.ModelMultipleChoiceField(
+        queryset=Tag.objects.none(),
+        required=False,
+        label="Tags",
+        widget=StaticSelect2Multiple(),
+        help_text="Workflows with any of these tags.",
+    )
+    workflows = forms.ModelMultipleChoiceField(
+        queryset=Workflow.objects.filter(archived=False).order_by("name"),
+        required=False,
+        widget=StaticSelect2Multiple(),
+        help_text="These workflows, whatever their category or tags.",
+    )
+    excluded_workflows = forms.ModelMultipleChoiceField(
+        queryset=Workflow.objects.filter(archived=False).order_by("name"),
+        required=False,
+        label="Exclusions",
+        widget=StaticSelect2Multiple(),
+        help_text="Never frozen by this freeze, even when they match above.",
+    )
+
+    class Meta:
+        """Model form options."""
+
+        model = ChangeFreeze
+        fields = [
+            "name",
+            "message",
+            "enabled",
+            "timezone",
+            "kind",
+            "starts_at",
+            "ends_at",
+            "preset",
+            "rrule",
+            "recur_start_date",
+            "recur_start_time",
+            "duration_minutes",
+            "recur_until",
+            "warning_lead_minutes",
+            "applies_to_all",
+            "categories",
+            "match_tags",
+            "workflows",
+            "excluded_workflows",
+        ]
+        labels = {
+            "rrule": "Rule (RRULE)",
+            "duration_minutes": "Length (minutes)",
+            "warning_lead_minutes": "Warning lead time (minutes)",
+            "applies_to_all": "All workflows",
+        }
+        help_texts = {
+            "rrule": "Advanced. RFC 5545, for example FREQ=WEEKLY;BYDAY=FR. Times come from Start time.",
+            "duration_minutes": "How long each window lasts. 61 h (3660) is Friday 17:00 to Monday 06:00.",
+            "warning_lead_minutes": "Show a \u201cfreeze starts soon\u201d warning this long before it starts. "
+            "Default 120 (2 hours); 0 turns it off.",
+            "applies_to_all": "Freeze every workflow. Exclusions still apply.",
+            "message": "Shown on banners, the launch page and blocked runs.",
+        }
+        widgets = {"message": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        """Fill choices and show stored instants in the freeze's own time zone."""
+        super().__init__(*args, **kwargs)
+        from .timezones import timezone_choices
+
+        self.fields["timezone"].choices = [
+            (row["name"], f"{row['name']} ({row['offset']})" if row["offset"] else row["name"])
+            for row in timezone_choices()
+        ]
+        existing = list(self.instance.categories or []) if self.instance.present_in_database else []
+        self.fields["categories"].choices = _category_choices(existing)
+        self.fields["match_tags"].queryset = Tag.objects.get_for_model(Workflow).order_by("name")
+        self.fields["warning_lead_minutes"].required = False
+        self.fields["warning_lead_minutes"].initial = 120
+        if not self.is_bound:
+            if not self.instance.present_in_database:
+                self.initial.setdefault("kind", "one_time")
+                self.initial.setdefault("timezone", "UTC")
+            zone = zone_for(self.instance.timezone)
+            for name in ("starts_at", "ends_at"):
+                value = getattr(self.instance, name, None)
+                if value is not None:
+                    self.initial[name] = value.astimezone(zone).replace(tzinfo=None)
+
+    def _local_instant(self, value):
+        """The form parsed ``value`` in the server zone; read it as wall-clock time in the freeze's zone."""
+        if value is None:
+            return None
+        wall = timezone.localtime(value).replace(tzinfo=None) if timezone.is_aware(value) else value
+        return localize(wall, zone_for(self.cleaned_data.get("timezone")))
+
+    def clean(self):
+        """Convert times, drop the fields the other schedule kind uses, and require a scope."""
+        cleaned = super().clean()
+        kind = cleaned.get("kind")
+        if kind == "one_time":
+            cleaned["starts_at"] = self._local_instant(cleaned.get("starts_at"))
+            cleaned["ends_at"] = self._local_instant(cleaned.get("ends_at"))
+            for name in ("recur_start_date", "recur_start_time", "duration_minutes", "recur_until"):
+                cleaned[name] = None
+            cleaned["rrule"] = ""
+        elif kind == "recurring":
+            cleaned["starts_at"] = None
+            cleaned["ends_at"] = None
+        if cleaned.get("warning_lead_minutes") is None:
+            cleaned["warning_lead_minutes"] = 120
+        has_scope = (
+            cleaned.get("applies_to_all")
+            or cleaned.get("categories")
+            or cleaned.get("match_tags")
+            or cleaned.get("workflows")
+        )
+        if not has_scope:
+            raise forms.ValidationError(
+                "Choose what the freeze covers: all workflows, or at least one category, tag or workflow."
+            )
+        return cleaned
 
 
 class DependentChoiceField(forms.ChoiceField):

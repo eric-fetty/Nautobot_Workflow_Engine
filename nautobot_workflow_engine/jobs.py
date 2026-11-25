@@ -8,6 +8,7 @@ from nautobot.extras.models import Job as JobModel
 from nautobot.extras.models import ScheduledJob
 
 from .executors import run_workflow
+from .freezes import FreezeBlocked, block_run, check_run
 from .models import WorkflowRun
 from .scheduling import cancel_scheduled_run, create_scheduled_job_for_run, sync_servicenow_workflow_run
 from .servicenow import VALIDATION_PHASE_EXECUTION, VALIDATION_PHASE_SYNC, ServiceNowValidationError
@@ -111,6 +112,16 @@ class ScheduledWorkflowExecutorJob(Job):
                         extra={"grouping": "workflow-execution", "object": workflow_run},
                     )
 
+            # Change freeze: check at the time the job really runs, not scheduled_for (Celery can be late).
+            decision = check_run(workflow_run, at=timezone.now())
+            if decision.blocked:
+                block_run(workflow_run, decision)
+                self.logger.warning(
+                    f"Blocked WorkflowRun {workflow_run_id}: {decision.message}",
+                    extra={"grouping": "workflow-execution", "object": workflow_run},
+                )
+                return
+
             self.logger.info(
                 f"Executing scheduled workflow: {workflow_run.workflow.name}",
                 extra={"grouping": "workflow-execution", "object": workflow_run},
@@ -129,6 +140,13 @@ class ScheduledWorkflowExecutorJob(Job):
                 extra={"grouping": "workflow-execution", "object": workflow_run},
             )
 
+        except FreezeBlocked as exc:
+            # run_workflow's backstop already marked the run Blocked by freeze.
+            self.logger.warning(
+                f"Blocked WorkflowRun {workflow_run_id}: {exc}",
+                extra={"grouping": "workflow-execution"},
+            )
+            return
         except WorkflowRun.DoesNotExist:
             error_msg = f"WorkflowRun {workflow_run_id} not found"
             self.logger.error(error_msg, extra={"grouping": "workflow-execution"})

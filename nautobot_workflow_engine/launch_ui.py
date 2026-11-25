@@ -430,10 +430,38 @@ def launch_config(request, workflow, form):
     }
 
 
+def freeze_launch_state(request, workflow):
+    """Change freeze facts for the launch page: banner, lock, override box and picker windows."""
+    from .freezes import banner_rows, can_override_freeze, check_launch, enabled_freezes, launch_windows
+
+    freezes = enabled_freezes()
+    decision = check_launch(workflow, request.user, freezes=freezes)
+    windows = launch_windows(workflow, freezes=freezes)
+    can_override = can_override_freeze(request.user, workflow) if (decision.frozen or windows) else False
+    reason = request.POST.get("freeze_override_reason", "") if request.method == "POST" else ""
+    return {
+        "banner": banner_rows([workflow], freezes=freezes),
+        "state": {
+            "frozen": decision.frozen,
+            "blocked": decision.frozen and not can_override,
+            "can_override": can_override,
+            "show_reason": can_override,
+            "reason_required": decision.frozen and can_override,
+            "message": decision.message,
+            "reason": reason,
+        },
+        "config": {"windows": windows, "can_override": can_override, "frozen_now": decision.frozen},
+    }
+
+
 def launch_context(request, workflow, form):
     """Template context for the launch page."""
     config = launch_config(request, workflow, form)
+    freeze = freeze_launch_state(request, workflow)
+    config["freeze"] = freeze["config"]
     return {
+        "freeze_banner": freeze["banner"],
+        "freeze": freeze["state"],
         "workflow": workflow,
         "form": form,
         "launch_config": config,

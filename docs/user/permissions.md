@@ -13,6 +13,9 @@ The app creates these permissions when it is installed or upgraded, under **Admi
 | Workflow Engine: Build workflows | workflow | view, add, change |
 | Workflow Engine: Publish workflows | workflow | publish |
 | Workflow Engine: Write scripts | workflow | write_script |
+| Workflow Engine: View change freezes | change freeze | view |
+| Workflow Engine: Manage change freezes | change freeze | view, add, change, delete |
+| Workflow Engine: Override change freezes | workflow | override_freeze |
 
 ![The ready-made Workflow Engine permissions](../assets/images/admin/04-default-permissions.png)
 
@@ -61,6 +64,16 @@ Without **Write scripts**, the **New script…** panel shows the generated file 
 ### Preview run
 
 **Preview run** uses the change permission. It never runs a script, calls AWX, or records a run, a scheduled job or an object change.
+
+## Change freezes
+
+| Permission | What it allows |
+| --- | --- |
+| `nautobot_workflow_engine.view_changefreeze` | See **Workflows → Change Freezes** and each freeze's page. This is **View change freezes**. |
+| `nautobot_workflow_engine.add_changefreeze`, `change_changefreeze`, `delete_changefreeze` | Add, edit and delete freezes, use the preview, and **Cancel them** for runs inside a freeze. Part of **Manage change freezes**. |
+| `nautobot_workflow_engine.override_freeze_workflow` | Run or schedule a workflow during a freeze, with a required reason saved on the run. Also needed for an edit that would take a workflow out of an active or upcoming freeze: removing a tag it matches, or changing its category. Additional action `override_freeze` on *Workflow*: this is **Override change freezes**. |
+
+Seeing a freeze's banner needs no freeze permission: anyone who can see the workflow sees the freezes that cover it. A constraint on **Override change freezes**, such as `{"category": "Networking"}`, limits which workflows someone can override. A scheduled run booked with an override is blocked if the person who booked it no longer has the permission when it fires. See [Change freezes](../admin/change_freezes.md).
 
 ## Repositories are not a permission
 

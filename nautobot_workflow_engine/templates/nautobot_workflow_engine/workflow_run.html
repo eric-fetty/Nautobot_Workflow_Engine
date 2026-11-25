@@ -60,6 +60,26 @@
         One or more post-actions failed. Core workflow status is preserved.
     </div>
 
+    {% if object.status == "blocked" %}
+        <div class="alert alert-dark d-flex gap-3 align-items-start" role="status" id="nwe-run-freeze-blocked">
+            <i class="mdi mdi-lock-outline fs-4" aria-hidden="true"></i>
+            <div>
+                <div class="fw-semibold">Blocked by change freeze{% if object.freeze_name %} “{% if object.freeze %}<a href="{{ object.freeze.get_absolute_url }}">{{ object.freeze_name }}</a>{% else %}{{ object.freeze_name }}{% endif %}”{% endif %}</div>
+                {% if object.freeze.message %}<div>{{ object.freeze.message }}</div>{% endif %}
+                <div class="small">Nothing in this run ran, including pre-actions. Run it again after the freeze ends.</div>
+            </div>
+        </div>
+    {% endif %}
+    {% if object.freeze_override_reason %}
+        <div class="alert alert-warning d-flex gap-3 align-items-start" role="status" id="nwe-run-freeze-override">
+            <i class="mdi mdi-lock-open-outline fs-4" aria-hidden="true"></i>
+            <div>
+                <div class="fw-semibold">Freeze overridden by {{ object.freeze_override_by|default:"someone" }}: {{ object.freeze_override_reason }}</div>
+                {% if object.freeze_name %}<div class="small">Change freeze “{{ object.freeze_name }}”.</div>{% endif %}
+            </div>
+        </div>
+    {% endif %}
+
     {% if object.workflow.description %}
         <div class="row">
             <div class="col-12">
@@ -132,6 +152,10 @@
                                 {% elif object.status == "partial" %}
                                     <span class="badge bg-warning text-dark">
                                         <i class="mdi mdi-alert"></i> Partial
+                                    </span>
+                                {% elif object.status == "blocked" %}
+                                    <span class="badge bg-dark">
+                                        <i class="mdi mdi-lock-outline"></i> Blocked by freeze
                                     </span>
                                 {% else %}
                                     <span class="badge bg-secondary">{{ object.status|title }}</span>

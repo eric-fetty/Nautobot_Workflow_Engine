@@ -241,6 +241,10 @@
                                             <span class="badge bg-warning text-dark">
                                                 <i class="mdi mdi-alert"></i> Partial
                                             </span>
+                                        {% elif run.status == "blocked" %}
+                                            <span class="badge bg-dark" title="{% if run.freeze_name %}Change freeze “{{ run.freeze_name }}”{% endif %}">
+                                                <i class="mdi mdi-lock-outline"></i> Blocked by freeze
+                                            </span>
                                         {% else %}
                                             <span class="badge bg-secondary">{{ run.status|title }}</span>
                                         {% endif %}
