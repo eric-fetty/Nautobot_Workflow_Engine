@@ -1,1 +1,0 @@
-Workflows now use Nautobot tags: pick them in the builder's Details step, see them as coloured chips on the Workflows list, filter the list by tag, and add or remove tags on many workflows at once with Bulk edit. Tags stay in Nautobot and are never written to the workflow YAML, so a Git sync keeps them.

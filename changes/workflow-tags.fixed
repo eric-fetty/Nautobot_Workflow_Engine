@@ -1,1 +1,0 @@
-Saving tags from the builder or the API no longer fails: `Workflow.tags` was a plain django-taggit field that rejected Nautobot tags. The API now returns a 400 naming any unknown tag, or one not allowed on workflows, instead of dropping it.
