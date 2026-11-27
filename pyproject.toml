@@ -47,7 +47,7 @@ include = [
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/issues"
-"Changelog" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/admin/release_notes/version_1.2.md"
+"Changelog" = "https://github.com/eric-fetty/Nautobot_Workflow_Engine/blob/main/docs/admin/release_notes/index.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
