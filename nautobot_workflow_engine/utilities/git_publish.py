@@ -40,6 +40,7 @@ from nautobot_workflow_engine.utilities.git import (
     sanitize_git_error,
     scrub_plain,
 )
+from nautobot_workflow_engine.utilities.safe_paths import UnsafePathError, contained_path
 from nautobot_workflow_engine.utilities.sync_rules import apply_git_version, commit_touch, file_digest
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ class PublishLog:
 
 
 PATH_CONFLICT = "wasn't created by this workflow"
+UNSAFE_PATH = "is outside the repository"
 
 
 def publish_blocker(repository):
@@ -534,7 +536,11 @@ def _write_desired(helper, repository, fallback_user, log, job_result):
         if not workflow.git_path:
             workflow.git_path = default_git_path(workflow)
         relative = workflow.git_path
-        path = root / relative
+        try:
+            path = contained_path(root, relative)
+        except UnsafePathError:
+            _refuse_path(repository, workflow, relative, log)
+            continue
         action = _write_rule(helper, repository, workflow, path, relative, log, job_result)
         if action is None:
             continue
@@ -548,6 +554,17 @@ def _write_desired(helper, repository, fallback_user, log, job_result):
     message = _commit_message(entries, job_result, overwrote)
     _ = branch
     return message, author
+
+
+def _refuse_path(repository, workflow, relative, log):
+    """Leave a workflow whose stored Git path points outside the repository unpublished."""
+    workflow.git_status = GIT_STATUS_NOT_SYNCED
+    workflow.git_error = (
+        f"Couldn't push to {repository.name}: {relative} {UNSAFE_PATH}. "
+        "Give the workflow a path inside the repository."
+    )
+    workflow.save(update_fields=["git_status", "git_error", "last_updated"])
+    log.error(workflow.git_error)
 
 
 def _write_rule(helper, repository, workflow, path, relative, log, job_result):
@@ -787,8 +804,11 @@ def _mark_clean(repository, helper, job_result):
     rows = Workflow.objects.filter(source_repo=repository, managed_by=MANAGED_BY_NAUTOBOT, git_status__in=UNPUSHED)
     for workflow in rows:
         relative = workflow.git_path or default_git_path(workflow)
-        path = root / relative
-        if PATH_CONFLICT in (workflow.git_error or ""):
+        if PATH_CONFLICT in (workflow.git_error or "") or UNSAFE_PATH in (workflow.git_error or ""):
+            continue
+        try:
+            path = contained_path(root, relative)
+        except UnsafePathError:
             continue
         workflow.git_status = GIT_STATUS_IN_SYNC
         workflow.git_commit = head
@@ -816,7 +836,7 @@ def _fail(repository, message, job_result, log):
     log.plain_error(safe)
     rows = Workflow.objects.filter(source_repo=repository, managed_by=MANAGED_BY_NAUTOBOT, git_status__in=UNPUSHED)
     for workflow in rows:
-        if PATH_CONFLICT in (workflow.git_error or ""):
+        if PATH_CONFLICT in (workflow.git_error or "") or UNSAFE_PATH in (workflow.git_error or ""):
             continue
         workflow.git_status = GIT_STATUS_NOT_SYNCED
         workflow.git_error = safe

@@ -3,6 +3,7 @@
 import ast
 import hashlib
 import json
+import logging
 
 from django.contrib.contenttypes.models import ContentType
 from django.http import Http404
@@ -62,6 +63,8 @@ from .serializers import (
     WorkflowDetailSerializer,
     WorkflowSummarySerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BodyParser(BaseParser):
@@ -781,13 +784,22 @@ class BuilderYamlApplyView(APIView):
             ]
         except ServiceError as exc:
             return _service_response(exc)
-        except Exception as exc:
+        except Exception:
+            logger.exception("Edit YAML could not be applied.")
             return Response(
                 {
                     "payload": None,
                     "definition": None,
                     "yaml": text,
-                    "errors": [{"line": 1, "column": 1, "pointer": "", "code": "yaml", "message": str(exc)}],
+                    "errors": [
+                        {
+                            "line": 1,
+                            "column": 1,
+                            "pointer": "",
+                            "code": "yaml",
+                            "message": "The YAML could not be applied. Check it against the workflow schema.",
+                        }
+                    ],
                 }
             )
         for item in errors:
@@ -953,8 +965,15 @@ class BuilderFilterCountView(APIView):
             }
             try:
                 rendered = _render(query, {"inputs": inputs, "user": SafeUser.from_user(user)}, max_output=100_000)
-            except Exception as exc:
-                return Response({"count": None, "names": [], "error": str(exc)})
+            except Exception:
+                logger.warning("Filter count: the filter query could not be rendered.", exc_info=True)
+                return Response(
+                    {
+                        "count": None,
+                        "names": [],
+                        "error": "The filter query could not be rendered. Check its Jinja in the preview.",
+                    }
+                )
         if not isinstance(rendered, dict):
             rendered = {}
         for lookup in expanded_lookups(rendered):

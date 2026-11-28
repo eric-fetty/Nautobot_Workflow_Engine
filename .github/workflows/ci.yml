@@ -11,6 +11,9 @@ concurrency:
   pull_request:
     branches: ["main", "develop"]
 
+permissions:
+  contents: "read"
+
 env:
   APP_NAME: "nautobot-workflow-engine"
   PYTHON_VER: "3.12"

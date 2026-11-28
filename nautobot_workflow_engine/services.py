@@ -931,11 +931,14 @@ def _include_paths(workflow):
 
 
 def _current_file_bytes(workflow):
-    from pathlib import Path
+    from nautobot_workflow_engine.utilities.safe_paths import UnsafePathError, contained_path
 
     if not workflow.source_repo_id or not workflow.git_path:
         return b""
-    path = Path(workflow.source_repo.filesystem_path) / workflow.git_path
+    try:
+        path = contained_path(workflow.source_repo.filesystem_path, workflow.git_path)
+    except UnsafePathError:
+        return b""
     if path.is_file():
         return path.read_bytes()
     return b""

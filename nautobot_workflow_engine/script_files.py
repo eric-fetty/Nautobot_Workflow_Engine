@@ -65,13 +65,21 @@ def parameters_spec(rows):
         kind = row.get("type") if row.get("type") in PARAM_TYPES else "string"
         entry = {"type": kind, "required": bool(row.get("required", True))}
         model = row.get("model")
-        if kind in ("object", "multiobject") and isinstance(model, str) and re.fullmatch(r"\w+\.\w+", model):
+        if kind in ("object", "multiobject") and _model_label(model):
             entry["model"] = model
         help_text = str(row.get("help") or "").strip()
         if help_text:
             entry["help"] = help_text[:200]
         spec[name] = entry
     return spec
+
+
+def _model_label(value):
+    """True for an ``app_label.model`` string. Split first so no regex can backtrack on long input."""
+    if not isinstance(value, str) or len(value) > 200:
+        return False
+    app_label, dot, model = value.partition(".")
+    return bool(dot) and all(re.fullmatch(r"\w+", part) for part in (app_label, model))
 
 
 def default_body(spec):
