@@ -792,22 +792,14 @@ class BuilderYamlApplyView(APIView):
             ]
         except ServiceError as exc:
             return _service_response(exc)
-        except Exception:
+        except Exception as exc:
             logger.exception("Edit YAML could not be applied.")
             return Response(
                 {
                     "payload": None,
                     "definition": None,
                     "yaml": text,
-                    "errors": [
-                        {
-                            "line": 1,
-                            "column": 1,
-                            "pointer": "",
-                            "code": "yaml",
-                            "message": "The YAML could not be applied. Check it against the workflow schema.",
-                        }
-                    ],
+                    "errors": [{"line": 1, "column": 1, "pointer": "", "code": "yaml", "message": str(exc)}],
                 }
             )
         for item in errors:
@@ -973,15 +965,9 @@ class BuilderFilterCountView(APIView):
             }
             try:
                 rendered = _render(query, {"inputs": inputs, "user": SafeUser.from_user(user)}, max_output=100_000)
-            except Exception:
+            except Exception as exc:
                 logger.warning("Filter count: the filter query could not be rendered.", exc_info=True)
-                return Response(
-                    {
-                        "count": None,
-                        "names": [],
-                        "error": "The filter query could not be rendered. Check its Jinja in the preview.",
-                    }
-                )
+                return Response({"count": None, "names": [], "error": str(exc)})
         if not isinstance(rendered, dict):
             rendered = {}
         for lookup in expanded_lookups(rendered):

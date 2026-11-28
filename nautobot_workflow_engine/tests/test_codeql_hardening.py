@@ -1,6 +1,5 @@
-"""Hardening from the CodeQL triage: contained paths, generic option errors, and a linear model-label check."""
+"""Hardening from the CodeQL triage: contained paths, a linear model-label check, and server-built edit URLs."""
 
-import json
 import os
 import tempfile
 import time
@@ -8,21 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
-from nautobot.extras.models import Tag
-from rest_framework.test import APIClient
 
-from nautobot_workflow_engine.models import GIT_STATUS_NOT_SYNCED, Workflow, WorkflowInput
+from nautobot_workflow_engine.models import GIT_STATUS_NOT_SYNCED, Workflow
 from nautobot_workflow_engine.script_files import parameters_spec
-from nautobot_workflow_engine.tests.test_input_options_security import grant
 from nautobot_workflow_engine.utilities.safe_paths import UnsafePathError, contained_path
-from nautobot_workflow_engine.views import OPTIONS_RENDER_ERROR
-
-User = get_user_model()
-BROKEN_TEMPLATE = "{{ inputs."
 
 
 class ContainedPathTestCase(SimpleTestCase):
@@ -114,54 +104,6 @@ class ModelLabelTestCase(SimpleTestCase):
         self.assertIsNone(self._model("0" * 50_000))
         self.assertIsNone(self._model("0." + "0" * 50_000 + "!"))
         self.assertLess(time.monotonic() - started, 1.0)
-
-
-class GenericRenderErrorsTestCase(TestCase):
-    """Render failures are logged on the server; the browser gets a fixed message, not exception text."""
-
-    def setUp(self):
-        self.user = User.objects.create(username="hardening")
-        grant(self.user, ["view", "change"], Workflow)
-        grant(self.user, ["view"], Tag)
-
-    def test_input_options_hide_the_exception(self):
-        workflow = Workflow.objects.create(
-            key="hardening",
-            name="Hardening",
-            enabled=True,
-            raw_definition={"key": "hardening", "name": "Hardening", "enabled": True},
-        )
-        WorkflowInput.objects.create(
-            workflow=workflow,
-            key="tag",
-            label="Tag",
-            input_type="object",
-            content_type=ContentType.objects.get_for_model(Tag),
-            filter_query={"name": BROKEN_TEMPLATE},
-            order=1,
-        )
-        self.client.force_login(self.user)
-        url = reverse("plugins:nautobot_workflow_engine:input_options", kwargs={"key": "hardening", "child": "tag"})
-        with self.assertLogs("nautobot_workflow_engine.views", level="ERROR"):
-            response = self.client.get(url)
-        body = response.json()
-        self.assertEqual(body["options"], [])
-        self.assertEqual(body["error"], OPTIONS_RENDER_ERROR)
-
-    def test_filter_count_hides_the_exception(self):
-        client = APIClient()
-        client.force_authenticate(self.user)
-        url = reverse("plugins-api:nautobot_workflow_engine-api:builder-filter-count")
-        with self.assertLogs("nautobot_workflow_engine.api.views", level="WARNING"):
-            response = client.post(
-                url,
-                data=json.dumps({"model": "extras.Tag", "query": {"name": BROKEN_TEMPLATE}}),
-                content_type="application/json",
-            )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertIsNone(response.data["count"])
-        self.assertIn("could not be rendered", response.data["error"])
-        self.assertNotIn("unexpected", response.data["error"].lower())
 
 
 class EditUrlTestCase(TestCase):

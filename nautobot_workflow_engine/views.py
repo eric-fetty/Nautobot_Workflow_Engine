@@ -1052,9 +1052,9 @@ class InputOptionsView(View):
                     rendered_filters = _render(
                         wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception("Error rendering filter query for API search")
-                    return _options_error(OPTIONS_RENDER_ERROR)
+                    return _options_error(str(exc))
 
             # Clean filters and apply
             clean_filters = {k: v for k, v in rendered_filters.items() if v not in (None, "")}
@@ -1109,9 +1109,9 @@ class InputOptionsView(View):
         if wi.filter_query:
             try:
                 rendered_filters = _render(wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Error rendering filter query for %s", wi.key)
-                return _options_error(OPTIONS_RENDER_ERROR)
+                return _options_error(str(exc))
         else:
             rendered_filters = {}
 
@@ -1216,9 +1216,9 @@ class InputOptionsView(View):
 
             return JsonResponse({"options": data})
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Error rendering choices for %s", wi.key)
-            return _options_error(OPTIONS_RENDER_ERROR)
+            return _options_error(str(exc))
 
 
 class WorkflowRunDetailView(ObjectView):
@@ -1865,9 +1865,6 @@ class WorkflowReportView(TemplateView):
                 m["bar_class"] = "low"
 
         return monthly
-
-
-OPTIONS_RENDER_ERROR = "The options for this field could not be loaded. Ask the workflow owner to check its template."
 
 
 def _options_error(message):
