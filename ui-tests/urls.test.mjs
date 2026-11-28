@@ -27,3 +27,8 @@ test("returns empty for a missing template", () => {
     assert.equal(sameOriginUrl("", "a", ORIGIN), "");
     assert.equal(sameOriginUrl(undefined, "a", ORIGIN), "");
 });
+
+test("accepts a finished server URL with no key", () => {
+    assert.equal(sameOriginUrl("/plugins/wfe/copy-1/edit/", undefined, ORIGIN), "/plugins/wfe/copy-1/edit/");
+    assert.equal(sameOriginUrl("javascript:alert(1)", undefined, ORIGIN), "");
+});

@@ -441,7 +441,7 @@ async function saveDraft() {
     if (!config.key) {
         result = await api(config.create_api_url, body);
         if (result.ok && result.data.workflow) {
-            const next = sameOriginUrl(config.edit_url_template, result.data.workflow.key);
+            const next = sameOriginUrl(result.data.workflow.edit_url);
             if (next) {
                 window.location.assign(next);
                 return;
@@ -3724,7 +3724,7 @@ async function duplicate() {
     const result = await api(url, { key, name });
     if (!result.ok) toast(result.data.detail || "Could not duplicate.");
     else {
-        const next = sameOriginUrl(config.edit_url_template, key);
+        const next = sameOriginUrl(result.data.workflow && result.data.workflow.edit_url);
         if (next) window.location.assign(next);
     }
 }

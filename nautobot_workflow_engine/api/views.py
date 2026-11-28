@@ -225,7 +225,15 @@ def _summary(workflow):
         "draft_revision": draft.number if draft is not None else None,
         "updated": getattr(workflow, "last_updated", None),
         "tags": _tag_rows(workflow),
+        "edit_url": _edit_url(workflow),
     }
+
+
+def _edit_url(workflow):
+    """The builder page for ``workflow``. The browser follows this after create or duplicate."""
+    from django.urls import reverse
+
+    return reverse("plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": workflow.key})
 
 
 def _tag_rows(workflow):

@@ -1,7 +1,7 @@
 /** Build in-app links from server templates without trusting what goes into them. */
 
 /**
- * Fill ``__KEY__`` in a server-provided URL template and return it only when it stays on this site.
+ * Return a server-provided URL (optionally filling ``__KEY__``) only when it stays on this site.
  *
  * The key is URL-encoded, so it can't add a path, query, or scheme. Returns "" for anything that
  * would leave the current origin (``javascript:``, ``//other.host``, absolute URLs elsewhere).

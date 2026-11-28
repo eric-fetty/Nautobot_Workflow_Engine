@@ -205,7 +205,7 @@
                                                     <li><a class="dropdown-item" href="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key=wf.key %}?versions=1">Versions</a></li>
                                                 {% endif %}
                                                 {% if can_add_workflows %}
-                                                    <li><button type="button" class="dropdown-item" data-nwe-duplicate="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-duplicate' key=wf.key %}" data-edit-template="{% url 'plugins:nautobot_workflow_engine:workflow_builder_edit' key='__KEY__' %}">Duplicate</button></li>
+                                                    <li><button type="button" class="dropdown-item" data-nwe-duplicate="{% url 'plugins-api:nautobot_workflow_engine-api:workflow-duplicate' key=wf.key %}">Duplicate</button></li>
                                                 {% endif %}
                                                 <li><a class="dropdown-item" href="{% url 'plugins:nautobot_workflow_engine:workflow_run_list' %}?workflow={{ wf.key|urlencode }}">Run history</a></li>
                                                 {% if wf.published_revision_id %}

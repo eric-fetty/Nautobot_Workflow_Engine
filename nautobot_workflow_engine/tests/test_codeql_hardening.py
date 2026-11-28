@@ -162,3 +162,18 @@ class GenericRenderErrorsTestCase(TestCase):
         self.assertIsNone(response.data["count"])
         self.assertIn("could not be rendered", response.data["error"])
         self.assertNotIn("unexpected", response.data["error"].lower())
+
+
+class EditUrlTestCase(TestCase):
+    """Create and duplicate answers carry the builder link, so the browser never builds it from page text."""
+
+    def test_summary_has_the_builder_url(self):
+        from nautobot_workflow_engine.api.views import _summary
+
+        workflow = Workflow.objects.create(
+            key="edit-link",
+            name="Edit link",
+            raw_definition={"key": "edit-link", "name": "Edit link"},
+        )
+        expected = reverse("plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": "edit-link"})
+        self.assertEqual(_summary(workflow)["edit_url"], expected)

@@ -55,8 +55,10 @@ import { sameOriginUrl } from "./shared/urls.js";
             var name = window.prompt("Name for the copy");
             if (!key || !name) return;
             post(button.getAttribute("data-nwe-duplicate"), { key: key, name: name }).then(function (response) {
-                if (!response.ok) return;
-                var next = sameOriginUrl(button.getAttribute("data-edit-template") || "", key);
+                if (!response.ok) return null;
+                return response.json();
+            }).then(function (data) {
+                var next = sameOriginUrl(data && data.workflow && data.workflow.edit_url);
                 if (next) window.location.assign(next);
             });
         });
