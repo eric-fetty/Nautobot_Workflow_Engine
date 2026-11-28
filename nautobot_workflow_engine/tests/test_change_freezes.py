@@ -811,14 +811,26 @@ class FreezePagesTestCase(TestCase):
         history = self.client.get(reverse("plugins:nautobot_workflow_engine:workflow_run_list") + "?status=blocked")
         self.assertContains(history, "Blocked by freeze")
 
-    def test_dashboard_leaves_blocked_runs_out_of_the_success_rate(self):
-        for status in ("success", "blocked", "blocked"):
+    def test_dashboard_leaves_blocked_and_canceled_runs_out_of_the_success_rate(self):
+        for status in ("success", "failed", "blocked", "canceled"):
             WorkflowRun.objects.create(workflow=self.workflow, requested_by=self.admin, inputs={}, status=status)
         self.client.force_login(self.admin)
         page = self.client.get(reverse("plugins:nautobot_workflow_engine:workflow_report"))
         stats = page.context["workflows_with_stats"]
         row = next(item for item in stats if item["workflow"].pk == self.workflow.pk)
-        self.assertEqual(row["success_rate"], 100.0)
+        self.assertEqual(row["total_runs"], 2)
+        self.assertEqual(row["successful_runs"], 1)
+        self.assertEqual(row["success_rate"], 50.0)
+
+        category_row = next(
+            item for item in page.context["success_by_category"] if item["category"] == self.workflow.category
+        )
+        self.assertEqual(category_row["total"], 2)
+        self.assertEqual(category_row["success_rate"], 50.0)
+
+        catalog = self.client.get(reverse("plugins:nautobot_workflow_engine:workflows_list"))
+        self.assertEqual(catalog.context["catalog_stats"]["runs_30d"], 2)
+        self.assertEqual(catalog.context["catalog_stats"]["success_rate"], 50)
 
     def test_duplicate_copies_tags(self):
         tag = make_tag("Copied")

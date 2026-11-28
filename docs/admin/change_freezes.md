@@ -94,7 +94,8 @@ lists the workflows it affects, runs it has blocked, and runs that overrode it.
 The check runs when the run is booked and again when it fires, so a freeze added after a run
 was scheduled still stops it.
 
-**Blocked by freeze** is left out of the dashboard's success rate.
+**Blocked by freeze** is left out of the dashboard's success rate, as are canceled
+runs. See [Dashboard and time saved](../user/app_reporting.md).
 
 ## Banners
 
