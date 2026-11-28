@@ -92,6 +92,8 @@ mkdocstrings = "0.25.2"
 mkdocstrings-python = "1.10.8"
 mkdocs-autorefs = "1.2.0"
 griffe = "1.1.1"
+# Markdown extensions used by MkDocs Material; pin past GHSA-9xwg-3r6f-jcx2 / GHSA-gm37-52c6-37mw
+pymdown-extensions = "11.0.2"
 
 [tool.poetry.extras]
 all = [
