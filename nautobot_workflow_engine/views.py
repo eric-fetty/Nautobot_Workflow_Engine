@@ -1053,7 +1053,7 @@ class InputOptionsView(View):
                         wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT
                     )
                 except Exception as exc:
-                    logger.error(f"Error rendering filter query for API search: {exc}")
+                    logger.exception("Error rendering filter query for API search")
                     return _options_error(str(exc))
 
             # Clean filters and apply
@@ -1110,7 +1110,7 @@ class InputOptionsView(View):
             try:
                 rendered_filters = _render(wi.filter_query, context, repo=wf.source_repo, max_output=WEB_RENDER_LIMIT)
             except Exception as exc:
-                logger.error(f"Error rendering filter query for {wi.key}: {exc}")
+                logger.exception("Error rendering filter query for %s", wi.key)
                 return _options_error(str(exc))
         else:
             rendered_filters = {}
@@ -1217,7 +1217,7 @@ class InputOptionsView(View):
             return JsonResponse({"options": data})
 
         except Exception as exc:
-            logger.error(f"Error rendering choices for {wi.key}: {exc}")
+            logger.exception("Error rendering choices for %s", wi.key)
             return _options_error(str(exc))
 
 

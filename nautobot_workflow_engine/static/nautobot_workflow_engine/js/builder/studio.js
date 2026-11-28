@@ -7,6 +7,7 @@ import { draftSnapshot, mergeIssues, validationGate } from "../shared/issues.js"
 import { jinjaEditor } from "../shared/jinja.js";
 import { fixedText, fixedValue, inputRef, isTemplate, paramMode } from "../shared/template.js";
 import { regexProblem, trySample } from "../shared/validate.js";
+import { sameOriginUrl } from "../shared/urls.js";
 
 const configNode = document.getElementById("workflow-builder-config");
 const config = configNode ? JSON.parse(configNode.textContent) : {};
@@ -440,9 +441,11 @@ async function saveDraft() {
     if (!config.key) {
         result = await api(config.create_api_url, body);
         if (result.ok && result.data.workflow) {
-            const next = config.edit_url_template.replace("__KEY__", result.data.workflow.key);
-            window.location.assign(next);
-            return;
+            const next = sameOriginUrl(result.data.workflow.edit_url);
+            if (next) {
+                window.location.assign(next);
+                return;
+            }
         }
     } else {
         result = await api(config.draft_url, body, "PUT");
@@ -3720,7 +3723,10 @@ async function duplicate() {
     const url = config.duplicate_url || "";
     const result = await api(url, { key, name });
     if (!result.ok) toast(result.data.detail || "Could not duplicate.");
-    else window.location.assign(config.edit_url_template.replace("__KEY__", key));
+    else {
+        const next = sameOriginUrl(result.data.workflow && result.data.workflow.edit_url);
+        if (next) window.location.assign(next);
+    }
 }
 
 async function retryGit() {

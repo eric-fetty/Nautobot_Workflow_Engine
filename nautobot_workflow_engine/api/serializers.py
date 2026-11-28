@@ -131,6 +131,7 @@ class WorkflowSummarySerializer(serializers.Serializer):
     draft_revision = serializers.IntegerField(allow_null=True)
     updated = serializers.DateTimeField(allow_null=True)
     tags = WorkflowTagSerializer(many=True)
+    edit_url = serializers.CharField()
 
 
 class BaseSerializer(serializers.Serializer):

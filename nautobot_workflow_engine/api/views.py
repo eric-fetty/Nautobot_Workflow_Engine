@@ -3,6 +3,7 @@
 import ast
 import hashlib
 import json
+import logging
 
 from django.contrib.contenttypes.models import ContentType
 from django.http import Http404
@@ -62,6 +63,8 @@ from .serializers import (
     WorkflowDetailSerializer,
     WorkflowSummarySerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BodyParser(BaseParser):
@@ -222,7 +225,15 @@ def _summary(workflow):
         "draft_revision": draft.number if draft is not None else None,
         "updated": getattr(workflow, "last_updated", None),
         "tags": _tag_rows(workflow),
+        "edit_url": _edit_url(workflow),
     }
+
+
+def _edit_url(workflow):
+    """The builder page for ``workflow``. The browser follows this after create or duplicate."""
+    from django.urls import reverse
+
+    return reverse("plugins:nautobot_workflow_engine:workflow_builder_edit", kwargs={"key": workflow.key})
 
 
 def _tag_rows(workflow):
@@ -782,6 +793,7 @@ class BuilderYamlApplyView(APIView):
         except ServiceError as exc:
             return _service_response(exc)
         except Exception as exc:
+            logger.exception("Edit YAML could not be applied.")
             return Response(
                 {
                     "payload": None,
@@ -954,6 +966,7 @@ class BuilderFilterCountView(APIView):
             try:
                 rendered = _render(query, {"inputs": inputs, "user": SafeUser.from_user(user)}, max_output=100_000)
             except Exception as exc:
+                logger.warning("Filter count: the filter query could not be rendered.", exc_info=True)
                 return Response({"count": None, "names": [], "error": str(exc)})
         if not isinstance(rendered, dict):
             rendered = {}

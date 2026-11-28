@@ -1,4 +1,5 @@
 import { onEnableChange } from "./shared/run_control.js";
+import { sameOriginUrl } from "./shared/urls.js";
 
 (function () {
     function csrf() {
@@ -54,9 +55,11 @@ import { onEnableChange } from "./shared/run_control.js";
             var name = window.prompt("Name for the copy");
             if (!key || !name) return;
             post(button.getAttribute("data-nwe-duplicate"), { key: key, name: name }).then(function (response) {
-                if (!response.ok) return;
-                var edit = button.getAttribute("data-edit-template") || "";
-                if (edit) window.location.assign(edit.replace("__KEY__", key));
+                if (!response.ok) return null;
+                return response.json();
+            }).then(function (data) {
+                var next = sameOriginUrl(data && data.workflow && data.workflow.edit_url);
+                if (next) window.location.assign(next);
             });
         });
     });

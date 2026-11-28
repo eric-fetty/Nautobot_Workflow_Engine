@@ -1,7 +1,6 @@
 """Commit one new script file to a workflow repository. The file is written, never run."""
 
 import logging
-from pathlib import Path
 
 from nautobot_workflow_engine.models import WorkflowHelper
 from nautobot_workflow_engine.schema.policy import script_path_allowed
@@ -16,6 +15,7 @@ from nautobot_workflow_engine.utilities.git_publish import (
     publish_blocker,
     readable_failure,
 )
+from nautobot_workflow_engine.utilities.safe_paths import UnsafePathError, contained_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +51,10 @@ def commit_script(*, user, repository, path, content):
     log = PublishLog()
     try:
         helper = prepare_working_copy(repository, log)
-        root = Path(helper.repo.working_tree_dir)
-        target = root / path
+        try:
+            target = contained_path(helper.repo.working_tree_dir, path)
+        except UnsafePathError:
+            raise ScriptCommitError(400, "Scripts must live in the scripts folder.") from None
         if target.exists():
             raise ScriptCommitError(409, f"{path} already exists. Pick another name, or choose it in the list.")
         message = (
