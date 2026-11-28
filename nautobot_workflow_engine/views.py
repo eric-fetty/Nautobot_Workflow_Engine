@@ -97,8 +97,9 @@ from .timezones import timezone_choices
 logger = logging.getLogger(__name__)
 
 TERMINAL_WORKFLOW_STATUSES = {"success", "failed", "partial", "canceled", "blocked"}
-# Runs that never started: left out of success-rate denominators.
-NOT_STARTED_STATUSES = ("blocked",)
+# Left out of success-rate denominators: blocked runs never started, and canceled
+# runs should not count as successes or failures.
+SUCCESS_RATE_EXCLUDED_STATUSES = ("blocked", "canceled")
 STATUS_BADGE_MAP = {
     "success": {"label": "Success", "class": "bg-success", "icon": "mdi-check"},
     "failed": {"label": "Failed", "class": "bg-danger", "icon": "mdi-close"},
@@ -369,7 +370,7 @@ def _catalog_stats():
     """Runs, success rate, and time saved for the last 30 days."""
     since = timezone.now() - timedelta(days=30)
     recent = WorkflowRun.objects.filter(started__gte=since)
-    total = recent.exclude(status__in=NOT_STARTED_STATUSES).count()
+    total = recent.exclude(status__in=SUCCESS_RATE_EXCLUDED_STATUSES).count()
     success = recent.filter(status="success").count()
     saved_minutes = 0
     for run in recent.filter(status="success").select_related("workflow"):
@@ -1639,7 +1640,7 @@ class WorkflowReportView(TemplateView):
         workflows_with_stats = []
         for workflow in _get_workflow_queryset():
             wf_runs = base_qs.filter(workflow=workflow)
-            total_runs = wf_runs.exclude(status__in=NOT_STARTED_STATUSES).count()
+            total_runs = wf_runs.exclude(status__in=SUCCESS_RATE_EXCLUDED_STATUSES).count()
             successful_runs = wf_runs.filter(status="success").count()
             success_rate = (successful_runs / total_runs * 100.0) if total_runs else 0.0
             workflows_with_stats.append(
@@ -1681,7 +1682,7 @@ class WorkflowReportView(TemplateView):
             success_by_category[cat][row["status"]] = row["count"]
         success_by_category_list = []
         for cat, counts in success_by_category.items():
-            total = sum(count for status, count in counts.items() if status not in NOT_STARTED_STATUSES)
+            total = sum(count for status, count in counts.items() if status not in SUCCESS_RATE_EXCLUDED_STATUSES)
             success_rate = (counts.get("success", 0) / total * 100.0) if total else 0.0
             success_by_category_list.append(
                 {"category": cat, "counts": counts, "total": total, "success_rate": success_rate}

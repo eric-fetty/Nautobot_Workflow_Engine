@@ -1,0 +1,1 @@
+Canceled runs are now left out of the workflow success rate, the same way blocked runs already were.

@@ -18,12 +18,16 @@ scope.
 - **Top users** — the most active users by number of runs.
 - **Success rate by workflow** — for the top 10 workflows by run count, the total
   run count, the number of successful runs, and the resulting success percentage.
+  **Blocked by freeze** and **Canceled** runs are left out of the total, so they
+  do not affect the rate.
 - **Time savings** — the estimated time saved across the selected window, broken
   into estimated manual time versus measured automation time.
 - **Monthly time savings** — the same savings figure aggregated per month over the
   last 12 months.
 - **Success by category** — for each category, the run counts per status, the
-  total, and the category success rate.
+  total, and the category success rate. The total and rate leave out
+  **Blocked by freeze** and **Canceled** runs, the same way the per-workflow
+  rate does.
 - **Usage over time** — run counts over the selected window, bucketed by day (when
   the window is 90 days or less) or by week (for longer windows).
 
